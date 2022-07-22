@@ -6,6 +6,8 @@ pub trait MatrixOperations {
 
     fn dot_product(&self, against: &Self) -> Self;
 
+    fn dot_product_with_vector(&self, against: &Vec<Self::Item>) -> Vec<Self::Item>;
+
     fn add(&self, against: &Self) -> Self;
 
     fn subtract(&self, against: &Self) -> Self;
@@ -26,6 +28,22 @@ impl MatrixOperations for Vec<Vec<f64>> {
         self.par_iter().zip(against).map(|(a, b)| {
             a.iter().zip(b).map(|(x, y)| x * y).collect()
         }).collect()
+    }
+
+    fn dot_product_with_vector(&self, against: &Vec<Self::Item>) -> Vec<Self::Item> {
+        let width = self.get_width();
+        let height = self.get_height();
+        assert_eq!(height, against.len());
+
+        let mut result = vec![0.0_f64; height];
+
+        for row in 0..height {
+            for col in 0..width {
+                result[row] += self[row][col] * against[row];
+            }
+        }
+        
+        result
     }
 
     fn add(&self, against: &Self) -> Self {
@@ -66,6 +84,24 @@ impl MatrixOperations for Vec<Vec<f64>> {
     fn get_height(&self) -> usize {
         self.len()
     }
+}
+
+#[test]
+fn should_correctly_multiply_matrix_and_vector() {
+    let matrix: Vec<Vec<f64>> = Vec::from([Vec::from([0.2, 0.4]),
+                                           Vec::from([3.1, 9.2]),
+                                           Vec::from([0.9, 4.4])]);
+    let vector: Vec<f64> = Vec::from([0.5,
+                                      0.4,
+                                      0.1]);
+
+    let expected_result: Vec<f64> = Vec::from([0.2 * 0.5 + 0.4 * 0.5,
+                                               3.1 * 0.4 + 9.2 * 0.4,
+                                               0.1 * 0.9 + 0.1 * 4.4]);
+
+    let actual_result: Vec<f64> = matrix.dot_product_with_vector(&vector);
+
+    assert_eq!(actual_result, expected_result);
 }
 
 #[test]
