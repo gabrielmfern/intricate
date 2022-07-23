@@ -1,11 +1,9 @@
 use rand::Rng;
 
-use crate::layers::layer::Layer;
 use crate::utils::matrix_operations::MatrixOperations;
+use crate::{layers::layer::Layer, utils::vector_operations::VectorOperations};
 
-use rayon::iter::{
-    IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
-};
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 pub struct DenseF64 {
     inputs_amount: usize,
@@ -19,7 +17,9 @@ pub struct DenseF64 {
 }
 
 impl DenseF64 {
-    fn new(inputs_amount: usize, outputs_amount: usize) -> DenseF64 {
+    #[allow(dead_code)]
+
+    pub fn new(inputs_amount: usize, outputs_amount: usize) -> DenseF64 {
         let mut rng = rand::thread_rng();
         DenseF64 {
             inputs_amount,
@@ -64,7 +64,8 @@ impl Layer<f64> for DenseF64 {
         self.last_inputs = inputs_samples.to_vec();
         self.last_outputs = vec![self.biases.to_vec(); inputs_samples.len()];
         for (sample_index, inputs) in inputs_samples.iter().enumerate() {
-            self.last_outputs[sample_index] = self.weights.dot_product_with_vector(inputs);
+            self.last_outputs[sample_index] =
+                self.last_outputs[sample_index].add(&self.weights.dot_product(inputs));
         }
         self.last_outputs.to_vec()
     }
@@ -89,19 +90,36 @@ impl Layer<f64> for DenseF64 {
                 (0..self.outputs_amount)
                     .into_iter()
                     .map(|j| {
-                        -learning_rate
-                            * layer_output_to_error_derivative
-                                .iter()
-                                .enumerate()
-                                .map(|(sample_index, sample_output_derivatives)| {
-                                    sample_output_derivatives[j] * self.last_inputs[sample_index][l]
-                                })
-                                .sum::<f64>()
-                            / samples_amount as f64
+                        self.weights[l][j]
+                            + learning_rate
+                                * layer_output_to_error_derivative
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(sample_index, sample_output_derivatives)| {
+                                        sample_output_derivatives[j]
+                                            * self.last_inputs[sample_index][l]
+                                    })
+                                    .sum::<f64>()
+                                / samples_amount as f64
                     })
                     .collect::<Vec<f64>>()
             })
             .collect::<Vec<Vec<f64>>>();
+
+        self.biases = (0..self.outputs_amount)
+            .into_par_iter()
+            .map(|j| {
+                self.biases[j]
+                    + learning_rate
+                        * layer_output_to_error_derivative
+                            .iter()
+                            .map(|sample_output_derivatives| {
+                                sample_output_derivatives[j]
+                            })
+                            .sum::<f64>()
+                        / samples_amount as f64
+            })
+            .collect::<Vec<f64>>();
 
         if should_calculate_input_to_error_derivative {
             let layer_input_to_error_derivatives = layer_output_to_error_derivative

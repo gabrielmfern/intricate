@@ -2,14 +2,14 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIter
 
 use crate::layers::layer::Layer;
 
-pub trait ActivationLayer: Layer<f64>
+pub trait ActivationLayerF64: Layer<f64>
 where Self: Sync + Send {
     fn function(inputs: &Vec<f64>) -> Vec<f64>;
 
     /// this function is so different from the normal activation
     /// mostly because of activations like softmax that the differential
     /// gets quite annoying to compute
-    /// but usual functions such as ReLU are also computable here
+    /// but usual functions such as ReLUF64 are also computable here
     ///
     /// dont recommend using rayon nor any type of multiprocessing because
     /// base_back_propagate already uses multiprocessing
@@ -55,7 +55,7 @@ where Self: Sync + Send {
                         inputs
                             .iter()
                             .enumerate()
-                            .map(|(l, input)| {
+                            .map(|(l, _)| {
                                 output_derivatives
                                     .iter()
                                     .enumerate()

@@ -11,8 +11,10 @@ where
         outputs: &Vec<f64>,
         expected_outputs: &Vec<f64>,
     ) -> f64;
-    fn compute_loss_derivative_with_respect_to(
+    
+    fn compute_loss_derivative_with_respect_to_output(
         &self,
+        ouputs_amount: usize,
         output: f64,
         expected_output: f64,
     ) -> f64;

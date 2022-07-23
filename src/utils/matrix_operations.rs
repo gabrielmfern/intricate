@@ -3,9 +3,7 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIter
 pub trait MatrixOperations {
     type Item;
 
-    fn dot_product(&self, against: &Self) -> Self;
-
-    fn dot_product_with_vector(&self, against: &Vec<Self::Item>) -> Vec<Self::Item>;
+    fn dot_product(&self, against: &Vec<Self::Item>) -> Vec<Self::Item>;
 
     fn add(&self, against: &Self) -> Self;
 
@@ -24,23 +22,16 @@ pub trait MatrixOperations {
 
 impl MatrixOperations for Vec<Vec<f64>> {
     type Item = f64;
-    fn dot_product(&self, against: &Self) -> Self {
-        self.par_iter()
-            .zip(against)
-            .map(|(a, b)| a.iter().zip(b).map(|(x, y)| x * y).collect())
-            .collect()
-    }
-
-    fn dot_product_with_vector(&self, against: &Vec<Self::Item>) -> Vec<Self::Item> {
+    fn dot_product(&self, against: &Vec<Self::Item>) -> Vec<Self::Item> {
         let width = self.get_width();
         let height = self.get_height();
         assert_eq!(height, against.len());
 
-        let mut result = vec![0.0_f64; height];
+        let mut result = vec![0.0_f64; width];
 
-        for row in 0..height {
-            for col in 0..width {
-                result[row] += self[row][col] * against[row];
+        for col in 0..width {
+            for row in 0..height {
+                result[col] += against[row] * self[row][col];
             }
         }
 
@@ -69,7 +60,9 @@ impl MatrixOperations for Vec<Vec<f64>> {
     }
 
     fn multiply(&self, by: Self::Item) -> Self {
-        self.dot_product(&vec![vec![by; self.get_width()]; self.get_height()])
+        self.par_iter()
+            .map(|row| row.iter().map(|x| x * by).collect::<Vec<f64>>())
+            .collect::<Vec<Vec<f64>>>()
     }
 
     fn transpose(&self) -> Self {
@@ -103,15 +96,14 @@ fn should_correctly_multiply_matrix_and_vector() {
         Vec::from([3.1, 9.2]),
         Vec::from([0.9, 4.4]),
     ]);
-    let vector: Vec<f64> = Vec::from([0.5, 0.4, 0.1]);
+    let vector: Vec<f64> = Vec::from([0.5, 0.4, 0.3]);
 
     let expected_result: Vec<f64> = Vec::from([
-        0.2 * 0.5 + 0.4 * 0.5,
-        3.1 * 0.4 + 9.2 * 0.4,
-        0.1 * 0.9 + 0.1 * 4.4,
+        vector[0] * matrix[0][0] + vector[1] * matrix[1][0] + vector[2] * matrix[2][0],
+        vector[0] * matrix[0][1] + vector[1] * matrix[1][1] + vector[2] * matrix[2][1]
     ]);
 
-    let actual_result: Vec<f64> = matrix.dot_product_with_vector(&vector);
+    let actual_result: Vec<f64> = matrix.dot_product(&vector);
 
     assert_eq!(actual_result, expected_result);
 }

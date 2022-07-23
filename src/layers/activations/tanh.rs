@@ -1,71 +1,30 @@
+use std::f64::consts::E;
+
 use crate::layers::activations::activation::ActivationLayerF64;
 use crate::layers::layer::Layer;
 
 #[derive(Debug, Clone)]
-pub struct ReLUF64 {
+pub struct TanHF64 {
     last_inputs: Vec<Vec<f64>>,
     last_outputs: Vec<Vec<f64>>,
 }
 
-impl ReLUF64 {
+impl TanHF64 {
     #[allow(dead_code)]
 
-    pub fn new() -> ReLUF64 {
-        ReLUF64 {
-            last_outputs: Vec::new(),
+    pub fn new() -> TanHF64 {
+        TanHF64 {
             last_inputs: Vec::new(),
+            last_outputs: Vec::new(),
         }
     }
 }
 
-#[test]
-fn should_be_0_when_x_is_negative() {
-    let x: Vec<f64> = Vec::from([-30.0, -40.0, -1.0, -0.3, -0.99]);
-
-    let mut activation_layer = ReLUF64::new();
-    let actual_outputs = activation_layer.propagate(&Vec::from([x]));
-
-    let expected_outputs = Vec::from([Vec::from([0.0, 0.0, 0.0, 0.0, 0.0])]);
-
-    assert_eq!(actual_outputs, expected_outputs);
-}
-
-#[test]
-fn should_be_x_when_x_is_larger_than_negative_one() {
-    let x: Vec<f64> = Vec::from([-30.0, 40.0, 21.0, -0.3, -0.99]);
-
-    let mut activation_layer = ReLUF64::new();
-    let actual_outputs = activation_layer.propagate(&Vec::from([x]));
-
-    let expected_outputs = Vec::from([Vec::from([0.0, 40.0, 21.0, 0.0, 0.0])]);
-
-    assert_eq!(actual_outputs, expected_outputs);
-}
-
-#[test]
-fn differential_should_return_correct_value() {
-    let x: Vec<f64> = Vec::from([-30.0, 40.0, 21.0, -0.3, -0.99]);
-
-    let mut activation_layer = ReLUF64::new();
-    activation_layer.propagate(&Vec::from([x.to_vec()]));
-
-    let output_index = 3;
-
-    let expected_derivatives = Vec::from([0.0, 1.0, 1.0, 0.0, 0.0]);
-
-    for (i, _) in (&x).iter().enumerate() {
-        let actual_differential =
-            activation_layer.differential_of_output_with_respect_to_input(0, i, output_index);
-
-        assert_eq!(actual_differential, expected_derivatives[i]);
-    }
-}
-
-impl ActivationLayerF64 for ReLUF64 {
+impl ActivationLayerF64 for TanHF64 {
     fn function(inputs: &Vec<f64>) -> Vec<f64> {
         inputs
             .iter()
-            .map(|input| input.max(0.0))
+            .map(|input| input.tanh())
             .collect::<Vec<f64>>()
     }
 
@@ -75,13 +34,7 @@ impl ActivationLayerF64 for ReLUF64 {
         input_index: usize,
         _: usize,
     ) -> f64 {
-        let activated_value = self.last_outputs[sample_index][input_index];
-
-        if activated_value == 0.0_f64 {
-            0.0
-        } else {
-            1.0
-        }
+        1.0 - self.last_outputs[sample_index][input_index].tanh().powf(2.0)
     }
 
     fn set_last_inputs(&mut self, input_samples: &Vec<Vec<f64>>) {
@@ -93,7 +46,7 @@ impl ActivationLayerF64 for ReLUF64 {
     }
 }
 
-impl Layer<f64> for ReLUF64 {
+impl Layer<f64> for TanHF64 {
     fn get_last_inputs(&self) -> Vec<Vec<f64>> {
         self.last_inputs.to_vec()
     }

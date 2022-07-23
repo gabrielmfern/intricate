@@ -1,4 +1,4 @@
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator, IndexedParallelIterator};
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 pub trait VectorOperations {
     type Item;
@@ -6,6 +6,8 @@ pub trait VectorOperations {
     fn add(&self, against: &Vec<Self::Item>) -> Vec<Self::Item>;
 
     fn subtract(&self, against: &Vec<Self::Item>) -> Vec<Self::Item>;
+
+    fn subtract_number(&self, numb: Self::Item) -> Vec<Self::Item>;
 
     fn multiply_number(&self, factor: &Self::Item) -> Vec<Self::Item>;
 
@@ -24,11 +26,21 @@ impl VectorOperations for Vec<f64> {
     type Item = f64;
 
     fn add(&self, against: &Vec<f64>) -> Vec<f64> {
-        self.par_iter().zip(against).map(|(a, b)| a + b).collect::<Vec<f64>>()
+        self.par_iter()
+            .zip(against)
+            .map(|(a, b)| a + b)
+            .collect::<Vec<f64>>()
     }
 
     fn subtract(&self, against: &Vec<f64>) -> Vec<f64> {
-        self.par_iter().zip(against).map(|(a,b)| a - b).collect::<Vec<f64>>()
+        self.par_iter()
+            .zip(against)
+            .map(|(a, b)| a - b)
+            .collect::<Vec<f64>>()
+    }
+
+    fn subtract_number(&self, numb: Self::Item) -> Vec<Self::Item> {
+        self.par_iter().map(|x| x - numb).collect::<Vec<f64>>()
     }
 
     fn powf(&self, power: f64) -> Vec<f64> {
@@ -40,11 +52,17 @@ impl VectorOperations for Vec<f64> {
     }
 
     fn divide(&self, against: &Vec<Self::Item>) -> Vec<Self::Item> {
-        self.par_iter().zip(against).map(|(a,b)| a / b).collect::<Vec<f64>>()
+        self.par_iter()
+            .zip(against)
+            .map(|(a, b)| a / b)
+            .collect::<Vec<f64>>()
     }
 
     fn multiply(&self, against: &Vec<Self::Item>) -> Vec<Self::Item> {
-        self.par_iter().zip(against).map(|(a,b)| a * b).collect::<Vec<f64>>()
+        self.par_iter()
+            .zip(against)
+            .map(|(a, b)| a * b)
+            .collect::<Vec<f64>>()
     }
 
     fn divide_number(&self, factor: &Self::Item) -> Vec<Self::Item> {
