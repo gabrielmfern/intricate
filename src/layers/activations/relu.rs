@@ -1,3 +1,5 @@
+use async_trait::async_trait;
+
 use crate::layers::activations::activation::ActivationLayerF64;
 use crate::layers::layer::Layer;
 
@@ -15,49 +17,6 @@ impl ReLUF64 {
             last_outputs: Vec::new(),
             last_inputs: Vec::new(),
         }
-    }
-}
-
-#[test]
-fn should_be_0_when_x_is_negative() {
-    let x: Vec<f64> = Vec::from([-30.0, -40.0, -1.0, -0.3, -0.99]);
-
-    let mut activation_layer = ReLUF64::new();
-    let actual_outputs = activation_layer.propagate(&Vec::from([x]));
-
-    let expected_outputs = Vec::from([Vec::from([0.0, 0.0, 0.0, 0.0, 0.0])]);
-
-    assert_eq!(actual_outputs, expected_outputs);
-}
-
-#[test]
-fn should_be_x_when_x_is_larger_than_negative_one() {
-    let x: Vec<f64> = Vec::from([-30.0, 40.0, 21.0, -0.3, -0.99]);
-
-    let mut activation_layer = ReLUF64::new();
-    let actual_outputs = activation_layer.propagate(&Vec::from([x]));
-
-    let expected_outputs = Vec::from([Vec::from([0.0, 40.0, 21.0, 0.0, 0.0])]);
-
-    assert_eq!(actual_outputs, expected_outputs);
-}
-
-#[test]
-fn differential_should_return_correct_value() {
-    let x: Vec<f64> = Vec::from([-30.0, 40.0, 21.0, -0.3, -0.99]);
-
-    let mut activation_layer = ReLUF64::new();
-    activation_layer.propagate(&Vec::from([x.to_vec()]));
-
-    let output_index = 3;
-
-    let expected_derivatives = Vec::from([0.0, 1.0, 1.0, 0.0, 0.0]);
-
-    for (i, _) in (&x).iter().enumerate() {
-        let actual_differential =
-            activation_layer.differential_of_output_with_respect_to_input(0, i, output_index);
-
-        assert_eq!(actual_differential, expected_derivatives[i]);
     }
 }
 
@@ -93,12 +52,13 @@ impl ActivationLayerF64 for ReLUF64 {
     }
 }
 
+#[async_trait]
 impl Layer<f64> for ReLUF64 {
     fn get_last_inputs(&self) -> Vec<Vec<f64>> {
         self.last_inputs.to_vec()
     }
 
-    fn back_propagate(
+    async fn back_propagate(
         &mut self,
         should_calculate_input_to_error_derivative: bool,
         layer_output_to_error_derivative: &Vec<Vec<f64>>,
@@ -111,7 +71,7 @@ impl Layer<f64> for ReLUF64 {
         )
     }
 
-    fn propagate(&mut self, inputs: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+    async fn propagate(&mut self, inputs: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
         self.base_propagate(inputs)
     }
 

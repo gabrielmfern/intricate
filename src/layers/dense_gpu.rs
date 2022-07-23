@@ -6,7 +6,7 @@ use crate::{layers::layer::Layer, utils::vector_operations::VectorOperations};
 
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
-pub struct DenseF64 {
+pub struct DenseGpuF64 {
     inputs_amount: usize,
     outputs_amount: usize,
 
@@ -17,12 +17,12 @@ pub struct DenseF64 {
     last_outputs: Vec<Vec<f64>>,
 }
 
-impl DenseF64 {
+impl DenseGpuF64 {
     #[allow(dead_code)]
 
-    pub fn new(inputs_amount: usize, outputs_amount: usize) -> DenseF64 {
+    pub fn new(inputs_amount: usize, outputs_amount: usize) -> DenseGpuF64 {
         let mut rng = rand::thread_rng();
-        DenseF64 {
+        DenseGpuF64 {
             inputs_amount,
             outputs_amount,
             weights: (0..inputs_amount)
@@ -45,7 +45,7 @@ impl DenseF64 {
 }
 
 #[async_trait]
-impl Layer<f64> for DenseF64 {
+impl Layer<f64> for DenseGpuF64 {
     fn get_last_inputs(&self) -> Vec<Vec<f64>> {
         self.last_inputs.to_vec()
     }

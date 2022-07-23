@@ -1,3 +1,5 @@
+use async_trait::async_trait;
+
 use crate::layers::activations::activation::ActivationLayerF64;
 use crate::layers::layer::Layer;
 
@@ -44,12 +46,13 @@ impl ActivationLayerF64 for TanHF64 {
     }
 }
 
+#[async_trait]
 impl Layer<f64> for TanHF64 {
     fn get_last_inputs(&self) -> Vec<Vec<f64>> {
         self.last_inputs.to_vec()
     }
 
-    fn back_propagate(
+    async fn back_propagate(
         &mut self,
         should_calculate_input_to_error_derivative: bool,
         layer_output_to_error_derivative: &Vec<Vec<f64>>,
@@ -62,7 +65,7 @@ impl Layer<f64> for TanHF64 {
         )
     }
 
-    fn propagate(&mut self, inputs: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+    async fn propagate(&mut self, inputs: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
         self.base_propagate(inputs)
     }
 

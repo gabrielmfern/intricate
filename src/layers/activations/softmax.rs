@@ -1,5 +1,7 @@
 use std::f64::consts::E;
 
+use async_trait::async_trait;
+
 use crate::layers::activations::activation::ActivationLayerF64;
 use crate::layers::layer::Layer;
 use crate::utils::vector_operations::VectorOperations;
@@ -19,26 +21,6 @@ impl SoftMaxF64 {
             last_outputs: Vec::new(),
         }
     }
-}
-
-#[test]
-fn should_return_correct_value() {
-    let inputs = Vec::from([300.1, 20.0, 5.2, 213.3]);
-    let total_sum = E.powf(300.1) + E.powf(20.0) + E.powf(5.2) + E.powf(213.3);
-    let expected_outputs = Vec::from([
-        E.powf(300.1) / total_sum,
-        E.powf(20.0) / total_sum,
-        E.powf(5.2) / total_sum,
-        E.powf(213.3) / total_sum,
-    ]);
-
-    let input_samples = Vec::from([inputs]);
-    let expected_output_samples = Vec::from([expected_outputs]);
-
-    let mut activation_layer = SoftMaxF64::new();
-    let actual_outputs = activation_layer.propagate(&input_samples);
-
-    assert_eq!(actual_outputs, expected_output_samples);
 }
 
 impl ActivationLayerF64 for SoftMaxF64 {
@@ -78,12 +60,13 @@ impl ActivationLayerF64 for SoftMaxF64 {
     }
 }
 
+#[async_trait]
 impl Layer<f64> for SoftMaxF64 {
     fn get_last_inputs(&self) -> Vec<Vec<f64>> {
         self.last_inputs.to_vec()
     }
 
-    fn back_propagate(
+    async fn back_propagate(
         &mut self,
         should_calculate_input_to_error_derivative: bool,
         layer_output_to_error_derivative: &Vec<Vec<f64>>,
@@ -96,7 +79,7 @@ impl Layer<f64> for SoftMaxF64 {
         )
     }
 
-    fn propagate(&mut self, inputs: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+    async fn propagate(&mut self, inputs: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
         self.base_propagate(inputs)
     }
 

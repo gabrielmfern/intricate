@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use async_trait::async_trait;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 use crate::{layers::layer::Layer, loss_functions::loss_function::LossFunctionF64};
@@ -8,7 +9,7 @@ pub struct TrainingOptionsF64 {
     pub loss_algorithm: Box<dyn LossFunctionF64>,
     // TODO: implement optimizers
     pub learning_rate: f64,
-    pub should_print_information: bool
+    pub should_print_information: bool,
 }
 
 #[allow(dead_code)]
@@ -22,28 +23,30 @@ impl ModelF64 {
         ModelF64 { layers }
     }
 
-    pub fn predict(&mut self, input_samples: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+    pub async fn predict(&mut self, input_samples: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
         let mut current_values = input_samples.to_vec();
         for layer in self.layers.iter_mut() {
-            current_values = layer.propagate(&current_values);
+            current_values = layer.propagate(&current_values).await;
         }
         current_values
     }
 
-    pub fn compute_loss(
-        &mut self, 
-        training_input_samples: &Vec<Vec<f64>>, 
-        training_expected_output_samples: &Vec<Vec<f64>>,
-        loss_algorithm: Box<dyn LossFunctionF64>
-    ) -> f64 {
-        let actual_sample_outputs = self.predict(training_input_samples);
+    // this function was being annoying with async so
+    // I removed it since it is pretty much not needed
+    // pub async fn compute_loss(
+    //     &mut self,
+    //     training_input_samples: &Vec<Vec<f64>>,
+    //     training_expected_output_samples: &Vec<Vec<f64>>,
+    //     loss_algorithm: Box<dyn LossFunctionF64>
+    // ) -> f64 {
+    // let actual_sample_outputs = self.predict(training_input_samples).await;
 
-        loss_algorithm.average_loss_for_samples(
-            &actual_sample_outputs, training_expected_output_samples
-        )
-    }
+    //     loss_algorithm.average_loss_for_samples(
+    //         &self.predict(training_input_samples).await, training_expected_output_samples
+    //     )
+    // }
 
-    pub fn fit(
+    pub async fn fit(
         &mut self,
         training_input_samples: &Vec<Vec<f64>>,
         training_expected_output_samples: &Vec<Vec<f64>>,
@@ -58,10 +61,10 @@ impl ModelF64 {
 
         let start_instant = Instant::now();
 
-        let training_actual_outputs = self.predict(training_input_samples);
+        let training_actual_outputs = self.predict(training_input_samples).await;
 
         let outputs_amount = training_expected_output_samples[0].len();
-        
+
         let mut lost_to_outputs_derivatives = training_expected_output_samples
             .par_iter()
             .zip(training_actual_outputs)
@@ -85,28 +88,45 @@ impl ModelF64 {
         for (layer_index, layer) in self.layers.iter_mut().enumerate().rev() {
             if layer_index > 0 {
                 // always Some
-                lost_to_outputs_derivatives = layer.back_propagate(
-                    true,
-                    &lost_to_outputs_derivatives, 
-                    training_options.learning_rate
-                ).unwrap();
+                lost_to_outputs_derivatives = layer
+                    .back_propagate(
+                        true,
+                        &lost_to_outputs_derivatives,
+                        training_options.learning_rate,
+                    )
+                    .await
+                    .unwrap();
             } else {
-                layer.back_propagate( // always None
-                    false,
-                    &lost_to_outputs_derivatives, 
-                    training_options.learning_rate
-                );
+                layer
+                    .back_propagate(
+                        // always None
+                        false,
+                        &lost_to_outputs_derivatives,
+                        training_options.learning_rate,
+                    )
+                    .await
+                    .unwrap();
             }
         }
 
-        let new_loss = self.compute_loss(
-            training_input_samples, 
-            training_expected_output_samples, 
-            training_options.loss_algorithm
-        );
+        let actual_sample_outputs = &self.predict(training_input_samples).await;
+
+        let new_loss = training_options
+            .loss_algorithm
+            .average_loss_for_samples(actual_sample_outputs, training_expected_output_samples);
+
+        // let new_loss = self.compute_loss(
+        //     training_input_samples,
+        //     training_expected_output_samples,
+        //     training_options.loss_algorithm
+        // ).await;
 
         if training_options.should_print_information {
-            println!("{}s elapsed, now has loss of {}", start_instant.elapsed().as_secs_f32(), new_loss);
+            println!(
+                "{}s elapsed, now has loss of {}",
+                start_instant.elapsed().as_secs_f32(),
+                new_loss
+            );
         }
 
         new_loss
