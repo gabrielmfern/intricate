@@ -5,7 +5,7 @@
 //! activation functions as layers.
 //! 
 //! A GPU accelerated library that creates/trains/runs neural networks
-//! in pure Rust, safe code.
+//! in pure safe Rust code.
 //! 
 //! Intricate has a sepparation between double-precision floating-point numbers
 //! and just floating-point numbers so that on cases where you don't need
