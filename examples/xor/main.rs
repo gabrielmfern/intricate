@@ -44,9 +44,4 @@ fn main() {
             }
         );
     }
-
-    println!("{:?}", xor_model.predict(&[training_inputs[0].to_vec()].to_vec()));
-    println!("{:?}", xor_model.predict(&[training_inputs[1].to_vec()].to_vec()));
-    println!("{:?}", xor_model.predict(&[training_inputs[2].to_vec()].to_vec()));
-    println!("{:?}", xor_model.predict(&[training_inputs[3].to_vec()].to_vec()));
 }
