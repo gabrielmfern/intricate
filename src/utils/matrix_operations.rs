@@ -1,5 +1,4 @@
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
-
+// TODO: rewrite these operations for parallel iterators and for iterators and not for vectors
 pub trait MatrixOperations {
     type Item;
 
@@ -39,28 +38,28 @@ impl MatrixOperations for Vec<Vec<f64>> {
     }
 
     fn add(&self, against: &Self) -> Self {
-        self.par_iter()
+        self.iter()
             .zip(against)
             .map(|(a, b)| a.iter().zip(b).map(|(x, y)| x + y).collect())
             .collect()
     }
 
     fn subtract(&self, against: &Self) -> Self {
-        self.par_iter()
+        self.iter()
             .zip(against)
             .map(|(a, b)| a.iter().zip(b).map(|(x, y)| x - y).collect())
             .collect()
     }
 
     fn multiply_by_other(&self, against: Self) -> Self {
-        self.par_iter()
+        self.iter()
             .zip(against)
             .map(|(a, b)| a.iter().zip(b).map(|(x, y)| x * y).collect())
             .collect()
     }
 
     fn multiply(&self, by: Self::Item) -> Self {
-        self.par_iter()
+        self.iter()
             .map(|row| row.iter().map(|x| x * by).collect::<Vec<f64>>())
             .collect::<Vec<Vec<f64>>>()
     }

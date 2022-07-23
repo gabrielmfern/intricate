@@ -62,11 +62,10 @@ impl Layer<f64> for DenseF64 {
 
     fn propagate(&mut self, inputs_samples: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
         self.last_inputs = inputs_samples.to_vec();
-        self.last_outputs = vec![self.biases.to_vec(); inputs_samples.len()];
-        for (sample_index, inputs) in inputs_samples.iter().enumerate() {
-            self.last_outputs[sample_index] =
-                self.last_outputs[sample_index].add(&self.weights.dot_product(inputs));
-        }
+        self.last_outputs = inputs_samples
+            .par_iter()
+            .map(|inputs| self.biases.add(&self.weights.dot_product(inputs)))
+            .collect::<Vec<Vec<f64>>>();
         self.last_outputs.to_vec()
     }
 
@@ -113,9 +112,7 @@ impl Layer<f64> for DenseF64 {
                     + learning_rate
                         * layer_output_to_error_derivative
                             .iter()
-                            .map(|sample_output_derivatives| {
-                                sample_output_derivatives[j]
-                            })
+                            .map(|sample_output_derivatives| sample_output_derivatives[j])
                             .sum::<f64>()
                         / samples_amount as f64
             })
