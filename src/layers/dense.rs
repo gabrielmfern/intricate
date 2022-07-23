@@ -1,11 +1,13 @@
-use crate::density::layers::layer::Layer;
-use crate::density::utils::matrix_operations::MatrixOperations;
+use rand::Rng;
+
+use crate::layers::layer::Layer;
+use crate::utils::matrix_operations::MatrixOperations;
 
 use rayon::iter::{
-    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
+    IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
 };
 
-pub struct Dense {
+pub struct DenseF64 {
     inputs_amount: usize,
     outputs_amount: usize,
 
@@ -16,10 +18,36 @@ pub struct Dense {
     last_outputs: Vec<Vec<f64>>,
 }
 
-impl Layer<f64> for Dense {
+impl DenseF64 {
+    fn new(inputs_amount: usize, outputs_amount: usize) -> DenseF64 {
+        let mut rng = rand::thread_rng();
+        DenseF64 {
+            inputs_amount,
+            outputs_amount,
+            weights: (0..inputs_amount)
+                .into_iter()
+                .map(|_| {
+                    (0..outputs_amount)
+                        .into_iter()
+                        .map(|_| rng.gen_range(0.0_f64..=1.0_f64))
+                        .collect::<Vec<f64>>()
+                })
+                .collect::<Vec<Vec<f64>>>(),
+            biases: (0..outputs_amount)
+                .into_iter()
+                .map(|_| rng.gen_range(0.0_f64..=1.0_f64))
+                .collect::<Vec<f64>>(),
+            last_outputs: Vec::new(),
+            last_inputs: Vec::new(),
+        }
+    }
+}
+
+impl Layer<f64> for DenseF64 {
     fn get_last_inputs(&self) -> Vec<Vec<f64>> {
         self.last_inputs.to_vec()
     }
+
     fn get_last_outputs(&self) -> Vec<Vec<f64>> {
         self.last_outputs.to_vec()
     }
@@ -27,6 +55,7 @@ impl Layer<f64> for Dense {
     fn get_inputs_amount(&self) -> usize {
         self.inputs_amount
     }
+
     fn get_outputs_amount(&self) -> usize {
         self.outputs_amount
     }
