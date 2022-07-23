@@ -9,7 +9,7 @@ repository = "https://github.com/gabrielmfern/intricate"
 readme = "README.md"
 
 [dependencies]
-rayon = "*"
-rand = "*"
+rayon = "1.5.3"
+rand = "0.8.5"
 # wgpu = "*"
 
