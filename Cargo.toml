@@ -3,7 +3,6 @@ name = "intricate"
 version = "0.0.1"
 edition = "2021"
 license = "MIT"
-license-file = "LICENSE"
 keywords = ["neural-networks", "machine-learning", "backpropagation"]
 description = "A GPU accelerated library that creates/trains/runs neural networks in pure safe Rust code."
 repository = "https://github.com/gabrielmfern/intricate"
