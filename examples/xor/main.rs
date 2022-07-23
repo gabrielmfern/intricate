@@ -5,7 +5,7 @@ use intricate::layers::layer::Layer;
 use intricate::loss_functions::mean_squared::MeanSquared;
 use intricate::model::{ModelF64, TrainingOptionsF64};
 
-fn main() {
+async fn run() {
     // Defining the training data
     let training_inputs = Vec::from([
         Vec::from([0.0, 0.0]),
@@ -32,7 +32,7 @@ fn main() {
     // Actually instantiate the Model with the layers
     let mut xor_model = ModelF64::new(layers);
 
-    let epoch_amount = 1000;
+    let epoch_amount = 10000;
 
     for epoch_index in 0..epoch_amount {
         println!("epoch #{}", epoch_index + 1);
@@ -46,6 +46,10 @@ fn main() {
                 loss_algorithm: Box::new(MeanSquared), // The Mean Squared loss function
                 should_print_information: true
             }
-        );
+        ).await;
     }
+}
+
+fn main() {
+    pollster::block_on(run());
 }

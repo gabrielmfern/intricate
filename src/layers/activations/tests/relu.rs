@@ -3,6 +3,7 @@ use crate::layers::activations::activation::ActivationLayerF64;
 use crate::layers::activations::relu::ReLUF64;
 use crate::layers::layer::Layer;
 
+#[allow(dead_code)]
 async fn test_should_be_0_when_x_is_negative() {
     let x: Vec<f64> = Vec::from([-30.0, -40.0, -1.0, -0.3, -0.99]);
 
@@ -19,6 +20,7 @@ fn should_be_0_when_x_is_negative() {
     pollster::block_on(test_should_be_0_when_x_is_negative());
 }
 
+#[allow(dead_code)]
 async fn test_should_be_x_when_x_is_larger_than_negative_one() {
     let x: Vec<f64> = Vec::from([-30.0, 40.0, 21.0, -0.3, -0.99]);
 
@@ -35,6 +37,7 @@ fn should_be_x_when_x_is_larger_than_negative_one() {
     pollster::block_on(test_should_be_x_when_x_is_larger_than_negative_one());
 }
 
+#[allow(dead_code)]
 async fn test_differential_should_return_correct_value() {
     let x: Vec<f64> = Vec::from([-30.0, 40.0, 21.0, -0.3, -0.99]);
 

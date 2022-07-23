@@ -3,6 +3,7 @@ use std::f64::consts::E;
 use crate::layers::activations::softmax::SoftMaxF64;
 use crate::layers::layer::Layer;
 
+#[allow(dead_code)]
 async fn test() {
     let inputs = Vec::from([300.1, 20.0, 5.2, 213.3]);
     let total_sum = E.powf(300.1) + E.powf(20.0) + E.powf(5.2) + E.powf(213.3);

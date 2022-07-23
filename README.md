@@ -73,7 +73,9 @@ xor_model.fit(
         loss_algorithm: Box::new(MeanSquared), // The Mean Squared loss function
         should_print_information: true
     }
-);
+).await; 
+// we await here because for a GPU computation type of layer
+// the responses from the GPU must be awaited on the CPU
 ```
 
 As you can see it is extremely easy creating these models, and blazingly fast as well.

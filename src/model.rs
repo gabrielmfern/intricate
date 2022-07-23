@@ -1,6 +1,5 @@
 use std::time::Instant;
 
-use async_trait::async_trait;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 use crate::{layers::layer::Layer, loss_functions::loss_function::LossFunctionF64};
@@ -104,8 +103,7 @@ impl ModelF64 {
                         &lost_to_outputs_derivatives,
                         training_options.learning_rate,
                     )
-                    .await
-                    .unwrap();
+                    .await;
             }
         }
 
