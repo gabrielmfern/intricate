@@ -1,5 +1,3 @@
-use std::f64::consts::E;
-
 use crate::layers::activations::activation::ActivationLayerF64;
 use crate::layers::layer::Layer;
 
