@@ -1,6 +1,5 @@
 use intricate::layers::activations::tanh::TanHF64;
 use intricate::layers::dense::DenseF64;
-use intricate::layers::dense_gpu::DenseGpuF64;
 use intricate::layers::layer::Layer;
 
 use intricate::loss_functions::mean_squared::MeanSquared;
@@ -24,10 +23,10 @@ async fn run() {
     // Defining the layers for our XoR Model
     let mut layers: Vec<Box<dyn Layer<f64>>> = Vec::new();
 
-    layers.push(Box::new(DenseGpuF64::new(2, 3)));
+    layers.push(Box::new(DenseF64::new(2, 3)));
     // The tanh activation function
     layers.push(Box::new(TanHF64::new()));
-    layers.push(Box::new(DenseGpuF64::new(3, 1)));
+    layers.push(Box::new(DenseF64::new(3, 1)));
     layers.push(Box::new(TanHF64::new()));
 
     // Actually instantiate the Model with the layers
@@ -41,7 +40,7 @@ async fn run() {
             learning_rate: 0.1,
             loss_algorithm: Box::new(MeanSquared), // The Mean Squared loss function
             should_print_information: true, // Should be verbose
-            use_gpu: true // Should not initialize WGPU Device and Queue for GPU layers since there are no GPU layers here
+            use_gpu: false // Should not initialize WGPU Device and Queue for GPU layers since there are no GPU layers here
         },
         10000 // Epochs
     ).await;
