@@ -1,6 +1,5 @@
 use intricate::layers::activations::tanh::TanHF64;
 use intricate::layers::dense::DenseF64;
-use intricate::layers::dense_gpu::DenseGpuF64;
 use intricate::layers::layer::Layer;
 
 use intricate::loss_functions::mean_squared::MeanSquared;
@@ -41,12 +40,15 @@ async fn run() {
             learning_rate: 0.1,
             loss_algorithm: Box::new(MeanSquared), // The Mean Squared loss function
             should_print_information: true, // Should be verbose
-            use_gpu: false // Should initialize WGPU Device and Queue for GPU layers
+            use_gpu: false // Should not initialize WGPU Device and Queue for GPU layers since there are no GPU layers here
         },
         10000 // Epochs
     ).await;
     // we await here because for a GPU computation type of layer
     // the responses from the GPU must be awaited on the CPU
+    // and since the model technically does not know what type of layers there are
+    // it cannot automatically initialize or not wgpu Deivce and Queue
+    // the dense gpu layers will panic if use_gpu is false
 }
 
 fn main() {

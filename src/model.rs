@@ -114,6 +114,8 @@ impl ModelF64 {
 
         let outputs_amount = training_expected_output_samples[0].len();
 
+        // Not sure if this can be implemented on the GPU because of the
+        // computation of the loss bellow being done on dyn LossFunction
         let mut lost_to_outputs_derivatives = training_expected_output_samples
             .par_iter()
             .zip(training_actual_outputs)

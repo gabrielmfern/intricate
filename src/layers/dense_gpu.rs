@@ -11,6 +11,8 @@ pub struct DenseGpuF64 {
     pub inputs_amount: usize,
     pub outputs_amount: usize,
 
+    // TODO: flatten everything on this struct
+    // so that there is no need to flatten and unflatten these when back_propagating
     pub weights: Vec<Vec<f64>>,
     pub biases: Vec<f64>,
 
@@ -64,8 +66,8 @@ impl Layer<f64> for DenseGpuF64 {
     }
 
     async fn propagate(
-        &mut self, 
-        inputs_samples: &Vec<Vec<f64>>, 
+        &mut self,
+        inputs_samples: &Vec<Vec<f64>>,
         _: &Option<wgpu::Device>,
         _: &Option<wgpu::Queue>,
     ) -> Vec<Vec<f64>> {
@@ -81,7 +83,7 @@ impl Layer<f64> for DenseGpuF64 {
         &mut self,
         should_calculate_input_to_error_derivative: bool,
         layer_output_to_error_derivative: &Vec<Vec<f64>>,
-        learning_rate: f64, 
+        learning_rate: f64,
         device: &Option<wgpu::Device>,
         queue: &Option<wgpu::Queue>,
     ) -> Option<Vec<Vec<f64>>> {
@@ -92,8 +94,6 @@ impl Layer<f64> for DenseGpuF64 {
         assert!(!self.last_inputs.is_empty());
         let samples_amount = layer_output_to_error_derivative.len();
 
-        // let (device, queue) = gpu::setup_device_and_queue().await;
-
         apply_gradients_to_f64_dense_weights(
             self,
             device.as_ref().unwrap(),
@@ -102,27 +102,6 @@ impl Layer<f64> for DenseGpuF64 {
             learning_rate,
         )
         .await;
-        // self.weights = (0..self.inputs_amount)
-        //     .into_par_iter()
-        //     .map(|l| {
-        //         (0..self.outputs_amount)
-        //             .into_iter()
-        //             .map(|j| {
-        //                 self.weights[l][j]
-        //                     + learning_rate
-        //                         * layer_output_to_error_derivative
-        //                             .iter()
-        //                             .enumerate()
-        //                             .map(|(sample_index, sample_output_derivatives)| {
-        //                                 sample_output_derivatives[j]
-        //                                     * self.last_inputs[sample_index][l]
-        //                             })
-        //                             .sum::<f64>()
-        //                         / samples_amount as f64
-        //             })
-        //             .collect::<Vec<f64>>()
-        //     })
-        //     .collect::<Vec<Vec<f64>>>();
 
         self.biases = (0..self.outputs_amount)
             .into_par_iter()
