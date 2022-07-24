@@ -1,5 +1,6 @@
 use crate::loss_functions::loss_function::LossFunctionF64;
 
+#[derive(Debug)]
 pub struct CategoricalCrossEntropy;
 
 impl LossFunctionF64 for CategoricalCrossEntropy {

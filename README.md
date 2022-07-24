@@ -71,9 +71,11 @@ xor_model.fit(
     TrainingOptionsF64 {
         learning_rate: 0.1,
         loss_algorithm: Box::new(MeanSquared), // The Mean Squared loss function
-        should_print_information: true
-    }
-).await; 
+        should_print_information: true, // Should be verbose
+        use_gpu: false // Should initialize WGPU Device and Queue for GPU layers
+    },
+    10000 // Epochs
+).await;
 // we await here because for a GPU computation type of layer
 // the responses from the GPU must be awaited on the CPU
 ```

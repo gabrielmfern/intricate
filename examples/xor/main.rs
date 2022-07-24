@@ -33,8 +33,6 @@ async fn run() {
     // Actually instantiate the Model with the layers
     let mut xor_model = ModelF64::new(layers);
 
-    let epoch_amount = 100;
-
     // Fit the model however many times we want
     xor_model.fit(
         &training_inputs, 
@@ -47,6 +45,8 @@ async fn run() {
         },
         10000 // Epochs
     ).await;
+    // we await here because for a GPU computation type of layer
+    // the responses from the GPU must be awaited on the CPU
 }
 
 fn main() {

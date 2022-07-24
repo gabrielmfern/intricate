@@ -3,6 +3,7 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use crate::loss_functions::loss_function::LossFunctionF64;
 use crate::utils::vector_operations::VectorOperations;
 
+#[derive(Debug)]
 pub struct MeanSquared;
 
 impl LossFunctionF64 for MeanSquared {

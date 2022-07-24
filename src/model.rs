@@ -4,7 +4,7 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIter
 
 use crate::{layers::layer::Layer, loss_functions::loss_function::LossFunctionF64, gpu};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct TrainingOptionsF64 {
     pub loss_algorithm: Box<dyn LossFunctionF64>,
     // TODO: implement optimizers
@@ -53,23 +53,16 @@ impl ModelF64 {
     // }
 
     /// fits the Model to best suit the training data
-    /// using the GPU or the CPU
-    /// 
-    /// epochs defaults to 1000 if set to None
+    /// using the back_propagate method of every layer
+    /// and prints the loss
     pub async fn fit(
         &mut self,
         training_input_samples: &Vec<Vec<f64>>,
         training_expected_output_samples: &Vec<Vec<f64>>,
         training_options: TrainingOptionsF64,
-        epochs: Option<usize>,
+        epochs: usize,
     ) -> () {
-        let range = if let None = epochs {
-            0..1000
-        } else {
-            0..epochs.unwrap()
-        };
-
-        for epoch_index in range {
+        for epoch_index in 0..epochs {
             if training_options.should_print_information {
                 println!("epoch #{}", epoch_index + 1);
             }
@@ -87,7 +80,7 @@ impl ModelF64 {
             self.back_propagate(
                 training_input_samples, 
                 training_expected_output_samples, 
-                training_options.clone(), 
+                &training_options, 
                 device, 
                 queue
             ).await;
@@ -104,7 +97,7 @@ impl ModelF64 {
         &mut self,
         training_input_samples: &Vec<Vec<f64>>,
         training_expected_output_samples: &Vec<Vec<f64>>,
-        training_options: TrainingOptionsF64,
+        training_options: &TrainingOptionsF64,
         device: Option<wgpu::Device>,
         queue: Option<wgpu::Queue>,
     ) -> f64 {

@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use rand::Rng;
 
-use crate::gpu;
 use crate::gpu::apply_gradients_to_dense_weights::apply_gradients_to_f64_dense_weights;
 use crate::utils::matrix_operations::MatrixOperations;
 use crate::{layers::layer::Layer, utils::vector_operations::VectorOperations};
@@ -97,8 +96,8 @@ impl Layer<f64> for DenseGpuF64 {
 
         apply_gradients_to_f64_dense_weights(
             self,
-            device.unwrap(),
-            queue.unwrap(),
+            device.as_ref().unwrap(),
+            queue.as_ref().unwrap(),
             layer_output_to_error_derivative,
             learning_rate,
         )

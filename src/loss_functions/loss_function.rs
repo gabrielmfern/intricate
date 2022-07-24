@@ -1,8 +1,10 @@
+use std::fmt::Debug;
+
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 pub trait LossFunctionF64
 where 
-    Self: Sync + Send
+    Self: Sync + Send + Debug
 {
     /// dont recommend using any kind of parallel computing
     /// to compute this loss as well as rayon is used when averaging losses
