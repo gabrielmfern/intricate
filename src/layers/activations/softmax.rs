@@ -71,6 +71,8 @@ impl Layer<f64> for SoftMaxF64 {
         should_calculate_input_to_error_derivative: bool,
         layer_output_to_error_derivative: &Vec<Vec<f64>>,
         learning_rate: f64,
+        _: &Option<wgpu::Device>,
+        _: &Option<wgpu::Queue>,
     ) -> Option<Vec<Vec<f64>>> {
         self.base_back_propagate(
             should_calculate_input_to_error_derivative,
@@ -79,7 +81,12 @@ impl Layer<f64> for SoftMaxF64 {
         )
     }
 
-    async fn propagate(&mut self, inputs: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+    async fn propagate(
+        &mut self, 
+        inputs: &Vec<Vec<f64>>, 
+        _: &Option<wgpu::Device>,
+        _: &Option<wgpu::Queue>,
+    ) -> Vec<Vec<f64>> {
         self.base_propagate(inputs)
     }
 

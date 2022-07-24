@@ -3,6 +3,8 @@ use std::f64::consts::E;
 use crate::layers::activations::softmax::SoftMaxF64;
 use crate::layers::layer::Layer;
 
+// sometimes fails even though the values are the same
+// because of floating-point numbers non-exactness
 #[allow(dead_code)]
 async fn test() {
     let inputs = Vec::from([300.1, 20.0, 5.2, 213.3]);
@@ -18,7 +20,7 @@ async fn test() {
     let expected_output_samples = Vec::from([expected_outputs]);
 
     let mut activation_layer = SoftMaxF64::new();
-    let actual_outputs = activation_layer.propagate(&input_samples).await;
+    let actual_outputs = activation_layer.propagate(&input_samples, &None, &None).await;
 
     assert_eq!(actual_outputs, expected_output_samples);
 }

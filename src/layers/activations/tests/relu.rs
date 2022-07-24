@@ -8,7 +8,9 @@ async fn test_should_be_0_when_x_is_negative() {
     let x: Vec<f64> = Vec::from([-30.0, -40.0, -1.0, -0.3, -0.99]);
 
     let mut activation_layer = ReLUF64::new();
-    let actual_outputs = activation_layer.propagate(&Vec::from([x])).await;
+    let actual_outputs = activation_layer
+        .propagate(&Vec::from([x]), &None, &None)
+        .await;
 
     let expected_outputs = Vec::from([Vec::from([0.0, 0.0, 0.0, 0.0, 0.0])]);
 
@@ -25,7 +27,9 @@ async fn test_should_be_x_when_x_is_larger_than_negative_one() {
     let x: Vec<f64> = Vec::from([-30.0, 40.0, 21.0, -0.3, -0.99]);
 
     let mut activation_layer = ReLUF64::new();
-    let actual_outputs = activation_layer.propagate(&Vec::from([x])).await;
+    let actual_outputs = activation_layer
+        .propagate(&Vec::from([x]), &None, &None)
+        .await;
 
     let expected_outputs = Vec::from([Vec::from([0.0, 40.0, 21.0, 0.0, 0.0])]);
 
@@ -42,7 +46,9 @@ async fn test_differential_should_return_correct_value() {
     let x: Vec<f64> = Vec::from([-30.0, 40.0, 21.0, -0.3, -0.99]);
 
     let mut activation_layer = ReLUF64::new();
-    activation_layer.propagate(&Vec::from([x.to_vec()])).await;
+    activation_layer
+        .propagate(&Vec::from([x.to_vec()]), &None, &None)
+        .await;
 
     let output_index = 3;
 

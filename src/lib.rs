@@ -15,3 +15,4 @@ pub mod layers;
 pub mod loss_functions;
 pub mod model;
 pub mod utils;
+pub mod gpu;

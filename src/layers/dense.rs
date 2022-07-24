@@ -7,14 +7,14 @@ use crate::{layers::layer::Layer, utils::vector_operations::VectorOperations};
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 pub struct DenseF64 {
-    inputs_amount: usize,
-    outputs_amount: usize,
+    pub inputs_amount: usize,
+    pub outputs_amount: usize,
 
-    weights: Vec<Vec<f64>>,
-    biases: Vec<f64>,
+    pub weights: Vec<Vec<f64>>,
+    pub biases: Vec<f64>,
 
-    last_inputs: Vec<Vec<f64>>,
-    last_outputs: Vec<Vec<f64>>,
+    pub last_inputs: Vec<Vec<f64>>,
+    pub last_outputs: Vec<Vec<f64>>,
 }
 
 impl DenseF64 {
@@ -62,7 +62,12 @@ impl Layer<f64> for DenseF64 {
         self.outputs_amount
     }
 
-    async fn propagate(&mut self, inputs_samples: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+    async fn propagate(
+        &mut self, 
+        inputs_samples: &Vec<Vec<f64>>, 
+        _: &Option<wgpu::Device>,
+        _: &Option<wgpu::Queue>,
+    ) -> Vec<Vec<f64>> {
         self.last_inputs = inputs_samples.to_vec();
         self.last_outputs = inputs_samples
             .par_iter()
@@ -75,7 +80,9 @@ impl Layer<f64> for DenseF64 {
         &mut self,
         should_calculate_input_to_error_derivative: bool,
         layer_output_to_error_derivative: &Vec<Vec<f64>>,
-        learning_rate: f64,
+        learning_rate: f64, 
+        _: &Option<wgpu::Device>,
+        _: &Option<wgpu::Queue>,
     ) -> Option<Vec<Vec<f64>>> {
         assert!(!self.last_inputs.is_empty());
         let samples_amount = layer_output_to_error_derivative.len();

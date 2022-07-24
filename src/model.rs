@@ -2,13 +2,15 @@ use std::time::Instant;
 
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
-use crate::{layers::layer::Layer, loss_functions::loss_function::LossFunctionF64};
+use crate::{layers::layer::Layer, loss_functions::loss_function::LossFunctionF64, gpu};
 
+#[derive(Debug, Clone)]
 pub struct TrainingOptionsF64 {
     pub loss_algorithm: Box<dyn LossFunctionF64>,
     // TODO: implement optimizers
     pub learning_rate: f64,
     pub should_print_information: bool,
+    pub use_gpu: bool
 }
 
 #[allow(dead_code)]
@@ -22,10 +24,15 @@ impl ModelF64 {
         ModelF64 { layers }
     }
 
-    pub async fn predict(&mut self, input_samples: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+    pub async fn predict(
+        &mut self,
+        input_samples: &Vec<Vec<f64>>,
+        device: &Option<wgpu::Device>,
+        queue: &Option<wgpu::Queue>,
+    ) -> Vec<Vec<f64>> {
         let mut current_values = input_samples.to_vec();
         for layer in self.layers.iter_mut() {
-            current_values = layer.propagate(&current_values).await;
+            current_values = layer.propagate(&current_values, device, queue).await;
         }
         current_values
     }
@@ -45,11 +52,61 @@ impl ModelF64 {
     //     )
     // }
 
+    /// fits the Model to best suit the training data
+    /// using the GPU or the CPU
+    /// 
+    /// epochs defaults to 1000 if set to None
     pub async fn fit(
         &mut self,
         training_input_samples: &Vec<Vec<f64>>,
         training_expected_output_samples: &Vec<Vec<f64>>,
         training_options: TrainingOptionsF64,
+        epochs: Option<usize>,
+    ) -> () {
+        let range = if let None = epochs {
+            0..1000
+        } else {
+            0..epochs.unwrap()
+        };
+
+        for epoch_index in range {
+            if training_options.should_print_information {
+                println!("epoch #{}", epoch_index + 1);
+            }
+
+            let mut device = None;
+            let mut queue = None;
+            
+            if training_options.use_gpu {
+                let (temp_device, temp_queue) = gpu::setup_device_and_queue().await;
+
+                device = Some(temp_device);
+                queue = Some(temp_queue);
+            }
+
+            self.back_propagate(
+                training_input_samples, 
+                training_expected_output_samples, 
+                training_options.clone(), 
+                device, 
+                queue
+            ).await;
+        }
+    }
+
+    /// This method is made to work with both
+    /// GPU and CPU so it needs to receive the wgpu Device
+    /// and the wgpu Queue to run the shaders on the GPU,
+    /// but of curse it is an Option, so if you don't want to use
+    /// the GPU just pass in None, DenseGPU will panic
+    /// if there is no Device or Queue
+    pub async fn back_propagate(
+        &mut self,
+        training_input_samples: &Vec<Vec<f64>>,
+        training_expected_output_samples: &Vec<Vec<f64>>,
+        training_options: TrainingOptionsF64,
+        device: Option<wgpu::Device>,
+        queue: Option<wgpu::Queue>,
     ) -> f64 {
         assert_eq!(
             training_input_samples.len(),
@@ -60,7 +117,7 @@ impl ModelF64 {
 
         let start_instant = Instant::now();
 
-        let training_actual_outputs = self.predict(training_input_samples).await;
+        let training_actual_outputs = self.predict(training_input_samples, &device, &queue).await;
 
         let outputs_amount = training_expected_output_samples[0].len();
 
@@ -92,6 +149,8 @@ impl ModelF64 {
                         true,
                         &lost_to_outputs_derivatives,
                         training_options.learning_rate,
+                        &device,
+                        &queue,
                     )
                     .await
                     .unwrap();
@@ -102,12 +161,14 @@ impl ModelF64 {
                         false,
                         &lost_to_outputs_derivatives,
                         training_options.learning_rate,
+                        &device,
+                        &queue,
                     )
                     .await;
             }
         }
 
-        let actual_sample_outputs = &self.predict(training_input_samples).await;
+        let actual_sample_outputs = &self.predict(training_input_samples, &device, &queue).await;
 
         let new_loss = training_options
             .loss_algorithm

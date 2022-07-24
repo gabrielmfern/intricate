@@ -16,7 +16,12 @@ pub trait Layer<T> {
     /// 
     /// is asynchronous so that communication between the gpu and the cpu
     /// can happen normally on this function if needed in the layer
-    async fn propagate(&mut self, inputs: &Vec<Vec<T>>) -> Vec<Vec<T>>;
+    async fn propagate(
+        &mut self, 
+        inputs: &Vec<Vec<T>>,
+        device: &Option<wgpu::Device>,
+        queue: &Option<wgpu::Queue>,
+    ) -> Vec<Vec<T>>;
 
     /// Should calculate and apply the gradients,
     /// receiving the derivatives of outputs to the loss
@@ -34,7 +39,9 @@ pub trait Layer<T> {
         &mut self, 
         should_calculate_input_to_error_derivative: bool,
         layer_output_to_error_derivative: &Vec<Vec<T>>,
-        learning_rate: f64
+        learning_rate: f64,
+        device: &Option<wgpu::Device>,
+        queue: &Option<wgpu::Queue>,
     ) -> Option<Vec<Vec<T>>>;
 }
 
