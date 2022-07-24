@@ -1,4 +1,4 @@
-use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator, IntoParallelIterator};
 use std::borrow::Cow;
 use wgpu::util::DeviceExt;
 
@@ -11,13 +11,12 @@ use crate::layers::dense_gpu::DenseGpuF64;
 use crate::layers::layer::Layer;
 
 #[allow(dead_code)]
-pub async fn apply_gradients_to_f64_dense_weights(
+pub async fn calculate_dense_input_to_error_derivatives(
     dense: &mut DenseGpuF64,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     layer_output_to_error_derivatives: &Vec<Vec<f64>>,
-    learning_rate: f64,
-) -> () {
+) -> Option<Vec<Vec<f64>>> {
     let flattened_layer_output_to_error_derivatives = layer_output_to_error_derivatives
         .par_iter()
         .map(|x| x.to_vec())
@@ -32,49 +31,39 @@ pub async fn apply_gradients_to_f64_dense_weights(
         .flatten()
         .map(|x| x as f32)
         .collect::<Vec<f32>>();
-    
-    let flattened_layer_inputs = dense
-        .last_inputs
-        .par_iter()
-        .map(|x| x.to_vec())
-        .flatten()
-        .map(|x| x as f32)
-        .collect::<Vec<f32>>();
 
     let samples_amount = dense.last_inputs.len();
 
-    dense.weights = execute_gpu_code(
+    execute_gpu_code(
         &device,
         &queue,
-        learning_rate,
         samples_amount,
         dense.outputs_amount,
         dense.inputs_amount,
-        flattened_layer_inputs.as_slice(),
         flattened_layer_output_to_error_derivatives.as_slice(),
-        flattened_layer_weights.as_slice()
+        flattened_layer_weights.as_slice(),
     )
-    .await.expect("Some error happenned while trying to compute gradients for the weights in DenseGPUF64 layer");
+    .await
 }
 
 async fn execute_gpu_code(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
-    learning_rate: f64,
     samples_amount: usize,
     outputs_amount: usize,
     inputs_amount: usize,
-    flattened_layer_inputs: &[f32],
     flattened_layer_output_to_error_derivatives: &[f32],
-    flattened_layer_weights: &[f32]
+    flattened_layer_weights: &[f32],
 ) -> Option<Vec<Vec<f64>>> {
     let cs_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: None,
-        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shaders/apply_gradients_to_dense_weights.wgsl"))),
+        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!(
+            "shaders/calculate_dense_input_to_error_derivatives.wgsl"
+        ))),
     });
 
-    let weights_size = inputs_amount * outputs_amount * std::mem::size_of::<f32>();
-    let buffer_size = weights_size as wgpu::BufferAddress;
+    let input_derivatives_size = inputs_amount * samples_amount * std::mem::size_of::<f32>();
+    let buffer_size = input_derivatives_size as wgpu::BufferAddress;
 
     let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
@@ -86,37 +75,34 @@ async fn execute_gpu_code(
         mapped_at_creation: false,
     });
 
-    let flattened_layer_weights_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("flattened_layer_weights"),
-        contents: bytemuck::cast_slice(&flattened_layer_weights),
-        usage: wgpu::BufferUsages::STORAGE
-            | wgpu::BufferUsages::COPY_DST
-            | wgpu::BufferUsages::COPY_SRC,
-    });
+    let flattened_layer_weights_buffer =
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("flattened_layer_weights"),
+            contents: bytemuck::cast_slice(&flattened_layer_weights),
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+        });
 
-    let flattened_layer_output_to_error_derivatives_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("flattened_layer_output_to_error_derivatives"),
-        contents: bytemuck::cast_slice(&flattened_layer_output_to_error_derivatives),
-        usage: wgpu::BufferUsages::STORAGE
-            | wgpu::BufferUsages::COPY_DST
-            | wgpu::BufferUsages::COPY_SRC,
-    });
+    let flattened_layer_output_to_error_derivatives_buffer =
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("flattened_layer_output_to_error_derivatives"),
+            contents: bytemuck::cast_slice(&flattened_layer_output_to_error_derivatives),
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+        });
 
-    let flattened_layer_inputs_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("flattened_layer_inputs"),
-        contents: bytemuck::cast_slice(&flattened_layer_inputs),
-        usage: wgpu::BufferUsages::STORAGE
-            | wgpu::BufferUsages::COPY_DST
-            | wgpu::BufferUsages::COPY_SRC,
-    });
-
-    let learning_rate_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("learning_rate"),
-        contents: &(learning_rate as f32).to_ne_bytes(),
-        usage: wgpu::BufferUsages::UNIFORM
-            | wgpu::BufferUsages::COPY_DST
-            | wgpu::BufferUsages::COPY_SRC,
-    });
+    let flattened_input_to_error_derivatives_vec = vec![0.0; inputs_amount * samples_amount];
+    let flattened_input_to_error_derivatives = flattened_input_to_error_derivatives_vec.as_slice();
+    let flattened_input_to_error_derivatives_buffer =
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("flattened_layer_inputs"),
+            contents: bytemuck::cast_slice(&flattened_input_to_error_derivatives),
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+        });
 
     let inputs_amount_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("inputs_amount"),
@@ -142,32 +128,22 @@ async fn execute_gpu_code(
             | wgpu::BufferUsages::COPY_SRC,
     });
 
-    let samples_amount_float_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("samples_amount_float"),
-        contents: &(samples_amount as f32).to_ne_bytes(),
-        usage: wgpu::BufferUsages::UNIFORM
-            | wgpu::BufferUsages::COPY_DST
-            | wgpu::BufferUsages::COPY_SRC,
-    });
-
-    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { 
-        label: Some("Apply Gradients to Dense Weights Pipeline Bind Group Layout"), 
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("Apply Gradients to Dense Weights Pipeline Bind Group Layout"),
         entries: &[
-            make_compute_storage_bind_group_layout_entry(0,false),
-            make_compute_storage_bind_group_layout_entry(1,true),
-            make_compute_storage_bind_group_layout_entry(2,true),
+            make_compute_storage_bind_group_layout_entry(0, false),
+            make_compute_storage_bind_group_layout_entry(1, true),
+            make_compute_storage_bind_group_layout_entry(2, true),
             make_compute_uniform_bind_group_layout_entry(3),
             make_compute_uniform_bind_group_layout_entry(4),
             make_compute_uniform_bind_group_layout_entry(5),
-            make_compute_uniform_bind_group_layout_entry(6),
-            make_compute_uniform_bind_group_layout_entry(7),
-        ] 
+        ],
     });
 
     let compute_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("Apply Gradients to Dense Weights Pipeline Layout"),
+        label: Some("calculate input to error derivatives gpu compute pipeline"),
         bind_group_layouts: &[&bind_group_layout],
-        push_constant_ranges: &[]
+        push_constant_ranges: &[],
     });
 
     let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -184,7 +160,7 @@ async fn execute_gpu_code(
         entries: &[
             wgpu::BindGroupEntry {
                 binding: 0,
-                resource: flattened_layer_weights_buffer.as_entire_binding(),
+                resource: flattened_input_to_error_derivatives_buffer.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
                 binding: 1,
@@ -192,27 +168,19 @@ async fn execute_gpu_code(
             },
             wgpu::BindGroupEntry {
                 binding: 2,
-                resource: flattened_layer_inputs_buffer.as_entire_binding(),
+                resource: flattened_layer_weights_buffer.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
                 binding: 3,
-                resource: learning_rate_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 4,
-                resource: inputs_amount_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 5,
-                resource: outputs_amount_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 6,
                 resource: samples_amount_buffer.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
-                binding: 7,
-                resource: samples_amount_float_buffer.as_entire_binding(),
+                binding: 4,
+                resource: outputs_amount_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 5,
+                resource: inputs_amount_buffer.as_entire_binding(),
             },
         ],
     });
@@ -223,14 +191,21 @@ async fn execute_gpu_code(
         let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
         cpass.set_pipeline(&compute_pipeline);
         cpass.set_bind_group(0, &bind_group, &[]);
-        cpass.insert_debug_marker("compute gradients iteration");
+        cpass.insert_debug_marker("compute input to error derivatives iteration");
         cpass.dispatch_workgroups(
-            inputs_amount as u32,
-            outputs_amount as u32,
-            0,
-        ); // Number of cells to run, the (x,y,z) size of item being processed
+            samples_amount as u32, 
+            inputs_amount as u32, 
+            1,
+        );
+        // Number of cells to run, the (x,y,z) size of item being processed
     }
-    encoder.copy_buffer_to_buffer(&flattened_layer_weights_buffer, 0, &staging_buffer, 0, buffer_size);
+    encoder.copy_buffer_to_buffer(
+        &flattened_input_to_error_derivatives_buffer,
+        0,
+        &staging_buffer,
+        0,
+        buffer_size,
+    );
 
     queue.submit(Some(encoder.finish()));
 
@@ -244,25 +219,25 @@ async fn execute_gpu_code(
         let data = buffer_slice.get_mapped_range();
         let result: &[f32] = bytemuck::cast_slice(&data);
 
-        let flattened_new_weights: Vec<f32> = result.to_vec();
+        let flattened_actual_input_to_error_derivatives: Vec<f32> = result.to_vec();
 
         drop(data);
 
-        let new_weights: Vec<Vec<f64>> = (0..inputs_amount)
+        let actual_input_to_error_derivatives: Vec<Vec<f64>> = (0..samples_amount)
             .into_par_iter()
-            .map(|input_index| {
-                let row_part = input_index * outputs_amount;
-                (0..outputs_amount)
-                    .into_iter()
-                    .map(|output_index| flattened_new_weights[row_part + output_index] as f64)
+            .map(|sample_index| {
+                let row_part = sample_index * inputs_amount;
+                (0..inputs_amount)
+                    .into_par_iter()
+                    .map(|input_index| flattened_actual_input_to_error_derivatives[row_part + input_index] as f64)
                     .collect()
             })
             .collect();
-        drop(flattened_new_weights);
+        drop(flattened_actual_input_to_error_derivatives);
 
         staging_buffer.unmap();
-        Some(new_weights)
+        Some(actual_input_to_error_derivatives)
     } else {
-        panic!("failed to run compute gradients on gpu!")
+        panic!("failed to run compute input to error derivatives on gpu!")
     }
 }

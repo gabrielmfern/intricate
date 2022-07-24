@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use rand::Rng;
 
 use crate::gpu::apply_gradients_to_dense_weights::apply_gradients_to_f64_dense_weights;
+use crate::gpu::calculate_dense_input_to_error_derivatives::calculate_dense_input_to_error_derivatives;
 use crate::utils::matrix_operations::MatrixOperations;
 use crate::{layers::layer::Layer, utils::vector_operations::VectorOperations};
 
@@ -117,21 +118,28 @@ impl Layer<f64> for DenseGpuF64 {
             .collect::<Vec<f64>>();
 
         if should_calculate_input_to_error_derivative {
-            let layer_input_to_error_derivatives = layer_output_to_error_derivative
-                .par_iter()
-                .map(|sample_output_derivatives| {
-                    self.weights
-                        .iter()
-                        .map(|input_to_outputs| {
-                            input_to_outputs
-                                .iter()
-                                .enumerate()
-                                .map(|(j, weight)| weight * sample_output_derivatives[j])
-                                .sum::<f64>()
-                        })
-                        .collect::<Vec<f64>>()
-                })
-                .collect::<Vec<Vec<f64>>>();
+            let layer_input_to_error_derivatives = calculate_dense_input_to_error_derivatives(
+                self, 
+                device.as_ref().unwrap(), 
+                queue.as_ref().unwrap(), 
+                layer_output_to_error_derivative
+            ).await.expect("Some error happenned computing the input to error derivatives on a DenseGPUF64 layer");
+
+            // layer_output_to_error_derivative
+            //     .par_iter()
+            //     .map(|sample_output_derivatives| {
+            //         self.weights
+            //             .iter()
+            //             .map(|input_to_outputs| {
+            //                 input_to_outputs
+            //                     .iter()
+            //                     .enumerate()
+            //                     .map(|(j, weight)| weight * sample_output_derivatives[j])
+            //                     .sum::<f64>()
+            //             })
+            //             .collect::<Vec<f64>>()
+            //     })
+            //     .collect::<Vec<Vec<f64>>>();
 
             Some(layer_input_to_error_derivatives)
         } else {

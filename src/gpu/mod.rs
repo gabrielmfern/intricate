@@ -1,4 +1,31 @@
 pub mod apply_gradients_to_dense_weights;
+pub mod calculate_dense_input_to_error_derivatives;
+
+pub fn make_compute_uniform_bind_group_layout_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    }
+}
+
+pub fn make_compute_storage_bind_group_layout_entry(binding: u32, read_only: bool) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Storage { read_only },
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    }
+}
 
 pub async fn setup_device_and_queue() -> (wgpu::Device, wgpu::Queue) {
     let instance = wgpu::Instance::new(wgpu::Backends::all());
