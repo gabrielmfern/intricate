@@ -83,8 +83,10 @@ xor_model.fit(
 As you can see it is extremely easy creating these models, and blazingly fast as well.
 
 ## Things to be done still
-
-- I just created this repo days ago, so I haven't quite yet implemented compute shaders
-to make the calculations for very large models, but it is the next thing I am going to do.
-- Many activation functions and loss functions to be implemented as well, but it isn't very hard to do that.
-- Implement the `f32` version of all things in the code currently.
+- writing some kind of macro to generate the code for f32 and f64 versions of certain structs and traits to not have duplicated code.
+- making so that the 'get' methods implemented return slices instead of copies of the vectors as to not duplicate things in RAM and save as much RAM as possible for very large models.
+- improve the GPU shaders, perhaps finding a way to send the full unflattened matrices to the GPU instead of sending just a flattened array.
+- create GPU accelerated activations and loss functions as to make everything GPU accelerated.
+- perhaps write some shader to calculate the Model **loss** to **output** gradient (derivatives).
+- implement convolutional layers and perhaps even solve some image classification problems in a example
+- add a example that uses GPU acceleration
