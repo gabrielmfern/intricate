@@ -1,5 +1,6 @@
 pub mod apply_gradients_to_dense_weights;
 pub mod calculate_dense_input_to_error_derivatives;
+pub mod propagate_through_weights_and_biases;
 
 pub fn make_compute_uniform_bind_group_layout_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {

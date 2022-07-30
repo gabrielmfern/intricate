@@ -6,17 +6,18 @@ use crate::gpu::{
     make_compute_storage_bind_group_layout_entry, make_compute_uniform_bind_group_layout_entry,
 };
 
-use crate::layers::dense_gpu::DenseGpuF64;
+use crate::layers::dense_gpu::DenseGpuF32;
 #[allow(unused_imports)]
 use crate::layers::layer::Layer;
+use crate::utils::vector_operations::VectorOperations;
 
 #[allow(dead_code)]
-pub async fn apply_gradients_to_f64_dense_weights(
-    dense: &mut DenseGpuF64,
+pub async fn apply_gradients_to_f32_dense_weights(
+    dense: &mut DenseGpuF32,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
-    layer_output_to_error_derivatives: &Vec<Vec<f64>>,
-    learning_rate: f64,
+    layer_output_to_error_derivatives: &Vec<Vec<f32>>,
+    learning_rate: f32,
 ) -> () {
     let flattened_layer_output_to_error_derivatives = layer_output_to_error_derivatives
         .par_iter()
@@ -54,20 +55,20 @@ pub async fn apply_gradients_to_f64_dense_weights(
         flattened_layer_output_to_error_derivatives.as_slice(),
         flattened_layer_weights.as_slice()
     )
-    .await.expect("Some error happenned while trying to compute gradients for the weights in DenseGPUF64 layer");
+    .await.expect("Some error happenned while trying to compute gradients for the weights in DenseGPUF32 layer");
 }
 
 async fn execute_gpu_code(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
-    learning_rate: f64,
+    learning_rate: f32,
     samples_amount: usize,
     outputs_amount: usize,
     inputs_amount: usize,
     flattened_layer_inputs: &[f32],
     flattened_layer_output_to_error_derivatives: &[f32],
     flattened_layer_weights: &[f32]
-) -> Option<Vec<Vec<f64>>> {
+) -> Option<Vec<Vec<f32>>> {
     let cs_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: None,
         source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shaders/apply_gradients_to_dense_weights.wgsl"))),
@@ -153,9 +154,9 @@ async fn execute_gpu_code(
     let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { 
         label: Some("Apply Gradients to Dense Weights Pipeline Bind Group Layout"), 
         entries: &[
-            make_compute_storage_bind_group_layout_entry(0,false),
-            make_compute_storage_bind_group_layout_entry(1,true),
-            make_compute_storage_bind_group_layout_entry(2,true),
+            make_compute_storage_bind_group_layout_entry(0, true),
+            make_compute_storage_bind_group_layout_entry(1, true),
+            make_compute_storage_bind_group_layout_entry(2, false),
             make_compute_uniform_bind_group_layout_entry(3),
             make_compute_uniform_bind_group_layout_entry(4),
             make_compute_uniform_bind_group_layout_entry(5),
@@ -184,15 +185,15 @@ async fn execute_gpu_code(
         entries: &[
             wgpu::BindGroupEntry {
                 binding: 0,
-                resource: flattened_layer_weights_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
                 resource: flattened_layer_output_to_error_derivatives_buffer.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
-                binding: 2,
+                binding: 1,
                 resource: flattened_layer_inputs_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: flattened_layer_weights_buffer.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
                 binding: 3,
@@ -227,8 +228,8 @@ async fn execute_gpu_code(
         cpass.dispatch_workgroups(
             inputs_amount as u32,
             outputs_amount as u32,
-            0,
-        ); // Number of cells to run, the (x,y,z) size of item being processed
+            1,
+        );
     }
     encoder.copy_buffer_to_buffer(&flattened_layer_weights_buffer, 0, &staging_buffer, 0, buffer_size);
 
@@ -248,16 +249,17 @@ async fn execute_gpu_code(
 
         drop(data);
 
-        let new_weights: Vec<Vec<f64>> = (0..inputs_amount)
+        let new_weights: Vec<Vec<f32>> = (0..inputs_amount)
             .into_par_iter()
             .map(|input_index| {
                 let row_part = input_index * outputs_amount;
                 (0..outputs_amount)
                     .into_iter()
-                    .map(|output_index| flattened_new_weights[row_part + output_index] as f64)
+                    .map(|output_index| flattened_new_weights[row_part + output_index])
                     .collect()
             })
             .collect();
+        
         drop(flattened_new_weights);
 
         staging_buffer.unmap();
