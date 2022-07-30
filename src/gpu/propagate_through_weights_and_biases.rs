@@ -244,7 +244,7 @@ async fn execute_gpu_code(
             .map(|sample_index| {
                 let row_part = sample_index * outputs_amount;
                 (0..outputs_amount)
-                    .into_par_iter()
+                    .into_iter()
                     .map(|output_index| flattened_output_samples_response[row_part + output_index])
                     .collect()
             })

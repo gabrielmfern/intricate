@@ -228,7 +228,7 @@ async fn execute_gpu_code(
             .map(|sample_index| {
                 let row_part = sample_index * inputs_amount;
                 (0..inputs_amount)
-                    .into_par_iter()
+                    .into_iter()
                     .map(|input_index| {
                         flattened_actual_input_to_error_derivatives[row_part + input_index] as f32
                     })

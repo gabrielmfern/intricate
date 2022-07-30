@@ -30,7 +30,7 @@ async fn should_decerase_error_test() {
     let device = &Some(actual_device);
     let queue = &Some(actual_queue);
 
-    let epochs: usize = 10000;
+    let epochs: usize = 1000;
     let mut last_loss: f32 = 0.0;
 
     for _ in 0..epochs {
@@ -39,7 +39,7 @@ async fn should_decerase_error_test() {
             &training_output_samples, 
             &TrainingOptionsF32 {
                 loss_algorithm: Box::new(MeanSquared),
-                learning_rate: 0.1,
+                learning_rate: 0.3,
                 should_print_information: false,
                 use_gpu: true,
             },

@@ -9,7 +9,6 @@ use crate::gpu::{
 use crate::layers::dense_gpu::DenseGpuF32;
 #[allow(unused_imports)]
 use crate::layers::layer::Layer;
-use crate::utils::vector_operations::VectorOperations;
 
 #[allow(dead_code)]
 pub async fn apply_gradients_to_f32_dense_weights(

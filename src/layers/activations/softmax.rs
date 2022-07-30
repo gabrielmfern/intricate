@@ -2,13 +2,10 @@ use std::f64::consts::E;
 
 use async_trait::async_trait;
 
-use crate::layers::activations::activation::ActivationLayerF64;
+use crate::layers::activations::activation::{ActivationLayerF64, ActivationLayerF32};
 use crate::layers::layer::Layer;
 use crate::utils::vector_operations::VectorOperations;
 
-use super::activation::ActivationLayerF32;
-
-use super::activation::ActivationLayerF32;
 
 #[derive(Debug, Clone)]
 pub struct SoftMaxF64 {
@@ -84,7 +81,7 @@ impl ActivationLayerF64 for SoftMaxF64 {
 impl ActivationLayerF32 for SoftMaxF32 {
     fn function(inputs: &Vec<f32>) -> Vec<f32> {
         let max_input = inputs.iter().copied().fold(f32::NAN, f32::max);
-        let exponentials: &Vec<f32> = &inputs.subtract_number(max_input).from_powf(std::f32::consts::E);
+        let exponentials: &Vec<f32> = &inputs.subtract_number(max_input).from_powf(E);
         let total = &exponentials.iter().sum::<f32>();
 
         inputs
