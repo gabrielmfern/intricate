@@ -64,6 +64,12 @@ layers.push(Box::new(TanHF64::new()));
 ```
 
 ```rs
+// Instantiate our model using the layers
+let mut xor_model = ModelF64::new(layers);
+// mutable because the 'fit' method tweaks the layers
+```
+
+```rs
 // Fit the model however many times we want
 xor_model.fit(
     &training_inputs, 
@@ -72,9 +78,9 @@ xor_model.fit(
         learning_rate: 0.1,
         loss_algorithm: Box::new(MeanSquared), // The Mean Squared loss function
         should_print_information: true, // Should be verbose
-        use_gpu: false // Should initialize WGPU Device and Queue for GPU layers
+        instantiate_gpu: false, // Should initialize WGPU Device and Queue for GPU layers
+        epochs: 10000,
     },
-    10000 // Epochs
 ).await;
 // we await here because for a GPU computation type of layer
 // the responses from the GPU must be awaited on the CPU

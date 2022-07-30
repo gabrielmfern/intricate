@@ -12,7 +12,8 @@ pub struct TrainingOptionsF64 {
     // TODO: implement optimizers
     pub learning_rate: f64,
     pub should_print_information: bool,
-    pub use_gpu: bool
+    pub instantiate_gpu: bool,
+    pub epochs: usize,
 }
 
 pub struct TrainingOptionsF32 {
@@ -20,7 +21,8 @@ pub struct TrainingOptionsF32 {
     // TODO: implement optimizers
     pub learning_rate: f64,
     pub should_print_information: bool,
-    pub use_gpu: bool
+    pub instantiate_gpu: bool,
+    pub epochs: usize,
 }
 
 #[allow(dead_code)]
@@ -60,9 +62,8 @@ impl ModelF64 {
         training_input_samples: &Vec<Vec<f64>>,
         training_expected_output_samples: &Vec<Vec<f64>>,
         training_options: TrainingOptionsF64,
-        epochs: usize,
     ) -> () {
-        for epoch_index in 0..epochs {
+        for epoch_index in 0..training_options.epochs {
             if training_options.should_print_information {
                 println!("epoch #{}", epoch_index + 1);
             }
@@ -70,7 +71,7 @@ impl ModelF64 {
             let mut device = None;
             let mut queue = None;
             
-            if training_options.use_gpu {
+            if training_options.instantiate_gpu {
                 let (temp_device, temp_queue) = gpu::setup_device_and_queue().await;
 
                 device = Some(temp_device);
@@ -213,19 +214,18 @@ impl ModelF32 {
         training_input_samples: &Vec<Vec<f32>>,
         training_expected_output_samples: &Vec<Vec<f32>>,
         training_options: TrainingOptionsF32,
-        epochs: usize,
     ) -> () {
         let mut device = None;
         let mut queue = None;
         
-        if training_options.use_gpu {
+        if training_options.instantiate_gpu {
             let (temp_device, temp_queue) = gpu::setup_device_and_queue().await;
 
             device = Some(temp_device);
             queue = Some(temp_queue);
         }
 
-        for epoch_index in 0..epochs {
+        for epoch_index in 0..training_options.epochs {
             if training_options.should_print_information {
                 println!("epoch #{}", epoch_index + 1);
             }
