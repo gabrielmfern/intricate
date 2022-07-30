@@ -6,7 +6,7 @@ A GPU accelerated library that creates/trains/runs neural networks in pure safe 
 
 ## Architechture overview
 
-Intricate has a layout very similar to popular libraries out there such as Tensorflow.
+Intricate has a layout very similar to popular libraries out there such as Keras.
 
 ### Models
 
