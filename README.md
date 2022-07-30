@@ -66,7 +66,7 @@ layers.push(Box::new(TanHF64::new()));
 ```rs
 // Instantiate our model using the layers
 let mut xor_model = ModelF64::new(layers);
-// mutable because the 'fit' method tweaks the layers
+// mutable because the 'fit' method lets the layers tweak themselves
 ```
 
 ```rs
@@ -87,6 +87,9 @@ xor_model.fit(
 ```
 
 As you can see it is extremely easy creating these models, and blazingly fast as well.
+Although if you wish to do (just like in the actual XoR example) you 
+could write this using F32 version of numbers which is 30% faster 
+overall and uses half the RAM but at the price of less precision.
 
 ## Things to be done still
 - writing some kind of macro to generate the code for f32 and f64 versions of certain structs and traits to not have duplicated code.

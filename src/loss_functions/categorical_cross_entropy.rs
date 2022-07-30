@@ -20,7 +20,7 @@ impl LossFunctionF64 for CategoricalCrossEntropy {
         output: f64,
         expected_output: f64,
     ) -> f64 {
-        -expected_output / output
+        expected_output / output
     }
 }
 
@@ -41,6 +41,6 @@ impl LossFunctionF32 for CategoricalCrossEntropy {
         output: f32,
         expected_output: f32,
     ) -> f32 {
-        -expected_output / output
+        expected_output / output
     }
 }

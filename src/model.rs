@@ -63,27 +63,27 @@ impl ModelF64 {
         training_expected_output_samples: &Vec<Vec<f64>>,
         training_options: TrainingOptionsF64,
     ) -> () {
+        let mut device = None;
+        let mut queue = None;
+        
+        if training_options.instantiate_gpu {
+            let (temp_device, temp_queue) = gpu::setup_device_and_queue().await;
+
+            device = Some(temp_device);
+            queue = Some(temp_queue);
+        }
+
         for epoch_index in 0..training_options.epochs {
             if training_options.should_print_information {
                 println!("epoch #{}", epoch_index + 1);
-            }
-
-            let mut device = None;
-            let mut queue = None;
-            
-            if training_options.instantiate_gpu {
-                let (temp_device, temp_queue) = gpu::setup_device_and_queue().await;
-
-                device = Some(temp_device);
-                queue = Some(temp_queue);
             }
 
             self.back_propagate(
                 training_input_samples, 
                 training_expected_output_samples, 
                 &training_options, 
-                device, 
-                queue
+                &device, 
+                &queue
             ).await;
         }
     }
@@ -99,8 +99,8 @@ impl ModelF64 {
         training_input_samples: &Vec<Vec<f64>>,
         training_expected_output_samples: &Vec<Vec<f64>>,
         training_options: &TrainingOptionsF64,
-        device: Option<wgpu::Device>,
-        queue: Option<wgpu::Queue>,
+        device: &Option<wgpu::Device>,
+        queue: &Option<wgpu::Queue>,
     ) -> f64 {
         assert_eq!(
             training_input_samples.len(),

@@ -36,7 +36,7 @@ async fn run() {
     xor_model.fit(
         &training_inputs, 
         &expected_outputs, 
-        TrainingOptionsF64 {
+        TrainingOptionsF32 {
             learning_rate: 0.1,
             loss_algorithm: Box::new(MeanSquared), // The Mean Squared loss function
             should_print_information: true, // Should be verbose

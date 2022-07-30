@@ -1,6 +1,6 @@
 [package]
 name = "intricate"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 license = "MIT"
 keywords = ["neural-networks", "machine-learning", "backpropagation"]
