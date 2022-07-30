@@ -1,19 +1,19 @@
-use intricate::layers::activations::tanh::TanHF64;
-use intricate::layers::dense::DenseF64;
+use intricate::layers::activations::tanh::TanHF32;
+use intricate::layers::dense::DenseF32;
 use intricate::layers::layer::Layer;
 
 use intricate::loss_functions::mean_squared::MeanSquared;
-use intricate::model::{ModelF64, TrainingOptionsF64};
+use intricate::model::{ModelF32, TrainingOptionsF32};
 
 async fn run() {
     // Defining the training data
-    let training_inputs = Vec::from([
+    let training_inputs: Vec<Vec<f32>> = Vec::from([
         Vec::from([0.0, 0.0]),
         Vec::from([0.0, 1.0]),
         Vec::from([1.0, 0.0]),
         Vec::from([1.0, 1.0]),
     ]);
-    let expected_outputs = Vec::from([
+    let expected_outputs: Vec<Vec<f32>> = Vec::from([
         Vec::from([0.0]),
         Vec::from([1.0]),
         Vec::from([1.0]),
@@ -21,16 +21,16 @@ async fn run() {
     ]);
 
     // Defining the layers for our XoR Model
-    let mut layers: Vec<Box<dyn Layer<f64>>> = Vec::new();
+    let mut layers: Vec<Box<dyn Layer<f32>>> = Vec::new();
 
-    layers.push(Box::new(DenseF64::new(2, 3)));
+    layers.push(Box::new(DenseF32::new(2, 3)));
     // The tanh activation function
-    layers.push(Box::new(TanHF64::new()));
-    layers.push(Box::new(DenseF64::new(3, 1)));
-    layers.push(Box::new(TanHF64::new()));
+    layers.push(Box::new(TanHF32::new()));
+    layers.push(Box::new(DenseF32::new(3, 1)));
+    layers.push(Box::new(TanHF32::new()));
 
     // Actually instantiate the Model with the layers
-    let mut xor_model = ModelF64::new(layers);
+    let mut xor_model = ModelF32::new(layers);
 
     // Fit the model however many times we want
     xor_model.fit(

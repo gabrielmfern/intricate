@@ -19,14 +19,14 @@ pub trait MatrixOperations {
     fn get_height(&self) -> usize;
 }
 
-impl MatrixOperations for Vec<Vec<f64>> {
-    type Item = f64;
+impl MatrixOperations for Vec<Vec<f32>> {
+    type Item = f32;
     fn dot_product(&self, against: &Vec<Self::Item>) -> Vec<Self::Item> {
         let width = self.get_width();
         let height = self.get_height();
         assert_eq!(height, against.len());
 
-        let mut result = vec![0.0_f64; width];
+        let mut result: Vec<Self::Item> = vec![0.0; width];
 
         for col in 0..width {
             for row in 0..height {
@@ -60,14 +60,83 @@ impl MatrixOperations for Vec<Vec<f64>> {
 
     fn multiply(&self, by: Self::Item) -> Self {
         self.iter()
-            .map(|row| row.iter().map(|x| x * by).collect::<Vec<f64>>())
-            .collect::<Vec<Vec<f64>>>()
+            .map(|row| row.iter().map(|x| x * by).collect())
+            .collect()
     }
 
     fn transpose(&self) -> Self {
         let width = self.get_width();
         let height = self.get_height();
-        let mut transposed: Vec<Vec<f64>> = vec![vec![0.0_f64; height]; width];
+        let mut transposed: Self = vec![vec![0.0; height]; width];
+
+        for (i, row) in self.iter().enumerate() {
+            assert_eq!(width, row.len());
+            for (j, col) in row.iter().enumerate() {
+                transposed[j][i] = *col;
+            }
+        }
+
+        transposed
+    }
+
+    fn get_width(&self) -> usize {
+        self[0].len()
+    }
+
+    fn get_height(&self) -> usize {
+        self.len()
+    }
+}
+
+impl MatrixOperations for Vec<Vec<f64>> {
+    type Item = f64;
+    fn dot_product(&self, against: &Vec<Self::Item>) -> Vec<Self::Item> {
+        let width = self.get_width();
+        let height = self.get_height();
+        assert_eq!(height, against.len());
+
+        let mut result: Vec<Self::Item> = vec![0.0; width];
+
+        for col in 0..width {
+            for row in 0..height {
+                result[col] += against[row] * self[row][col];
+            }
+        }
+
+        result
+    }
+
+    fn add(&self, against: &Self) -> Self {
+        self.iter()
+            .zip(against)
+            .map(|(a, b)| a.iter().zip(b).map(|(x, y)| x + y).collect())
+            .collect()
+    }
+
+    fn subtract(&self, against: &Self) -> Self {
+        self.iter()
+            .zip(against)
+            .map(|(a, b)| a.iter().zip(b).map(|(x, y)| x - y).collect())
+            .collect()
+    }
+
+    fn multiply_by_other(&self, against: Self) -> Self {
+        self.iter()
+            .zip(against)
+            .map(|(a, b)| a.iter().zip(b).map(|(x, y)| x * y).collect())
+            .collect()
+    }
+
+    fn multiply(&self, by: Self::Item) -> Self {
+        self.iter()
+            .map(|row| row.iter().map(|x| x * by).collect())
+            .collect()
+    }
+
+    fn transpose(&self) -> Self {
+        let width = self.get_width();
+        let height = self.get_height();
+        let mut transposed: Self = vec![vec![0.0; height]; width];
 
         for (i, row) in self.iter().enumerate() {
             assert_eq!(width, row.len());
