@@ -39,7 +39,7 @@ async fn should_decerase_error_test() {
             &training_output_samples, 
             &TrainingOptionsF32 {
                 loss_algorithm: Box::new(MeanSquared),
-                learning_rate: 0.3,
+                learning_rate: 0.1,
                 should_print_information: false,
                 instantiate_gpu: true,
                 epochs: 0,

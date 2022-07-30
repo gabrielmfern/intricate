@@ -40,7 +40,7 @@ fn calculate_output_sample_for_all_inputs(sample_index: u32, output_index: u32) 
 }
 
 @compute
-@workgroup_size(255)
+@workgroup_size(16, 16)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     var sample_index = global_id.x;
     var output_index = global_id.y;

@@ -36,7 +36,7 @@ fn compute_input_to_error_derivative(sample_index: u32, input_index: u32) -> f32
 }
 
 @compute
-@workgroup_size(255)
+@workgroup_size(16, 16)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     var sample_index: u32 = global_id.x;
     var input_index: u32 = global_id.y;
