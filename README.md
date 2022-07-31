@@ -1,6 +1,10 @@
 # Intricate
 
 [![Crates.io](https://img.shields.io/crates/v/intricate.svg?label=intricate)](https://crates.io/crates/intricate)
+[![Crates.io](https://img.shields.io/crates/dv/intricate)](https://cretes.io/crates/intricate)
+![github.com](https://img.shields.io/github/license/gabrielmfern/intricate)
+![github.com](https://img.shields.io/github/commit-activity/m/gabrielmfern/intricate)
+![github.com](https://img.shields.io/github/workflow/status/gabrielmfern/intricate/Rust)
 
 A GPU accelerated library that creates/trains/runs neural networks in pure safe Rust code.
 
@@ -10,8 +14,8 @@ Intricate has a layout very similar to popular libraries out there such as Keras
 
 ### Models
 
-As said before, similar to Tensorflow, Intricate defines Models as basically
-a list of `Layers` that are explained down bellow.
+As said before, similar to Keras from Tensorflow, Intricate defines Models as basically
+a list of `Layers` and the definition for "layer" is as follows.
 
 ### Layers
 
