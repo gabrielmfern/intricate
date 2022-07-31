@@ -14,8 +14,8 @@ Intricate has a layout very similar to popular libraries out there such as Keras
 
 ### Models
 
-As said before, similar to Tensorflow, Intricate defines Models as basically
-a list of `Layers` that are explained down bellow.
+As said before, similar to Keras from Tensorflow, Intricate defines Models as basically
+a list of `Layers` and the definition for "layer" is as follows.
 
 ### Layers
 
