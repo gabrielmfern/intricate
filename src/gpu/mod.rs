@@ -52,11 +52,5 @@ pub async fn setup_device_and_queue() -> (wgpu::Device, wgpu::Queue) {
         .await
         .unwrap();
 
-    let info = adapter.get_info();
-
-    if info.vendor == 0x10005 {
-        panic!();
-    }
-
     (device, queue)
 }
