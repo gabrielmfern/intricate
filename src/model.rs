@@ -6,7 +6,6 @@ use crate::{layers::layer::Layer, loss_functions::loss_function::{LossFunctionF6
 
 // TODO: implement a macro for creating the f32 and f64 versions of everything
 
-#[derive(Debug)]
 pub struct TrainingOptionsF64 {
     pub loss_algorithm: Box<dyn LossFunctionF64>,
     // TODO: implement optimizers
@@ -27,12 +26,12 @@ pub struct TrainingOptionsF32 {
 
 #[allow(dead_code)]
 pub struct ModelF64 {
-    layers: Vec<Box<dyn Layer<f64>>>,
+    pub layers: Vec<Box<dyn Layer<f64>>>,
 }
 
 #[allow(dead_code)]
 pub struct ModelF32 {
-    layers: Vec<Box<dyn Layer<f32>>>,
+    pub layers: Vec<Box<dyn Layer<f32>>>,
 }
 
 #[allow(dead_code)]

@@ -1,15 +1,17 @@
 use async_trait::async_trait;
+use savefile::SavefileError;
+use savefile_derive::Savefile;
 
 use crate::layers::activations::activation::{ActivationLayerF64, ActivationLayerF32};
 use crate::layers::layer::Layer;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Savefile)]
 pub struct ReLUF64 {
     last_inputs: Vec<Vec<f64>>,
     last_outputs: Vec<Vec<f64>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Savefile)]
 pub struct ReLUF32 {
     last_inputs: Vec<Vec<f32>>,
     last_outputs: Vec<Vec<f32>>,
@@ -103,10 +105,22 @@ impl ActivationLayerF32 for ReLUF32 {
 
 #[async_trait]
 impl Layer<f64> for ReLUF64 {
-    fn get_last_inputs(&self) -> Vec<Vec<f64>> {
-        self.last_inputs.to_vec()
+    fn get_last_inputs(&self) -> &Vec<Vec<f64>> {
+        &self.last_inputs
     }
 
+    fn get_last_outputs(&self) -> &Vec<Vec<f64>> {
+        &self.last_outputs
+    }
+
+    fn save(&self, _: &str, _: u32) -> Result<(), SavefileError> {
+        Ok(())
+    }
+
+    fn load(&mut self, _: &str, _: u32) -> Result<(), SavefileError> {
+        Ok(())
+    }
+    
     async fn back_propagate(
         &mut self,
         should_calculate_input_to_error_derivative: bool,
@@ -131,10 +145,6 @@ impl Layer<f64> for ReLUF64 {
         self.base_propagate(inputs)
     }
 
-    fn get_last_outputs(&self) -> Vec<Vec<f64>> {
-        self.last_outputs.to_vec()
-    }
-
     fn get_inputs_amount(&self) -> usize {
         if self.last_inputs.is_empty() {
             0
@@ -154,8 +164,20 @@ impl Layer<f64> for ReLUF64 {
 
 #[async_trait]
 impl Layer<f32> for ReLUF32 {
-    fn get_last_inputs(&self) -> Vec<Vec<f32>> {
-        self.last_inputs.to_vec()
+    fn get_last_inputs(&self) -> &Vec<Vec<f32>> {
+        &self.last_inputs
+    }
+
+    fn get_last_outputs(&self) -> &Vec<Vec<f32>> {
+        &self.last_outputs
+    }
+
+    fn save(&self, _: &str, _: u32) -> Result<(), SavefileError> {
+        Ok(())
+    }
+
+    fn load(&mut self, _: &str, _: u32) -> Result<(), SavefileError> {
+        Ok(())
     }
 
     async fn back_propagate(
@@ -180,10 +202,6 @@ impl Layer<f32> for ReLUF32 {
         _: &Option<wgpu::Queue>,
     ) -> Vec<Vec<f32>> {
         self.base_propagate(inputs)
-    }
-
-    fn get_last_outputs(&self) -> Vec<Vec<f32>> {
-        self.last_outputs.to_vec()
     }
 
     fn get_inputs_amount(&self) -> usize {

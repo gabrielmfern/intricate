@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use savefile::SavefileError;
 
 /// T here is a number type
 /// so that we can have multiple numbers types to save RAM in simple Neural Networks
@@ -6,11 +7,14 @@ use async_trait::async_trait;
 /// softmax that has such steep values
 #[async_trait]
 pub trait Layer<T> {
-    fn get_last_inputs(&self) -> Vec<Vec<T>>;
-    fn get_last_outputs(&self) -> Vec<Vec<T>>;
+    fn get_last_inputs(&self) -> &Vec<Vec<T>>;
+    fn get_last_outputs(&self) -> &Vec<Vec<T>>;
 
     fn get_inputs_amount(&self) -> usize;
     fn get_outputs_amount(&self) -> usize;
+
+    fn save(&self, path: &str, version: u32) -> Result<(), SavefileError>;
+    fn load(&mut self, path: &str, version: u32) -> Result<(), SavefileError>;
     
     /// Should calculate the outputs of the layer based on the inputs
     /// 
@@ -44,4 +48,3 @@ pub trait Layer<T> {
         queue: &Option<wgpu::Queue>,
     ) -> Option<Vec<Vec<T>>>;
 }
-

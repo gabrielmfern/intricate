@@ -34,7 +34,7 @@ where Self: Sync + Send {
             .collect::<Vec<Vec<f64>>>(),
         );
             
-        self.get_last_outputs()
+        self.get_last_outputs().to_vec()
     }
 
     fn base_back_propagate(
@@ -110,7 +110,7 @@ where Self: Sync + Send {
             .collect::<Vec<Vec<f32>>>(),
         );
             
-        self.get_last_outputs()
+        self.get_last_outputs().to_vec()
     }
 
     fn base_back_propagate(

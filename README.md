@@ -34,16 +34,19 @@ There are a few activations already implemented, but still many to be implemente
 ## XoR using Intricate
 
 If you look at the `examples/` in the repository 
-you will find XoR implemented using Intricate. The code goes like this:
+you will find XoR implemented using Intricate. 
+The following is basically just that example with some separate explanation.
+
+### Setting up the training data
 
 ```rs
-// Defining the training data
 let training_inputs = Vec::from([
     Vec::from([0.0, 0.0]),
     Vec::from([0.0, 1.0]),
     Vec::from([1.0, 0.0]),
     Vec::from([1.0, 1.0]),
 ]);
+
 let expected_outputs = Vec::from([
     Vec::from([0.0]),
     Vec::from([1.0]),
@@ -52,16 +55,19 @@ let expected_outputs = Vec::from([
 ]);
 ```
 
+### Setting up the layers
+
 ```rs
-// Defining the layers for our XoR Model
 let mut layers: Vec<Box<dyn Layer<f64>>> = Vec::new();
 
+//                      inputs_amount|outputs_amount
 layers.push(Box::new(DenseF64::new(2, 3)));
-// The tanh activation function
-layers.push(Box::new(TanHF64::new()));
+layers.push(Box::new(TanHF64::new())); // activation functions are layers
 layers.push(Box::new(DenseF64::new(3, 1)));
 layers.push(Box::new(TanHF64::new()));
 ```
+
+### Creating the model with the layers
 
 ```rs
 // Instantiate our model using the layers
@@ -69,8 +75,9 @@ let mut xor_model = ModelF64::new(layers);
 // mutable because the 'fit' method lets the layers tweak themselves
 ```
 
+### Fitting our model
+
 ```rs
-// Fit the model however many times we want
 xor_model.fit(
     &training_inputs, 
     &expected_outputs, 
@@ -82,16 +89,56 @@ xor_model.fit(
         epochs: 10000,
     },
 ).await;
-// we await here because for a GPU computation type of layer
-// the responses from the GPU must be awaited on the CPU
 ```
 
 As you can see it is extremely easy creating these models, and blazingly fast as well.
+
 Although if you wish to do (just like in the actual XoR example) you 
-could write this using F32 version of numbers which is 30% faster 
+could write this using the F32 version of numbers which is 30% faster 
 overall and uses half the RAM but at the price of less precision.
 
+## How to save and load models
+
+Intricate implements a few functions for each layer that saves and loads the necessary
+layer information to some file using the [savefile](https://github.com/avl/savefile) crate.
+
+But a layer can save and load the data anyway it sees fit, as long as it does what the trait Layer requires. 
+
+### Saving the model
+
+To load and save data, as an example, say for the XoR model
+we trained above,  we can just call the `save` function as such:
+
+```rs
+xor_model.layers[0].save("xor-model-first-dense.bin", 0).unwrap();
+xor_model.layers[2].save("xor-model-second-dense.bin", 0).unwrap();
+```
+
+And we save only the Dense layers here because the Activation layers don't really
+hold any valuable information, only the Dense layers do.
+
+### Loading the model
+
+As for the loading of the data we must create some dummy dense layers and tell
+them to load their data from the paths created above
+
+```rs
+let mut first_dense: Box<DenseF32> = Box::new(DenseF32::dummy());
+first_dense.load("xor-model-first-dense.bin", 0).unwrap();
+let mut second_dense: Box<DenseF32> = Box::new(DenseF32::dummy()); 
+second_dense.load("xor-model-second-dense.bin", 0).unwrap();
+
+let mut new_layers: Vec<Box<dyn Layer<f32>>> = Vec::new();
+new_layers.push(first_dense);
+new_layers.push(Box::new(TanHF32::new()));
+new_layers.push(second_dense);
+new_layers.push(Box::new(TanHF32::new()));
+
+let loaded_xor_model = ModelF32::new(new_layers);
+```
+
 ## Things to be done still
+
 - writing some kind of macro to generate the code for f32 and f64 versions of certain structs and traits to not have duplicated code.
 - making so that the 'get' methods implemented return slices instead of copies of the vectors as to not duplicate things in RAM and save as much RAM as possible for very large models.
 - improve the GPU shaders, perhaps finding a way to send the full unflattened matrices to the GPU instead of sending just a flattened array.

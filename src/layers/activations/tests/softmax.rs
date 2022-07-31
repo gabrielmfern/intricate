@@ -1,10 +1,10 @@
-#[allow(unused_imports)]
-use std::f64::consts::E;
 use crate::layers::activations::softmax::SoftMaxF64;
 use crate::layers::layer::Layer;
+#[allow(unused_imports)]
+use std::f64::consts::E;
 
-// sometimes fails even though the values are the same
-// because of floating-point numbers non-exactness
+use crate::utils::approx_eq::assert_approx_equal_matrix;
+
 #[allow(dead_code)]
 async fn test() {
     let inputs = Vec::from([300.1, 20.0, 5.2, 213.3]);
@@ -20,9 +20,11 @@ async fn test() {
     let expected_output_samples = Vec::from([expected_outputs]);
 
     let mut activation_layer = SoftMaxF64::new();
-    let actual_outputs = activation_layer.propagate(&input_samples, &None, &None).await;
+    let actual_outputs_samples = activation_layer
+        .propagate(&input_samples, &None, &None)
+        .await;
 
-    assert_eq!(actual_outputs, expected_output_samples);
+    assert_approx_equal_matrix(&actual_outputs_samples, &expected_output_samples, 5);
 }
 
 #[test]

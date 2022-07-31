@@ -1,11 +1,14 @@
 use async_trait::async_trait;
 use rand::Rng;
+use savefile::{save_file, SavefileError, load_file};
+use savefile_derive::Savefile;
 
 use crate::utils::matrix_operations::MatrixOperations;
 use crate::{layers::layer::Layer, utils::vector_operations::VectorOperations};
 
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
+#[derive(Debug, Clone, Savefile)]
 pub struct DenseF64 {
     pub inputs_amount: usize,
     pub outputs_amount: usize,
@@ -17,6 +20,7 @@ pub struct DenseF64 {
     pub last_outputs: Vec<Vec<f64>>,
 }
 
+#[derive(Debug, Clone, Savefile)]
 pub struct DenseF32 {
     pub inputs_amount: usize,
     pub outputs_amount: usize,
@@ -53,6 +57,19 @@ impl DenseF64 {
             last_inputs: Vec::new(),
         }
     }
+
+    /// can be used for just instantiating a Layer to then load 
+    /// the weights and biases from some saved layer file
+    pub fn dummy() -> DenseF64 {
+        DenseF64 {
+            inputs_amount: 0,
+            outputs_amount: 0,
+            weights: Vec::new(),
+            biases: Vec::new(),
+            last_outputs: Vec::new(),
+            last_inputs: Vec::new()
+        }
+    }
 }
 
 impl DenseF32 {
@@ -80,16 +97,29 @@ impl DenseF32 {
             last_inputs: Vec::new(),
         }
     }
+
+    /// can be used for just instantiating a Layer to then load 
+    /// the weights and biases from some saved layer file
+    pub fn dummy() -> DenseF32 {
+        DenseF32 {
+            inputs_amount: 0,
+            outputs_amount: 0,
+            weights: Vec::new(),
+            biases: Vec::new(),
+            last_outputs: Vec::new(),
+            last_inputs: Vec::new()
+        }
+    }
 }
 
 #[async_trait]
 impl Layer<f64> for DenseF64 {
-    fn get_last_inputs(&self) -> Vec<Vec<f64>> {
-        self.last_inputs.to_vec()
+    fn get_last_inputs(&self) -> &Vec<Vec<f64>> {
+        &self.last_inputs
     }
 
-    fn get_last_outputs(&self) -> Vec<Vec<f64>> {
-        self.last_outputs.to_vec()
+    fn get_last_outputs(&self) -> &Vec<Vec<f64>> {
+        &self.last_outputs
     }
 
     fn get_inputs_amount(&self) -> usize {
@@ -99,6 +129,36 @@ impl Layer<f64> for DenseF64 {
     fn get_outputs_amount(&self) -> usize {
         self.outputs_amount
     }
+
+    /// saves all the information of the current layer
+    /// expect for the last_outputs and last_inputs since these don't
+    /// really matter
+    fn save(&self, path: &str, version: u32) -> Result<(), SavefileError> {
+        let mut layer_to_save = self.clone();
+        layer_to_save.last_outputs = Vec::new();
+        layer_to_save.last_inputs = Vec::new();
+        save_file(path, version, &layer_to_save)
+    }
+
+    /// loads all of the weights, biases, inputs_amount and ouputs_amount
+    /// into the current layer from the file in the path with that version
+    fn load(&mut self, path: &str, version: u32) -> Result<(), SavefileError> {
+        let loaded_layer_result: Result<Self, SavefileError> = load_file(path, version);
+        if loaded_layer_result.is_err() {
+            Err(loaded_layer_result.err().unwrap())
+        } else {
+            let loaded_layer = loaded_layer_result.unwrap();
+
+            self.weights = loaded_layer.weights;
+            self.biases = loaded_layer.biases;
+
+            self.outputs_amount = loaded_layer.outputs_amount;
+            self.inputs_amount = loaded_layer.inputs_amount;
+
+            Ok(())
+        }
+    }
+
 
     async fn propagate(
         &mut self, 
@@ -189,12 +249,12 @@ impl Layer<f64> for DenseF64 {
 
 #[async_trait]
 impl Layer<f32> for DenseF32 {
-    fn get_last_inputs(&self) -> Vec<Vec<f32>> {
-        self.last_inputs.to_vec()
+    fn get_last_inputs(&self) -> &Vec<Vec<f32>> {
+        &self.last_inputs
     }
 
-    fn get_last_outputs(&self) -> Vec<Vec<f32>> {
-        self.last_outputs.to_vec()
+    fn get_last_outputs(&self) -> &Vec<Vec<f32>> {
+        &self.last_outputs
     }
 
     fn get_inputs_amount(&self) -> usize {
@@ -203,6 +263,35 @@ impl Layer<f32> for DenseF32 {
 
     fn get_outputs_amount(&self) -> usize {
         self.outputs_amount
+    }
+
+    /// saves all the information of the current layer
+    /// expect for the last_outputs and last_inputs since these don't
+    /// really matter
+    fn save(&self, path: &str, version: u32) -> Result<(), SavefileError> {
+        let mut layer_to_save = self.clone();
+        layer_to_save.last_outputs = Vec::new();
+        layer_to_save.last_inputs = Vec::new();
+        save_file(path, version, &layer_to_save)
+    }
+
+    /// loads all of the weights, biases, inputs_amount and ouputs_amount
+    /// into the current layer from the file in the path with that version
+    fn load(&mut self, path: &str, version: u32) -> Result<(), SavefileError> {
+        let loaded_layer_result: Result<Self, SavefileError> = load_file(path, version);
+        if loaded_layer_result.is_err() {
+            Err(loaded_layer_result.err().unwrap())
+        } else {
+            let loaded_layer = loaded_layer_result.unwrap();
+
+            self.weights = loaded_layer.weights;
+            self.biases = loaded_layer.biases;
+
+            self.outputs_amount = loaded_layer.outputs_amount;
+            self.inputs_amount = loaded_layer.inputs_amount;
+
+            Ok(())
+        }
     }
 
     async fn propagate(

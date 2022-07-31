@@ -1,5 +1,7 @@
 use async_trait::async_trait;
 use rand::Rng;
+use savefile::{save_file, SavefileError, load_file};
+use savefile_derive::Savefile;
 
 use crate::gpu::apply_gradients_to_dense_weights::apply_gradients_to_f32_dense_weights;
 use crate::gpu::calculate_dense_input_to_error_derivatives::calculate_dense_input_to_error_derivatives;
@@ -13,6 +15,7 @@ use super::layer::Layer;
 /// how to use f64's in a shader with wgpu since it
 /// always yields runtime errors while trying to use 
 /// f64 or double or any other types that I tried
+#[derive(Debug, Clone, Savefile)]
 pub struct DenseGpuF32 {
     pub inputs_amount: usize,
     pub outputs_amount: usize,
@@ -25,6 +28,19 @@ pub struct DenseGpuF32 {
 }
 
 impl DenseGpuF32 {
+    /// can be used for just instantiating a Layer to then load 
+    /// the weights and biases from some saved layer file
+    pub fn dummy() -> DenseGpuF32 {
+        DenseGpuF32 {
+            inputs_amount: 0,
+            outputs_amount: 0,
+            weights: Vec::new(),
+            biases: Vec::new(),
+            last_outputs: Vec::new(),
+            last_inputs: Vec::new()
+        }
+    }
+
     #[allow(dead_code)]
 
     pub fn new(inputs_amount: usize, outputs_amount: usize) -> DenseGpuF32 {
@@ -53,12 +69,12 @@ impl DenseGpuF32 {
 
 #[async_trait]
 impl Layer<f32> for DenseGpuF32 {
-    fn get_last_inputs(&self) -> Vec<Vec<f32>> {
-        self.last_inputs.to_vec()
+    fn get_last_inputs(&self) -> &Vec<Vec<f32>> {
+        &self.last_inputs
     }
 
-    fn get_last_outputs(&self) -> Vec<Vec<f32>> {
-        self.last_outputs.to_vec()
+    fn get_last_outputs(&self) -> &Vec<Vec<f32>> {
+        &self.last_outputs
     }
 
     fn get_inputs_amount(&self) -> usize {
@@ -67,6 +83,35 @@ impl Layer<f32> for DenseGpuF32 {
 
     fn get_outputs_amount(&self) -> usize {
         self.outputs_amount
+    }
+
+    /// saves all the information of the current layer
+    /// expect for the last_outputs and last_inputs since these don't
+    /// really matter
+    fn save(&self, path: &str, version: u32) -> Result<(), SavefileError> {
+        let mut layer_to_save = self.clone();
+        layer_to_save.last_outputs = Vec::new();
+        layer_to_save.last_inputs = Vec::new();
+        save_file(path, version, &layer_to_save)
+    }
+
+    /// loads all of the weights, biases, inputs_amount and ouputs_amount
+    /// into the current layer from the file in the path with that version
+    fn load(&mut self, path: &str, version: u32) -> Result<(), SavefileError> {
+        let loaded_layer_result: Result<Self, SavefileError> = load_file(path, version);
+        if loaded_layer_result.is_err() {
+            Err(loaded_layer_result.err().unwrap())
+        } else {
+            let loaded_layer = loaded_layer_result.unwrap();
+
+            self.weights = loaded_layer.weights;
+            self.biases = loaded_layer.biases;
+
+            self.outputs_amount = loaded_layer.outputs_amount;
+            self.inputs_amount = loaded_layer.inputs_amount;
+
+            Ok(())
+        }
     }
 
     async fn propagate(

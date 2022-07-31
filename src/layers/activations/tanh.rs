@@ -1,15 +1,17 @@
 use async_trait::async_trait;
+use savefile::SavefileError;
+use savefile_derive::Savefile;
 
 use crate::layers::activations::activation::{ActivationLayerF64, ActivationLayerF32};
 use crate::layers::layer::Layer;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Savefile)]
 pub struct TanHF64 {
     last_inputs: Vec<Vec<f64>>,
     last_outputs: Vec<Vec<f64>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Savefile)]
 pub struct TanHF32 {
     last_inputs: Vec<Vec<f32>>,
     last_outputs: Vec<Vec<f32>>,
@@ -54,8 +56,20 @@ impl ActivationLayerF64 for TanHF64 {
 
 #[async_trait]
 impl Layer<f64> for TanHF64 {
-    fn get_last_inputs(&self) -> Vec<Vec<f64>> {
-        self.last_inputs.to_vec()
+    fn get_last_inputs(&self) -> &Vec<Vec<f64>> {
+        &self.last_inputs
+    }
+
+    fn get_last_outputs(&self) -> &Vec<Vec<f64>> {
+        &self.last_outputs
+    }
+    
+    fn save(&self, _: &str, _: u32) -> Result<(), SavefileError> {
+        Ok(())
+    }
+
+    fn load(&mut self, _: &str, _: u32) -> Result<(), SavefileError> {
+        Ok(())
     }
 
     async fn back_propagate(
@@ -80,10 +94,6 @@ impl Layer<f64> for TanHF64 {
         _: &Option<wgpu::Queue>,
     ) -> Vec<Vec<f64>> {
         self.base_propagate(inputs)
-    }
-
-    fn get_last_outputs(&self) -> Vec<Vec<f64>> {
-        self.last_outputs.to_vec()
     }
 
     fn get_inputs_amount(&self) -> usize {
@@ -142,8 +152,20 @@ impl ActivationLayerF32 for TanHF32 {
 
 #[async_trait]
 impl Layer<f32> for TanHF32 {
-    fn get_last_inputs(&self) -> Vec<Vec<f32>> {
-        self.last_inputs.to_vec()
+    fn get_last_inputs(&self) -> &Vec<Vec<f32>> {
+        &self.last_inputs
+    }
+
+    fn get_last_outputs(&self) -> &Vec<Vec<f32>> {
+        &self.last_outputs
+    }
+    
+    fn save(&self, _: &str, _: u32) -> Result<(), SavefileError> {
+        Ok(())
+    }
+
+    fn load(&mut self, _: &str, _: u32) -> Result<(), SavefileError> {
+        Ok(())
     }
 
     async fn back_propagate(
@@ -168,10 +190,6 @@ impl Layer<f32> for TanHF32 {
         _: &Option<wgpu::Queue>,
     ) -> Vec<Vec<f32>> {
         self.base_propagate(inputs)
-    }
-
-    fn get_last_outputs(&self) -> Vec<Vec<f32>> {
-        self.last_outputs.to_vec()
     }
 
     fn get_inputs_amount(&self) -> usize {

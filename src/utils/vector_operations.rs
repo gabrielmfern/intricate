@@ -18,6 +18,8 @@ pub trait VectorOperations {
     fn powf(&self, power: f64) -> Vec<Self::Item>;
 
     fn from_powf(&self, base: f64) -> Vec<Self::Item>;
+
+    fn floor(&self) -> Vec<Self::Item>;
 }
 
 impl VectorOperations for Vec<f32> {
@@ -70,6 +72,10 @@ impl VectorOperations for Vec<f32> {
     fn multiply_number(&self, factor: &Self::Item) -> Vec<Self::Item> {
         self.iter().map(|x| x * factor).collect::<Vec<Self::Item>>()
     }
+
+    fn floor(&self) -> Vec<Self::Item> {
+        self.iter().map(|x| x.floor()).collect::<Vec<Self::Item>>()
+    }
 }
 
 impl VectorOperations for Vec<f64> {
@@ -121,5 +127,9 @@ impl VectorOperations for Vec<f64> {
 
     fn multiply_number(&self, factor: &Self::Item) -> Vec<Self::Item> {
         self.iter().map(|x| x * factor).collect::<Vec<Self::Item>>()
+    }
+
+    fn floor(&self) -> Vec<Self::Item> {
+        self.iter().map(|x| x.floor()).collect::<Vec<Self::Item>>()
     }
 }
