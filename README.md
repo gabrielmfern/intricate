@@ -140,7 +140,6 @@ let loaded_xor_model = ModelF32::new(new_layers);
 ## Things to be done still
 
 - writing some kind of macro to generate the code for f32 and f64 versions of certain structs and traits to not have duplicated code.
-- making so that the 'get' methods implemented return slices instead of copies of the vectors as to not duplicate things in RAM and save as much RAM as possible for very large models.
 - improve the GPU shaders, perhaps finding a way to send the full unflattened matrices to the GPU instead of sending just a flattened array.
 - create GPU accelerated activations and loss functions as to make everything GPU accelerated.
 - perhaps write some shader to calculate the Model **loss** to **output** gradient (derivatives).
