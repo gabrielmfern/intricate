@@ -2,6 +2,9 @@ pub mod dense;
 pub mod activations;
 pub mod dense_gpu;
 
+use async_trait::async_trait;
+
+#[async_trait]
 /// A layer can be defined basically as function receiving some input
 /// and giving an output, something can be called a 'Layer' if it does that
 pub trait Layer {
@@ -32,9 +35,11 @@ pub trait Layer {
     /// 
     /// is asynchronous so that communication between the gpu and the cpu
     /// can happen normally on this function if needed in the layer
-    fn propagate(
+    async fn propagate(
         &mut self, 
         inputs: &Vec<Vec<f32>>,
+        device: &Option<wgpu::Device>,
+        queue: &Option<wgpu::Queue>,
     ) -> Vec<Vec<f32>>;
 
     /// Should calculate and apply the gradients,
@@ -49,10 +54,12 @@ pub trait Layer {
     /// 
     /// is asynchronous so that communication between the gpu and the cpu
     /// can happen normally on this function if needed in the layer
-    fn back_propagate(
+    async fn back_propagate(
         &mut self, 
         should_calculate_input_to_error_derivative: bool,
         layer_output_to_error_derivative: &Vec<Vec<f32>>,
         learning_rate: f32,
+        device: &Option<wgpu::Device>,
+        queue: &Option<wgpu::Queue>,
     ) -> Option<Vec<Vec<f32>>>;
 }

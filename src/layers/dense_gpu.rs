@@ -1,19 +1,22 @@
+use async_trait::async_trait;
 use rand::Rng;
 use savefile_derive::Savefile;
 
-use crate::utils::matrix_operations::MatrixOperations;
-use crate::{layers::Layer, utils::vector_operations::VectorOperations};
+use crate::gpu::apply_gradients_to_dense_weights::apply_gradients_to_dense_weights;
+use crate::gpu::calculate_dense_input_to_error_derivatives::calculate_dense_input_to_error_derivatives;
+use crate::gpu::propagate_through_weights_and_biases::propagate_through_weights_and_biases;
 
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
+
+use super::Layer;
 
 #[derive(Debug, Clone, Savefile)]
 /// A densely connected layer, this layer consists of some inputs
 /// and the weights that connect each input to all outputs,
 /// its propagation results in a dot product between these weights
 /// and the inputs received in the propagation method
-///
-/// For this layer all the definitions are the same, the only difference
-/// is computation is done in all the devices Intricate is able to find
+/// although this propagation method and the back_propagate method
+/// is calculated mostly on the GPU
 pub struct DenseGPU {
     pub inputs_amount: usize,
     pub outputs_amount: usize,
@@ -51,7 +54,7 @@ impl DenseGPU {
         }
     }
 
-    /// Creates an empty Dense layer without any weights,
+    /// Creates an empty DenseGPU layer without any weights,
     /// inputs_amount or outputs_amount
     pub fn dummy() -> DenseGPU {
         DenseGPU {
@@ -65,6 +68,7 @@ impl DenseGPU {
     }
 }
 
+#[async_trait]
 impl Layer for DenseGPU {
     fn get_last_inputs(&self) -> &Vec<Vec<f32>> {
         &self.last_inputs
@@ -82,37 +86,75 @@ impl Layer for DenseGPU {
         self.outputs_amount
     }
 
-    fn propagate(
-        &mut self, 
-        inputs_samples: &Vec<Vec<f32>>, 
+    async fn propagate(
+        &mut self,
+        inputs_samples: &Vec<Vec<f32>>,
+        device: &Option<wgpu::Device>,
+        queue: &Option<wgpu::Queue>,
     ) -> Vec<Vec<f32>> {
+        if device.is_none() || queue.is_none() {
+            panic!("Cannot use DenseGPUF32 without setting up for the GPU!");
+        }
+
         self.last_inputs = inputs_samples.to_vec();
-        self.last_outputs = inputs_samples
-            .par_iter()
-            .map(|inputs| self.biases.add(&self.weights.dot_product(inputs)))
-            .collect::<Vec<Vec<f32>>>();
+
+        self.last_outputs = propagate_through_weights_and_biases(
+            self, 
+            inputs_samples, 
+            device.as_ref().unwrap(), 
+            queue.as_ref().unwrap(),
+        ).await.unwrap();
+        
         self.last_outputs.to_vec()
     }
 
-    fn back_propagate(
+    async fn back_propagate(
         &mut self,
         should_calculate_input_to_error_derivative: bool,
         layer_output_to_error_derivative: &Vec<Vec<f32>>,
-        learning_rate: f32, 
+        learning_rate: f32,
+        device: &Option<wgpu::Device>,
+        queue: &Option<wgpu::Queue>,
     ) -> Option<Vec<Vec<f32>>> {
+        if device.is_none() || queue.is_none() {
+            panic!("Cannot use DenseGPUF32 without setting up for the GPU!");
+        }
+
         assert!(!self.last_inputs.is_empty());
         let samples_amount = layer_output_to_error_derivative.len();
-        let float_samples_amount = samples_amount as f32;
 
-        // apply the gradients averaging the calculations between the samples
-        // but becomes extremely hard to calculate on very large neural networks
-        // with a large amount of samples to train on
-        self.weights = todo!();
+        apply_gradients_to_dense_weights(
+            self,
+            device.as_ref().unwrap(),
+            queue.as_ref().unwrap(),
+            layer_output_to_error_derivative,
+            learning_rate,
+        )
+        .await;
 
-        self.biases = todo!();
+        // very small calculation so I kept it here
+        // since it doesn't impact performance that much being just
+        // O(outputs_amount * samples_amount) or O(n^2)
+        self.biases = (0..self.outputs_amount)
+            .into_par_iter()
+            .map(|j| {
+                self.biases[j]
+                    + learning_rate
+                        * layer_output_to_error_derivative
+                            .iter()
+                            .map(|sample_output_derivatives| sample_output_derivatives[j])
+                            .sum::<f32>()
+                        / samples_amount as f32
+            })
+            .collect::<Vec<f32>>();
 
         if should_calculate_input_to_error_derivative {
-            let layer_input_to_error_derivatives = todo!();
+            let layer_input_to_error_derivatives = calculate_dense_input_to_error_derivatives(
+                self, 
+                device.as_ref().unwrap(), 
+                queue.as_ref().unwrap(), 
+                layer_output_to_error_derivative
+            ).await.expect("Some error happenned computing the input to error derivatives on a DenseGPUF32 layer");
 
             Some(layer_input_to_error_derivatives)
         } else {

@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use rand::Rng;
 use savefile_derive::Savefile;
 
@@ -62,6 +63,7 @@ impl Dense {
     }
 }
 
+#[async_trait]
 impl Layer for Dense {
     fn get_last_inputs(&self) -> &Vec<Vec<f32>> {
         &self.last_inputs
@@ -79,9 +81,11 @@ impl Layer for Dense {
         self.outputs_amount
     }
 
-    fn propagate(
+    async fn propagate(
         &mut self, 
         inputs_samples: &Vec<Vec<f32>>, 
+        _: &Option<wgpu::Device>,
+        _: &Option<wgpu::Queue>,
     ) -> Vec<Vec<f32>> {
         self.last_inputs = inputs_samples.to_vec();
         self.last_outputs = inputs_samples
@@ -91,11 +95,13 @@ impl Layer for Dense {
         self.last_outputs.to_vec()
     }
 
-    fn back_propagate(
+    async fn back_propagate(
         &mut self,
         should_calculate_input_to_error_derivative: bool,
         layer_output_to_error_derivative: &Vec<Vec<f32>>,
         learning_rate: f32, 
+        _: &Option<wgpu::Device>,
+        _: &Option<wgpu::Queue>,
     ) -> Option<Vec<Vec<f32>>> {
         assert!(!self.last_inputs.is_empty());
         let samples_amount = layer_output_to_error_derivative.len();

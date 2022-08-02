@@ -1,5 +1,6 @@
 use std::f32::consts::E;
 
+use async_trait::async_trait;
 use savefile_derive::Savefile;
 
 use crate::layers::activations::ActivationLayer;
@@ -48,6 +49,7 @@ impl ActivationLayer for Sigmoid {
     }
 }
 
+#[async_trait]
 impl Layer for Sigmoid {
     fn get_last_inputs(&self) -> &Vec<Vec<f32>> {
         &self.last_inputs
@@ -57,11 +59,13 @@ impl Layer for Sigmoid {
         &self.last_outputs
     }
 
-    fn back_propagate(
+    async fn back_propagate(
         &mut self,
         should_calculate_input_to_error_derivative: bool,
         layer_output_to_error_derivative: &Vec<Vec<f32>>,
         learning_rate: f32,
+        _: &Option<wgpu::Device>,
+        _: &Option<wgpu::Queue>,
     ) -> Option<Vec<Vec<f32>>> {
         self.base_back_propagate(
             should_calculate_input_to_error_derivative,
@@ -70,9 +74,11 @@ impl Layer for Sigmoid {
         )
     }
 
-    fn propagate(
+    async fn propagate(
         &mut self, 
         inputs: &Vec<Vec<f32>>, 
+        _: &Option<wgpu::Device>,
+        _: &Option<wgpu::Queue>,
     ) -> Vec<Vec<f32>> {
         self.base_propagate(inputs)
     }

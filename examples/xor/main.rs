@@ -5,7 +5,7 @@ use intricate::loss_functions::mean_squared::MeanSquared;
 use intricate::model::{Model, ModelLayer, TrainingOptions, ModelLossFunction};
 use savefile::{load_file, save_file};
 
-fn main() {
+async fn run() {
     // Defining the training data
     let training_inputs: Vec<Vec<f32>> = Vec::from([
         Vec::from([0.0, 0.0]),
@@ -45,7 +45,8 @@ fn main() {
                 instantiate_gpu: false, // Should not initialize WGPU Device and Queue for GPU layers since there are no GPU layers here
                 epochs: 10000,
             },
-        );
+        )
+        .await;
     // we await here because for a GPU computation type of layer
     // the responses from the GPU must be awaited on the CPU
     // and since the model technically does not know what type of layers there are
@@ -62,9 +63,14 @@ fn main() {
     let mut loaded_xor_model: Model = load_file("xor-model.bin", 0).unwrap();
 
     let loaded_model_prediction = loaded_xor_model
-        .predict(&training_inputs);
-    let model_prediction = xor_model.predict(&training_inputs);
+        .predict(&training_inputs, &None, &None)
+        .await;
+    let model_prediction = xor_model.predict(&training_inputs, &None, &None).await;
 
     assert_eq!(loaded_model_prediction, model_prediction);
+}
 
+fn main() {
+    // just wait for the everything to run before stopping
+    pollster::block_on(run());
 }
