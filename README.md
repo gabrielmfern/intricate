@@ -1,7 +1,7 @@
 # Intricate
 
 [![Crates.io](https://img.shields.io/crates/v/intricate.svg?label=intricate)](https://crates.io/crates/intricate)
-[![Crates.io](https://img.shields.io/crates/dv/intricate)](https://cretes.io/crates/intricate)
+[![Crates.io](https://img.shields.io/crates/dv/intricate)](https://crates.io/crates/intricate)
 ![github.com](https://img.shields.io/github/license/gabrielmfern/intricate)
 ![github.com](https://img.shields.io/github/commit-activity/m/gabrielmfern/intricate)
 ![github.com](https://img.shields.io/github/workflow/status/gabrielmfern/intricate/Rust)
