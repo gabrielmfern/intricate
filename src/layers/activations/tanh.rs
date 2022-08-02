@@ -42,7 +42,7 @@ impl ActivationLayerF64 for TanHF64 {
         input_index: usize,
         _: usize,
     ) -> f64 {
-        1.0 - self.last_outputs[sample_index][input_index].tanh().powf(2.0)
+        1.0 - self.last_outputs[sample_index][input_index].powf(2.0)
     }
 
     fn set_last_inputs(&mut self, input_samples: &Vec<Vec<f64>>) {
