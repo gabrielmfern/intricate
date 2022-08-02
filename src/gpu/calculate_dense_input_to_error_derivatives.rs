@@ -6,13 +6,13 @@ use crate::gpu::{
     make_compute_storage_bind_group_layout_entry, make_compute_uniform_bind_group_layout_entry,
 };
 
-use crate::layers::dense_gpu::DenseGpuF32;
+use crate::layers::dense_gpu::DenseGPU;
 #[allow(unused_imports)]
-use crate::layers::layer::Layer;
+use crate::layers::Layer;
 
 #[allow(dead_code)]
 pub async fn calculate_dense_input_to_error_derivatives(
-    dense: &mut DenseGpuF32,
+    dense: &mut DenseGPU,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     layer_output_to_error_derivatives: &Vec<Vec<f32>>,

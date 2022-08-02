@@ -1,24 +1,26 @@
-// use crate::layers::dense_gpu::DenseGpuF32;
-// use crate::layers::layer::Layer;
+// use crate::layers::dense_gpu::DenseGPU;
 // use crate::gpu;
-// use crate::layers::activations::tanh::TanHF32;
+// use crate::layers::activations::tanh::TanH;
 // use crate::loss_functions::mean_squared::MeanSquared;
-// use crate::model::{ModelF32, TrainingOptionsF32};
+// use crate::model::{Model, ModelLayer, TrainingOptions};
 //
 // #[allow(dead_code)]
 // async fn should_decerase_error_test() {
-//     let mut layers: Vec<Box<dyn Layer<f32>>> = Vec::new();
-//     layers.push(Box::new(DenseGpuF32::new(2, 3)));
-//     layers.push(Box::new(TanHF32::new())); 
-//     layers.push(Box::new(DenseGpuF32::new(3, 1))); 
-//     layers.push(Box::new(TanHF32::new())); 
-//     let mut model = ModelF32::new(layers);
+//     let mut layers: Vec<ModelLayer> = Vec::new();
+//     layers.push(ModelLayer::DenseGPU(DenseGPU::new(2, 3)));
+//     layers.push(ModelLayer::TanH(TanH::new())); 
+//     layers.push(ModelLayer::DenseGPU(DenseGPU::new(3, 1))); 
+//     layers.push(ModelLayer::TanH(TanH::new())); 
+//
+//     let mut model = Model::new(layers);
+//
 //     let training_input_samples = Vec::from([
 //         Vec::from([0.0_f32, 0.0_f32]),
 //         Vec::from([1.0_f32, 0.0_f32]),
 //         Vec::from([1.0_f32, 1.0_f32]),
 //         Vec::from([0.0_f32, 1.0_f32]),
 //     ]);
+//
 //     let training_output_samples = Vec::from([
 //         Vec::from([0.0_f32]),
 //         Vec::from([1.0_f32]),
@@ -37,10 +39,10 @@
 //         last_loss = model.back_propagate(
 //             &training_input_samples, 
 //             &training_output_samples, 
-//             &TrainingOptionsF32 {
+//             &TrainingOptions {
 //                 loss_algorithm: Box::new(MeanSquared),
 //                 learning_rate: 0.1,
-//                 should_print_information: false,
+//                 should_print_information: true,
 //                 instantiate_gpu: true,
 //                 epochs: 0,
 //             },
@@ -60,3 +62,4 @@
 // fn should_decrease_error() {
 //     pollster::block_on(should_decerase_error_test());
 // }
+//
