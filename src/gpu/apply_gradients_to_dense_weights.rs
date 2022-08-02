@@ -6,13 +6,13 @@ use crate::gpu::{
     make_compute_storage_bind_group_layout_entry, make_compute_uniform_bind_group_layout_entry,
 };
 
-use crate::layers::dense_gpu::DenseGPU;
+use crate::layers::dense_gpu::DenseGpuF32;
 #[allow(unused_imports)]
-use crate::layers::Layer;
+use crate::layers::layer::Layer;
 
 #[allow(dead_code)]
-pub async fn apply_gradients_to_dense_weights(
-    dense: &mut DenseGPU,
+pub async fn apply_gradients_to_f32_dense_weights(
+    dense: &mut DenseGpuF32,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     layer_output_to_error_derivatives: &Vec<Vec<f32>>,

@@ -1,3 +1,4 @@
 /target
 /intricate-macros
-xor-model.bin
+xor-model-first-dense.bin
+xor-model-second-dense.bin

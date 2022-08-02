@@ -1,18 +1,27 @@
 use async_trait::async_trait;
 use rand::Rng;
+use savefile::{save_file, SavefileError, load_file};
 use savefile_derive::Savefile;
 
 use crate::utils::matrix_operations::MatrixOperations;
-use crate::{layers::Layer, utils::vector_operations::VectorOperations};
+use crate::{layers::layer::Layer, utils::vector_operations::VectorOperations};
 
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 #[derive(Debug, Clone, Savefile)]
-/// A densely connected layer, this layer consists of some inputs
-/// and the weights that connect each input to all outputs,
-/// its propagation results in a dot product between these weights
-/// and the inputs received in the propagation method
-pub struct Dense {
+pub struct DenseF64 {
+    pub inputs_amount: usize,
+    pub outputs_amount: usize,
+
+    pub weights: Vec<Vec<f64>>,
+    pub biases: Vec<f64>,
+
+    pub last_inputs: Vec<Vec<f64>>,
+    pub last_outputs: Vec<Vec<f64>>,
+}
+
+#[derive(Debug, Clone, Savefile)]
+pub struct DenseF32 {
     pub inputs_amount: usize,
     pub outputs_amount: usize,
 
@@ -23,12 +32,52 @@ pub struct Dense {
     pub last_outputs: Vec<Vec<f32>>,
 }
 
-impl Dense {
+impl DenseF64 {
     #[allow(dead_code)]
 
-    pub fn new(inputs_amount: usize, outputs_amount: usize) -> Dense {
+    pub fn new(inputs_amount: usize, outputs_amount: usize) -> DenseF64 {
         let mut rng = rand::thread_rng();
-        Dense {
+        DenseF64 {
+            inputs_amount,
+            outputs_amount,
+            weights: (0..inputs_amount)
+                .into_iter()
+                .map(|_| {
+                    (0..outputs_amount)
+                        .into_iter()
+                        .map(|_| rng.gen_range(-1.0_f64..=1.0_f64))
+                        .collect::<Vec<f64>>()
+                })
+                .collect::<Vec<Vec<f64>>>(),
+            biases: (0..outputs_amount)
+                .into_iter()
+                .map(|_| rng.gen_range(-1.0_f64..=1.0_f64))
+                .collect::<Vec<f64>>(),
+            last_outputs: Vec::new(),
+            last_inputs: Vec::new(),
+        }
+    }
+
+    /// can be used for just instantiating a Layer to then load 
+    /// the weights and biases from some saved layer file
+    pub fn dummy() -> DenseF64 {
+        DenseF64 {
+            inputs_amount: 0,
+            outputs_amount: 0,
+            weights: Vec::new(),
+            biases: Vec::new(),
+            last_outputs: Vec::new(),
+            last_inputs: Vec::new()
+        }
+    }
+}
+
+impl DenseF32 {
+    #[allow(dead_code)]
+
+    pub fn new(inputs_amount: usize, outputs_amount: usize) -> DenseF32 {
+        let mut rng = rand::thread_rng();
+        DenseF32 {
             inputs_amount,
             outputs_amount,
             weights: (0..inputs_amount)
@@ -49,10 +98,10 @@ impl Dense {
         }
     }
 
-    /// Creates an empty Dense layer without any weights,
-    /// inputs_amount or outputs_amount
-    pub fn dummy() -> Dense {
-        Dense {
+    /// can be used for just instantiating a Layer to then load 
+    /// the weights and biases from some saved layer file
+    pub fn dummy() -> DenseF32 {
+        DenseF32 {
             inputs_amount: 0,
             outputs_amount: 0,
             weights: Vec::new(),
@@ -64,7 +113,142 @@ impl Dense {
 }
 
 #[async_trait]
-impl Layer for Dense {
+impl Layer<f64> for DenseF64 {
+    fn get_last_inputs(&self) -> &Vec<Vec<f64>> {
+        &self.last_inputs
+    }
+
+    fn get_last_outputs(&self) -> &Vec<Vec<f64>> {
+        &self.last_outputs
+    }
+
+    fn get_inputs_amount(&self) -> usize {
+        self.inputs_amount
+    }
+
+    fn get_outputs_amount(&self) -> usize {
+        self.outputs_amount
+    }
+
+    /// saves all the information of the current layer
+    /// expect for the last_outputs and last_inputs since these don't
+    /// really matter
+    fn save(&self, path: &str, version: u32) -> Result<(), SavefileError> {
+        let mut layer_to_save = self.clone();
+        layer_to_save.last_outputs = Vec::new();
+        layer_to_save.last_inputs = Vec::new();
+        save_file(path, version, &layer_to_save)
+    }
+
+    /// loads all of the weights, biases, inputs_amount and ouputs_amount
+    /// into the current layer from the file in the path with that version
+    fn load(&mut self, path: &str, version: u32) -> Result<(), SavefileError> {
+        let loaded_layer_result: Result<Self, SavefileError> = load_file(path, version);
+        if loaded_layer_result.is_err() {
+            Err(loaded_layer_result.err().unwrap())
+        } else {
+            let loaded_layer = loaded_layer_result.unwrap();
+
+            self.weights = loaded_layer.weights;
+            self.biases = loaded_layer.biases;
+
+            self.outputs_amount = loaded_layer.outputs_amount;
+            self.inputs_amount = loaded_layer.inputs_amount;
+
+            Ok(())
+        }
+    }
+
+
+    async fn propagate(
+        &mut self, 
+        inputs_samples: &Vec<Vec<f64>>, 
+        _: &Option<wgpu::Device>,
+        _: &Option<wgpu::Queue>,
+    ) -> Vec<Vec<f64>> {
+        self.last_inputs = inputs_samples.to_vec();
+        self.last_outputs = inputs_samples
+            .par_iter()
+            .map(|inputs| self.biases.add(&self.weights.dot_product(inputs)))
+            .collect::<Vec<Vec<f64>>>();
+        self.last_outputs.to_vec()
+    }
+
+    async fn back_propagate(
+        &mut self,
+        should_calculate_input_to_error_derivative: bool,
+        layer_output_to_error_derivative: &Vec<Vec<f64>>,
+        learning_rate: f64, 
+        _: &Option<wgpu::Device>,
+        _: &Option<wgpu::Queue>,
+    ) -> Option<Vec<Vec<f64>>> {
+        assert!(!self.last_inputs.is_empty());
+        let samples_amount = layer_output_to_error_derivative.len();
+
+        // apply the gradients averaging the calculations between the samples
+        // but becomes extremely hard to calculate on very large neural networks
+        // with a large amount of samples to train on
+        self.weights = (0..self.inputs_amount)
+            .into_par_iter()
+            .map(|l| {
+                (0..self.outputs_amount)
+                    .into_iter()
+                    .map(|j| {
+                        self.weights[l][j]
+                            + learning_rate
+                                * layer_output_to_error_derivative
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(sample_index, sample_output_derivatives)| {
+                                        sample_output_derivatives[j]
+                                            * self.last_inputs[sample_index][l]
+                                    })
+                                    .sum::<f64>()
+                                / samples_amount as f64
+                    })
+                    .collect::<Vec<f64>>()
+            })
+            .collect::<Vec<Vec<f64>>>();
+
+        self.biases = (0..self.outputs_amount)
+            .into_par_iter()
+            .map(|j| {
+                self.biases[j]
+                    + learning_rate
+                        * layer_output_to_error_derivative
+                            .iter()
+                            .map(|sample_output_derivatives| sample_output_derivatives[j])
+                            .sum::<f64>()
+                        / samples_amount as f64
+            })
+            .collect::<Vec<f64>>();
+
+        if should_calculate_input_to_error_derivative {
+            let layer_input_to_error_derivatives = layer_output_to_error_derivative
+                .par_iter()
+                .map(|sample_output_derivatives| {
+                    self.weights
+                        .iter()
+                        .map(|input_to_outputs| {
+                            input_to_outputs
+                                .iter()
+                                .enumerate()
+                                .map(|(j, weight)| weight * sample_output_derivatives[j])
+                                .sum::<f64>()
+                        })
+                        .collect::<Vec<f64>>()
+                })
+                .collect::<Vec<Vec<f64>>>();
+
+            Some(layer_input_to_error_derivatives)
+        } else {
+            None
+        }
+    }
+}
+
+#[async_trait]
+impl Layer<f32> for DenseF32 {
     fn get_last_inputs(&self) -> &Vec<Vec<f32>> {
         &self.last_inputs
     }
@@ -79,6 +263,35 @@ impl Layer for Dense {
 
     fn get_outputs_amount(&self) -> usize {
         self.outputs_amount
+    }
+
+    /// saves all the information of the current layer
+    /// expect for the last_outputs and last_inputs since these don't
+    /// really matter
+    fn save(&self, path: &str, version: u32) -> Result<(), SavefileError> {
+        let mut layer_to_save = self.clone();
+        layer_to_save.last_outputs = Vec::new();
+        layer_to_save.last_inputs = Vec::new();
+        save_file(path, version, &layer_to_save)
+    }
+
+    /// loads all of the weights, biases, inputs_amount and ouputs_amount
+    /// into the current layer from the file in the path with that version
+    fn load(&mut self, path: &str, version: u32) -> Result<(), SavefileError> {
+        let loaded_layer_result: Result<Self, SavefileError> = load_file(path, version);
+        if loaded_layer_result.is_err() {
+            Err(loaded_layer_result.err().unwrap())
+        } else {
+            let loaded_layer = loaded_layer_result.unwrap();
+
+            self.weights = loaded_layer.weights;
+            self.biases = loaded_layer.biases;
+
+            self.outputs_amount = loaded_layer.outputs_amount;
+            self.inputs_amount = loaded_layer.inputs_amount;
+
+            Ok(())
+        }
     }
 
     async fn propagate(
@@ -99,13 +312,14 @@ impl Layer for Dense {
         &mut self,
         should_calculate_input_to_error_derivative: bool,
         layer_output_to_error_derivative: &Vec<Vec<f32>>,
-        learning_rate: f32, 
+        learning_rate: f64, 
         _: &Option<wgpu::Device>,
         _: &Option<wgpu::Queue>,
     ) -> Option<Vec<Vec<f32>>> {
         assert!(!self.last_inputs.is_empty());
         let samples_amount = layer_output_to_error_derivative.len();
         let float_samples_amount = samples_amount as f32;
+        let f32_learning_rate = learning_rate as f32;
 
         // apply the gradients averaging the calculations between the samples
         // but becomes extremely hard to calculate on very large neural networks
@@ -117,7 +331,7 @@ impl Layer for Dense {
                     .into_iter()
                     .map(|j| {
                         self.weights[l][j]
-                            + learning_rate
+                            + f32_learning_rate
                                 * layer_output_to_error_derivative
                                     .iter()
                                     .enumerate()
@@ -136,7 +350,7 @@ impl Layer for Dense {
             .into_par_iter()
             .map(|j| {
                 self.biases[j]
-                    + learning_rate
+                    + f32_learning_rate
                         * layer_output_to_error_derivative
                             .iter()
                             .map(|sample_output_derivatives| sample_output_derivatives[j])
