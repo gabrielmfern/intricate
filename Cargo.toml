@@ -11,15 +11,9 @@ readme = "README.md"
 [dependencies]
 rayon = "1.5.3"
 rand = "0.8.5"
-wgpu = "0.13.1"
-async-trait = "0.1.56"
 savefile-derive="0.10"
-futures-intrusive = "0.4.0"
 bytemuck = "1.10.0"
 savefile="0.10"
-
-[dev-dependencies]
-pollster = "0.2.5"
 
 [[example]]
 name = "xor"
