@@ -7,7 +7,6 @@ use crate::{
     layers::{
         activations::{relu::ReLU, sigmoid::Sigmoid, softmax::SoftMax, tanh::TanH},
         dense::Dense,
-        dense_gpu::DenseGPU,
         Layer,
     },
     loss_functions::{

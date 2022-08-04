@@ -1,4 +1,4 @@
-use opencl3::{command_queue::CommandQueue, context::Context, device::cl_float, memory::Buffer, error_codes::ClError};
+use opencl3::{device::cl_float, memory::Buffer, error_codes::ClError};
 
 pub mod activations;
 pub mod dense;

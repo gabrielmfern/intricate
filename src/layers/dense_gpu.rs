@@ -1,5 +1,5 @@
 use opencl3::{
-    command_queue::{CommandQueue, CL_NON_BLOCKING, CL_BLOCKING},
+    command_queue::{CommandQueue, CL_NON_BLOCKING},
     context::Context,
     device::{cl_float, get_all_devices, CL_DEVICE_TYPE_GPU, Device},
     error_codes::{ClError, cl_int},
@@ -13,7 +13,7 @@ use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
 use savefile_derive::Savefile;
 use std::ptr;
 
-use crate::{layers::Layer, utils::approx_eq::assert_approx_equal};
+use crate::{layers::Layer, utils::approx_eq::assert_approx_equal_distance};
 
 use super::{OpenCLLayer, dense::Dense};
 
@@ -26,32 +26,32 @@ fn should_propagate_to_same_value_as_normal_dense() -> Result<(), ClError> {
     let first_device = Device::new(*device_ids.get(0).expect("There is no GPU device!"));
 
     let context = Context::from_device(&first_device)?;
-    let queue = CommandQueue::create(&context, first_device.id(), 0)?;
+    let queue = CommandQueue::create_with_properties(&context, first_device.id(), 0, 0)?;
 
-    let mut gpu_dense = DenseGPU::new(2, 1, &context, &queue)?;
+    let samples_amount = 100;
+    let inputs_amount = 20;
+    let outputs_amount = 5;
 
-    let mut normal_dense = Dense::new(2, 1);
+    let mut gpu_dense = DenseGPU::new(inputs_amount, outputs_amount, &context, &queue)?;
+
+    let mut normal_dense = Dense::new(inputs_amount, outputs_amount);
     normal_dense.weights = gpu_dense.weights.to_vec();
     normal_dense.biases = gpu_dense.biases.to_vec();
 
-    let input_samples = Vec::from([
-        Vec::from([0.4, 0.2]),
-        Vec::from([0.213, 0.412]),
-        Vec::from([0.123, 0.9123])
-    ]);
+    let input_samples = vec![vec![0.1; inputs_amount]; samples_amount]; 
 
     let expected_outputs = normal_dense.propagate(&input_samples);
 
     let mut input_samples_buffer = Buffer::<cl_float>::create(
         &context, 
-        CL_MEM_READ_ONLY,
-        3 * 2,
+        CL_MEM_READ_WRITE,
+        samples_amount * inputs_amount,
         ptr::null_mut()
     )?;
 
     let input_samples_gpu_write_event = queue.enqueue_write_buffer(
         &mut input_samples_buffer, 
-        CL_BLOCKING, 
+        CL_NON_BLOCKING, 
         0, 
         input_samples.iter().map(|x| x.to_vec()).flatten().collect::<Vec<f32>>().as_slice(), 
         &[]
@@ -61,7 +61,7 @@ fn should_propagate_to_same_value_as_normal_dense() -> Result<(), ClError> {
 
     let gpu_outputs_buffer = gpu_dense.propagate(&input_samples_buffer)?;
 
-    let mut outputs_vec = vec![0.0; 3 * 1];
+    let mut outputs_vec = vec![0.0; samples_amount * outputs_amount];
     let gpu_flattend_outputs = outputs_vec.as_mut_slice();
 
     let read_flattened_outputs_gpu = queue.enqueue_read_buffer(
@@ -78,8 +78,8 @@ fn should_propagate_to_same_value_as_normal_dense() -> Result<(), ClError> {
 
     println!("expected outputs: {:?}", flattened_expected_outputs);
     println!("actual outputs: {:?}", outputs_vec);
-
-    assert_approx_equal(&outputs_vec, &flattened_expected_outputs, 3);
+ 
+    assert_approx_equal_distance(&outputs_vec, &flattened_expected_outputs, 0.2);
 
     Ok(())
 }

@@ -23,3 +23,12 @@ pub fn assert_approx_equal(a: &Vec<f32>, b: &Vec<f32>, decimal_place: u32) -> ()
     
     assert_eq!(approximate_a, approximate_b);
 }
+
+pub fn assert_approx_equal_distance(a: &Vec<f32>, b: &Vec<f32>, max_dist: f32) -> () {
+    assert_eq!(a.len(), b.len());
+
+    a.iter().zip(b).for_each(|(x, y)| {
+        println!("x:{}\ny:{}", x, y);
+        assert!((x - y).abs() <= max_dist);
+    });
+}
