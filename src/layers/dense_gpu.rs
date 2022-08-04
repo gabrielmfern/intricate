@@ -1,11 +1,11 @@
 use opencl3::{
-    command_queue::{CommandQueue, CL_NON_BLOCKING},
+    command_queue::{CommandQueue, CL_NON_BLOCKING, CL_BLOCKING},
     context::Context,
-    device::cl_float,
+    device::{cl_float, get_all_devices, CL_DEVICE_TYPE_GPU, Device},
     error_codes::{ClError, cl_int},
     kernel::{ExecuteKernel, Kernel},
     memory::{Buffer, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE, ClMem},
-    program::Program, types::cl_event,
+    program::Program,
 };
 use std::mem;
 use rand::Rng;
@@ -13,9 +13,76 @@ use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
 use savefile_derive::Savefile;
 use std::ptr;
 
-use super::OpenCLLayer;
+use crate::{layers::Layer, utils::approx_eq::assert_approx_equal};
+
+use super::{OpenCLLayer, dense::Dense};
 
 const PROPAGATION_KERNEL_SORUCE: &str = include_str!("kernels/dense_propagation.cl");
+
+#[test]
+fn should_propagate_to_same_value_as_normal_dense() -> Result<(), ClError> {
+    let device_ids = get_all_devices(CL_DEVICE_TYPE_GPU)?;
+
+    let first_device = Device::new(*device_ids.get(0).expect("There is no GPU device!"));
+
+    let context = Context::from_device(&first_device)?;
+    let queue = CommandQueue::create(&context, first_device.id(), 0)?;
+
+    let mut gpu_dense = DenseGPU::new(2, 1, &context, &queue)?;
+
+    let mut normal_dense = Dense::new(2, 1);
+    normal_dense.weights = gpu_dense.weights.to_vec();
+    normal_dense.biases = gpu_dense.biases.to_vec();
+
+    let input_samples = Vec::from([
+        Vec::from([0.4, 0.2]),
+        Vec::from([0.213, 0.412]),
+        Vec::from([0.123, 0.9123])
+    ]);
+
+    let expected_outputs = normal_dense.propagate(&input_samples);
+
+    let mut input_samples_buffer = Buffer::<cl_float>::create(
+        &context, 
+        CL_MEM_READ_ONLY,
+        3 * 2,
+        ptr::null_mut()
+    )?;
+
+    let input_samples_gpu_write_event = queue.enqueue_write_buffer(
+        &mut input_samples_buffer, 
+        CL_BLOCKING, 
+        0, 
+        input_samples.iter().map(|x| x.to_vec()).flatten().collect::<Vec<f32>>().as_slice(), 
+        &[]
+    )?;
+
+    input_samples_gpu_write_event.wait()?;
+
+    let gpu_outputs_buffer = gpu_dense.propagate(&input_samples_buffer)?;
+
+    let mut outputs_vec = vec![0.0; 3 * 1];
+    let gpu_flattend_outputs = outputs_vec.as_mut_slice();
+
+    let read_flattened_outputs_gpu = queue.enqueue_read_buffer(
+        gpu_outputs_buffer, 
+        CL_NON_BLOCKING, 
+        0,
+        gpu_flattend_outputs, 
+        &[]
+    )?;
+
+    read_flattened_outputs_gpu.wait()?;
+
+    let flattened_expected_outputs = expected_outputs.iter().map(|x| x.to_vec()).flatten().collect();
+
+    println!("expected outputs: {:?}", flattened_expected_outputs);
+    println!("actual outputs: {:?}", outputs_vec);
+
+    assert_approx_equal(&outputs_vec, &flattened_expected_outputs, 3);
+
+    Ok(())
+}
 
 #[derive(Debug, Savefile)]
 /// A densely connected layer, this layer consists of some inputs
@@ -113,14 +180,14 @@ impl<'a> DenseGPU<'a> {
             Program::create_and_build_from_source(context, PROPAGATION_KERNEL_SORUCE, "");
         if propagation_program_compilation_result.is_err() {
             println!(
-                "A compilation error was found in the DenseGPU PROPAGATION_KERNEL:\n{:?}",
-                propagation_program_compilation_result.err().unwrap()
+                "A compilation error was found in the DenseGPU PROPAGATION_KERNEL:"
             );
+            print!("{:?}", propagation_program_compilation_result.err());
             println!("Please report this issue at https://github.com/gabrielmfern/intricate");
             panic!();
         }
         let propagation_program = propagation_program_compilation_result.unwrap();
-        let propagation_kernel = Kernel::create(&propagation_program, "PROPAGATO_KERNEL")?;
+        let propagation_kernel = Kernel::create(&propagation_program, "dense_propagate")?;
 
         self.propagation_program = Some(propagation_program);
         self.propagation_kernel = Some(propagation_kernel);
@@ -138,7 +205,7 @@ impl<'a> DenseGPU<'a> {
     ) -> Result<DenseGPU<'a>, ClError> {
         let mut rng = rand::thread_rng();
 
-        let mut weights = (0..inputs_amount)
+        let weights = (0..inputs_amount)
             .into_iter()
             .map(|_| {
                 (0..outputs_amount)
@@ -194,7 +261,7 @@ impl<'a> DenseGPU<'a> {
             panic!();
         }
         let propagation_program = propagation_program_compilation_result.unwrap();
-        let propagation_kernel = Kernel::create(&propagation_program, "PROPAGATO_KERNEL")?;
+        let propagation_kernel = Kernel::create(&propagation_program, "dense_propagate")?;
 
         Ok(DenseGPU {
             inputs_amount,
@@ -239,7 +306,7 @@ impl<'a> OpenCLLayer<'a> for DenseGPU<'a> {
 
         self.last_inputs_buffer = Some(input_samples);
 
-        let samples_amount = input_samples.size()? / mem::size_of::<cl_float>();
+        let samples_amount = input_samples.size()? / self.inputs_amount / mem::size_of::<cl_float>();
 
         let outputs_buffer = Buffer::<cl_float>::create(
             self.opencl_context.unwrap(),
@@ -252,8 +319,8 @@ impl<'a> OpenCLLayer<'a> for DenseGPU<'a> {
 
         let kernel_event = ExecuteKernel::new(self.propagation_kernel.as_ref().unwrap())
             .set_arg(input_samples)
-            .set_arg(&self.biases_buffer)
-            .set_arg(&self.weights_buffer)
+            .set_arg(self.biases_buffer.as_ref().unwrap())
+            .set_arg(self.weights_buffer.as_ref().unwrap())
             .set_arg(&outputs_buffer)
             .set_arg(&arg_inputs_amount)
             .set_global_work_sizes(&[samples_amount, self.outputs_amount])

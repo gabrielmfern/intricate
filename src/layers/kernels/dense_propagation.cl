@@ -20,7 +20,7 @@ kernel void dense_propagate(
         return;
     }
 
-    int flattened_output_index = samples_index * outputs_amount + output_index;
+    int flattened_output_index = sample_index * outputs_amount + output_index;
 
     float output = biases[output_index];
 
@@ -28,7 +28,7 @@ kernel void dense_propagate(
         int flattened_input_index = sample_index * inputs_amount + input_index;
         int flattened_weight_index = input_index * outputs_amount + output_index;
 
-        output += (float) (flattened_input_samples[flattened_input_index] * flattened_weights[flattened_weight_index);
+        output += (float) (flattened_input_samples[flattened_input_index] * flattened_weights[flattened_weight_index]);
     }
 
     flattened_output_samples[flattened_output_index] = output;
