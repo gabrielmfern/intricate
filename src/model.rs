@@ -18,7 +18,6 @@ use crate::{
 #[derive(Debug, Clone, Savefile)]
 pub enum ModelLayer {
     Dense(Dense),
-    DenseGPU(DenseGPU),
     TanH(TanH),
     Sigmoid(Sigmoid),
     SoftMax(SoftMax),
@@ -85,7 +84,6 @@ impl Layer for ModelLayer {
     fn get_last_inputs(&self) -> &Vec<Vec<f32>> {
         match self {
             ModelLayer::Dense(layer) => layer.get_last_inputs(),
-            ModelLayer::DenseGPU(layer) => layer.get_last_inputs(),
             ModelLayer::TanH(layer) => layer.get_last_inputs(),
             ModelLayer::Sigmoid(layer) => layer.get_last_inputs(),
             ModelLayer::SoftMax(layer) => layer.get_last_inputs(),
@@ -96,7 +94,6 @@ impl Layer for ModelLayer {
     fn get_last_outputs(&self) -> &Vec<Vec<f32>> {
         match self {
             ModelLayer::Dense(layer) => layer.get_last_outputs(),
-            ModelLayer::DenseGPU(layer) => layer.get_last_outputs(),
             ModelLayer::TanH(layer) => layer.get_last_outputs(),
             ModelLayer::Sigmoid(layer) => layer.get_last_outputs(),
             ModelLayer::SoftMax(layer) => layer.get_last_outputs(),
@@ -107,7 +104,6 @@ impl Layer for ModelLayer {
     fn get_inputs_amount(&self) -> usize {
         match self {
             ModelLayer::Dense(layer) => layer.get_inputs_amount(),
-            ModelLayer::DenseGPU(layer) => layer.get_inputs_amount(),
             ModelLayer::TanH(layer) => layer.get_inputs_amount(),
             ModelLayer::Sigmoid(layer) => layer.get_inputs_amount(),
             ModelLayer::SoftMax(layer) => layer.get_inputs_amount(),
@@ -118,7 +114,6 @@ impl Layer for ModelLayer {
     fn get_outputs_amount(&self) -> usize {
         match self {
             ModelLayer::Dense(layer) => layer.get_outputs_amount(),
-            ModelLayer::DenseGPU(layer) => layer.get_outputs_amount(),
             ModelLayer::TanH(layer) => layer.get_outputs_amount(),
             ModelLayer::Sigmoid(layer) => layer.get_outputs_amount(),
             ModelLayer::SoftMax(layer) => layer.get_outputs_amount(),
@@ -132,7 +127,6 @@ impl Layer for ModelLayer {
     ) -> Vec<Vec<f32>> {
         match self {
             ModelLayer::Dense(layer) => layer.propagate(inputs),
-            ModelLayer::DenseGPU(layer) => layer.propagate(inputs),
             ModelLayer::TanH(layer) => layer.propagate(inputs),
             ModelLayer::Sigmoid(layer) => layer.propagate(inputs),
             ModelLayer::SoftMax(layer) => layer.propagate(inputs),
@@ -148,11 +142,6 @@ impl Layer for ModelLayer {
     ) -> Option<Vec<Vec<f32>>> {
         match self {
             ModelLayer::Dense(layer) => layer.back_propagate(
-                should_calculate_input_to_error_derivative,
-                layer_output_to_error_derivative,
-                learning_rate,
-            ),
-            ModelLayer::DenseGPU(layer) => layer.back_propagate(
                 should_calculate_input_to_error_derivative,
                 layer_output_to_error_derivative,
                 learning_rate,

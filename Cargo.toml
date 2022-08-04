@@ -3,6 +3,7 @@ name = "intricate"
 version = "0.3.0"
 edition = "2021"
 license = "MIT"
+authors = ["Gabriel Miranda"]
 keywords = ["neural-networks", "machine-learning", "backpropagation"]
 description = "A GPU accelerated library that creates/trains/runs neural networks in pure safe Rust code."
 repository = "https://github.com/gabrielmfern/intricate"
@@ -14,6 +15,7 @@ rand = "0.8.5"
 savefile-derive="0.10"
 bytemuck = "1.10.0"
 savefile="0.10"
+opencl3="0.8.1"
 
 [[example]]
 name = "xor"

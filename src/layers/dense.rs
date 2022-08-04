@@ -18,7 +18,9 @@ pub struct Dense {
     pub weights: Vec<Vec<f32>>,
     pub biases: Vec<f32>,
 
+    #[savefile_ignore]
     pub last_inputs: Vec<Vec<f32>>,
+    #[savefile_ignore]
     pub last_outputs: Vec<Vec<f32>>,
 }
 
@@ -45,19 +47,6 @@ impl Dense {
                 .collect::<Vec<f32>>(),
             last_outputs: Vec::new(),
             last_inputs: Vec::new(),
-        }
-    }
-
-    /// Creates an empty Dense layer without any weights,
-    /// inputs_amount or outputs_amount
-    pub fn dummy() -> Dense {
-        Dense {
-            inputs_amount: 0,
-            outputs_amount: 0,
-            weights: Vec::new(),
-            biases: Vec::new(),
-            last_outputs: Vec::new(),
-            last_inputs: Vec::new()
         }
     }
 }
