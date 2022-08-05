@@ -4,6 +4,7 @@
 [![Crates.io](https://img.shields.io/crates/dv/intricate)](https://crates.io/crates/intricate)
 ![github.com](https://img.shields.io/github/license/gabrielmfern/intricate)
 ![github.com](https://img.shields.io/github/commit-activity/m/gabrielmfern/intricate)
+[![Sonar Cube Static Analysis](https://sonarcloud.io/api/project_badges/measure?project=gabrielmfern_intricate&metric=ncloc)](https://sonarcloud.io/dashboard?id=gabrielmfern_intricate)
 ![github.com](https://img.shields.io/github/workflow/status/gabrielmfern/intricate/Rust)
 
 A GPU accelerated library that creates/trains/runs neural networks in pure safe Rust code.
