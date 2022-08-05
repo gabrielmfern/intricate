@@ -1,4 +1,4 @@
-use opencl3::{device::cl_float, memory::Buffer, error_codes::ClError};
+use opencl3::{device::cl_float, memory::Buffer, error_codes::ClError, command_queue::CommandQueue, context::Context};
 
 pub mod activations;
 pub mod dense;
@@ -31,6 +31,27 @@ pub trait OpenCLLayer<'a> {
     /// but layers like the Dense layer just have a specific amount for the
     /// inputs_amount and the outputs_amount because of its architechture
     fn get_outputs_amount(&self) -> usize;
+
+    /// Cleans up all of the buffers saved up in the GPU
+    /// for this layer
+    fn clean_up_gpu_state(&mut self) -> ();
+
+    /// Allocates the data from the GPU into the CPU
+    ///
+    /// does not allocate the last_inputs nor the last_outputs
+    fn sync_data_from_gpu_with_cpu(&mut self) -> Result<(), ClError>;
+
+    /// Sends the weights and the biases of the current layer to the GPU
+    /// as to be used in the propagation and back propagation
+    ///
+    /// mostly used after loading the layer using load_file and then
+    /// there is a need to resend the data to the GPU since Savefile doesn't
+    /// load the data into the GPU by itself
+    fn send_to_gpu(
+        &mut self,
+        queue: &'a CommandQueue,
+        context: &'a Context,
+    ) -> Result<(), ClError>;
 
     /// Should calculate the outputs of the layer based on the inputs
     ///
@@ -77,7 +98,7 @@ pub trait OpenCLLayer<'a> {
         should_calculate_input_to_error_derivative: bool,
         layer_output_to_error_derivative: &Buffer<cl_float>,
         learning_rate: cl_float,
-    ) -> Result<Option<&Buffer<cl_float>>, ClError>;
+    ) -> Result<Option<Buffer<cl_float>>, ClError>;
 }
 
 /// A layer can be defined basically as function receiving some input

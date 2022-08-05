@@ -90,6 +90,28 @@ impl Layer for Dense {
         let samples_amount = layer_output_to_error_derivative.len();
         let float_samples_amount = samples_amount as f32;
 
+        let layer_input_to_error_derivatives;
+
+        if should_calculate_input_to_error_derivative {
+            layer_input_to_error_derivatives = Some(layer_output_to_error_derivative
+                .par_iter()
+                .map(|sample_output_derivatives| {
+                    self.weights
+                        .iter()
+                        .map(|input_to_outputs| {
+                            input_to_outputs
+                                .iter()
+                                .enumerate()
+                                .map(|(j, weight)| weight * sample_output_derivatives[j])
+                                .sum::<f32>()
+                        })
+                        .collect::<Vec<f32>>()
+                })
+                .collect::<Vec<Vec<f32>>>());
+        } else {
+            layer_input_to_error_derivatives = None;
+        }
+
         // apply the gradients averaging the calculations between the samples
         // but becomes extremely hard to calculate on very large neural networks
         // with a large amount of samples to train on
@@ -128,26 +150,6 @@ impl Layer for Dense {
             })
             .collect::<Vec<f32>>();
 
-        if should_calculate_input_to_error_derivative {
-            let layer_input_to_error_derivatives = layer_output_to_error_derivative
-                .par_iter()
-                .map(|sample_output_derivatives| {
-                    self.weights
-                        .iter()
-                        .map(|input_to_outputs| {
-                            input_to_outputs
-                                .iter()
-                                .enumerate()
-                                .map(|(j, weight)| weight * sample_output_derivatives[j])
-                                .sum::<f32>()
-                        })
-                        .collect::<Vec<f32>>()
-                })
-                .collect::<Vec<Vec<f32>>>();
-
-            Some(layer_input_to_error_derivatives)
-        } else {
-            None
-        }
+        layer_input_to_error_derivatives
     }
 }
