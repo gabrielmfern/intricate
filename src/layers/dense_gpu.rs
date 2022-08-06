@@ -545,6 +545,13 @@ impl<'a> OpenCLLayer<'a> for DenseGPU<'a> {
         assert!(self.opencl_context.is_some());
         assert!(self.opencl_queue.is_some());
 
+        if self.last_inputs_buffer.is_some() {
+            drop(self.last_inputs_buffer.as_ref().unwrap());
+        }
+        if self.last_outputs_buffer.is_some() {
+            drop(self.last_outputs_buffer.as_ref().unwrap());
+        }
+
         self.last_inputs_buffer = Some(input_samples);
 
         let samples_amount =
@@ -626,7 +633,7 @@ impl<'a> OpenCLLayer<'a> for DenseGPU<'a> {
                 .set_global_work_sizes(&[self.inputs_amount, self.outputs_amount])
                 .enqueue_nd_range(queue)?;
 
-        weights_apply_gradients_kernel_event .wait()?;
+        weights_apply_gradients_kernel_event.wait()?;
 
         let new_biases_buffer = Buffer::<cl_float>::create(
             self.opencl_context.unwrap(),

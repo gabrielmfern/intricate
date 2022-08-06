@@ -3,6 +3,8 @@ pub mod relu;
 pub mod sigmoid;
 pub mod tanh;
 
+pub mod tanh_gpu;
+
 mod tests;
 
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};

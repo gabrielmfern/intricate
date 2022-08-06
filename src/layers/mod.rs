@@ -41,7 +41,7 @@ pub trait OpenCLLayer<'a> {
     /// does not allocate the last_inputs nor the last_outputs
     fn sync_data_from_gpu_with_cpu(&mut self) -> Result<(), ClError>;
 
-    /// Sends the weights and the biases of the current layer to the GPU
+    /// Sends the important information of the current layer to the GPU
     /// as to be used in the propagation and back propagation
     ///
     /// mostly used after loading the layer using load_file and then
