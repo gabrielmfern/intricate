@@ -36,7 +36,8 @@ fn should_return_same_value_as_normal_tanh_function() -> Result<(), ClError> {
     let queue = CommandQueue::create_with_properties(&context, device_ids[0], 0, 0)?;
 
     let mut normal_tanh = TanH::new();
-    let mut gpu_tanh = TanHGPU::new(100, &context, &queue)?;
+    let mut gpu_tanh = TanHGPU::new(100);
+    gpu_tanh.init(&queue, &context)?;
 
     let input_samples = vec![vec![0.412; 100]; 100];
     let expected_outputs = normal_tanh.propagate(&input_samples);
@@ -59,7 +60,7 @@ fn should_return_same_value_as_normal_tanh_function() -> Result<(), ClError> {
         )?
         .wait()?;
 
-    let actual_outputs_buffer = gpu_tanh.propagate(&input_samples_buffer)?;
+    let actual_outputs_buffer = gpu_tanh.propagate(input_samples_buffer)?;
 
     let mut actual_outputs = vec![0.0; 100 * 100];
     let actual_outputs_slice = actual_outputs.as_mut_slice();
@@ -95,7 +96,8 @@ fn should_return_same_value_on_back_propagation_as_normal_tanh_function() -> Res
     let queue = CommandQueue::create_with_properties(&context, device_ids[0], 0, 0)?;
 
     let mut normal_tanh = TanH::new();
-    let mut gpu_tanh = TanHGPU::new(100, &context, &queue)?;
+    let mut gpu_tanh = TanHGPU::new(100);
+    gpu_tanh.init(&queue, &context)?;
 
     let input_samples = vec![vec![0.412; 100]; 100];
     let first_derivatives = vec![vec![2.3; 100]; 100];
@@ -135,7 +137,7 @@ fn should_return_same_value_on_back_propagation_as_normal_tanh_function() -> Res
         )?
         .wait()?;
 
-    gpu_tanh.propagate(&input_samples_buffer)?;
+    gpu_tanh.propagate(input_samples_buffer)?;
     normal_tanh.propagate(&input_samples);
 
     let expected_loss_to_input_derivatives = normal_tanh
@@ -186,7 +188,7 @@ pub struct TanHGPU<'a> {
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    pub last_inputs_buffer: Option<&'a Buffer<cl_float>>,
+    pub last_inputs_buffer: Option<Buffer<cl_float>>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
     pub last_outputs_buffer: Option<Buffer<cl_float>>,
@@ -211,37 +213,22 @@ pub struct TanHGPU<'a> {
 
 impl<'a> TanHGPU<'a> {
     #[allow(dead_code)]
-    fn new(inputs_amount: usize, context: &'a Context, queue: &'a CommandQueue) -> Result<TanHGPU<'a>, ClError> {
-        let program_compilation_result =
-            Program::create_and_build_from_source(context, PROGRAM_SOURCE, "");
-        if program_compilation_result.is_err() {
-            println!(
-                "A compilation error was found in the tanh.cl Program:\n{:?}",
-                program_compilation_result.err().unwrap()
-            );
-            println!("Please report this issue at https://github.com/gabrielmfern/intricate");
-            panic!();
-        }
-
-        let program = program_compilation_result.unwrap();
-        let propagation_kernel = Kernel::create(&program, PROPAGATE_KERNEL_NAME)?;
-        let back_propagation_kernel = Kernel::create(&program, BACK_PROPAGATE_KERNEL_NAME)?;
-
-        Ok(TanHGPU {
+    fn new(inputs_amount: usize) -> TanHGPU<'a> {
+        TanHGPU {
             inputs_amount,
-            opencl_context: Some(context),
-            opencl_queue: Some(queue),
-            opencl_program: Some(program),
-            opencl_propagate_kernel: Some(propagation_kernel),
-            opencl_back_propagate_kernel: Some(back_propagation_kernel),
+            opencl_context: None,
+            opencl_queue: None,
+            opencl_program: None,
+            opencl_propagate_kernel: None,
+            opencl_back_propagate_kernel: None,
             last_outputs_buffer: None,
             last_inputs_buffer: None,
-        })
+        }
     }
 }
 
 impl<'a> OpenCLLayer<'a> for TanHGPU<'a> {
-    fn send_to_gpu(
+    fn init(
         &mut self,
         queue: &'a CommandQueue,
         context: &'a Context,
@@ -270,8 +257,8 @@ impl<'a> OpenCLLayer<'a> for TanHGPU<'a> {
         Ok(())
     }
 
-    fn get_last_inputs(&self) -> Option<&'a Buffer<cl_float>> {
-        self.last_inputs_buffer
+    fn get_last_inputs(&self) -> Option<&Buffer<cl_float>> {
+        self.last_inputs_buffer.as_ref()
     }
 
     fn get_last_outputs(&self) -> Option<&Buffer<cl_float>> {
@@ -279,11 +266,11 @@ impl<'a> OpenCLLayer<'a> for TanHGPU<'a> {
     }
 
     fn get_inputs_amount(&self) -> usize {
-        0
+        self.inputs_amount
     }
 
     fn get_outputs_amount(&self) -> usize {
-        0
+        self.inputs_amount
     }
 
     fn clean_up_gpu_state(&mut self) -> () {
@@ -300,17 +287,12 @@ impl<'a> OpenCLLayer<'a> for TanHGPU<'a> {
         Ok(())
     }
 
-    fn propagate(&mut self, inputs: &'a Buffer<cl_float>) -> Result<&Buffer<cl_float>, ClError> {
+    fn propagate(&mut self, inputs: Buffer<cl_float>) -> Result<Buffer<cl_float>, ClError> {
         assert!(self.opencl_context.is_some());
         assert!(self.opencl_queue.is_some());
-        if self.last_inputs_buffer.is_some() {
-            drop(self.last_inputs_buffer.as_ref().unwrap());
-        }
-        if self.last_outputs_buffer.is_some() {
-            drop(self.last_outputs_buffer.as_ref().unwrap());
-        }
 
-        self.last_inputs_buffer = Some(inputs);
+        let cloned_inputs = Buffer::<cl_float>::new(inputs.get());
+        self.last_inputs_buffer = Some(cloned_inputs);
 
         let outputs_total_count = inputs.size()? / mem::size_of::<cl_float>();
 
@@ -322,7 +304,7 @@ impl<'a> OpenCLLayer<'a> for TanHGPU<'a> {
         )?;
 
         ExecuteKernel::new(self.opencl_propagate_kernel.as_ref().unwrap())
-            .set_arg(inputs)
+            .set_arg(&inputs)
             .set_arg(&outputs_buffer)
             .set_global_work_size(outputs_total_count)
             .enqueue_nd_range(self.opencl_queue.unwrap())?
@@ -330,7 +312,7 @@ impl<'a> OpenCLLayer<'a> for TanHGPU<'a> {
 
         self.last_outputs_buffer = Some(outputs_buffer);
 
-        Ok(self.last_outputs_buffer.as_ref().unwrap())
+        Ok(self.last_outputs_buffer.unwrap())
     }
 
     fn back_propagate(

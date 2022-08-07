@@ -42,15 +42,9 @@ fn main() {
                 learning_rate: 0.1,
                 loss_algorithm: ModelLossFunction::MeanSquared(MeanSquared), // The Mean Squared loss function
                 should_print_information: true,        // Should be verbose
-                instantiate_gpu: false, // Should not initialize WGPU Device and Queue for GPU layers since there are no GPU layers here
                 epochs: 10000,
             },
         );
-    // we await here because for a GPU computation type of layer
-    // the responses from the GPU must be awaited on the CPU
-    // and since the model technically does not know what type of layers there are
-    // it cannot automatically initialize or not wgpu Deivce and Queue
-    // the dense gpu layers will panic if use_gpu is false
 
     // for saving Intricate uses the 'savefile' crate
     // that simply needs to call the 'save_file' function to the path you want

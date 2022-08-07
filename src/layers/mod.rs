@@ -12,7 +12,7 @@ pub trait OpenCLLayer<'a> {
     /// Gets the last input samples that were used in the 'propagate' method,
     /// having this getter forces a struct that implements Layer to save its
     /// inputs on propagate
-    fn get_last_inputs(&self) -> Option<&'a Buffer<cl_float>>;
+    fn get_last_inputs(&self) -> Option<&Buffer<cl_float>>;
 
     /// Gets the last output samples that were the result in the 'propagate' method,
     /// having this getter forces a struct that implements Layer to save its
@@ -47,7 +47,7 @@ pub trait OpenCLLayer<'a> {
     /// mostly used after loading the layer using load_file and then
     /// there is a need to resend the data to the GPU since Savefile doesn't
     /// load the data into the GPU by itself
-    fn send_to_gpu(
+    fn init(
         &mut self,
         queue: &'a CommandQueue,
         context: &'a Context,
@@ -70,7 +70,7 @@ pub trait OpenCLLayer<'a> {
     /// the same device everywhere here
     fn propagate(
         &mut self,
-        inputs: &'a Buffer<cl_float>,
+        inputs: &Buffer<cl_float>,
     ) -> Result<&Buffer<cl_float>, ClError>;
 
     /// Should calculate and apply the gradients,

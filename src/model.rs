@@ -174,7 +174,6 @@ pub struct TrainingOptions {
     // TODO: implement optimizers
     pub learning_rate: f32,
     pub should_print_information: bool,
-    pub instantiate_gpu: bool,
     pub epochs: usize,
 }
 
@@ -228,18 +227,19 @@ impl Model {
         }
     }
 
-    /// This method is made to work with both
-    /// GPU and CPU so it needs to receive the wgpu Device
-    /// and the wgpu Queue to run the shaders on the GPU,
-    /// but of curse it is an Option, so if you don't want to use
-    /// the GPU just pass in None, DenseGPU will panic
-    /// if there is no Device or Queue
+    /// Should compute the derivative of the loss with respect to the outputs
+    /// of the Model that come from the training_input_samples and then
+    /// call the backprop function in every layer always passing the derivatives
+    /// from one layer to the other.
+    ///
+    /// Returns the loss of the Model after doing backprop, although it returns
+    /// None when the should_print_information is set to false
     pub fn back_propagate(
         &mut self,
         training_input_samples: &Vec<Vec<f32>>,
         training_expected_output_samples: &Vec<Vec<f32>>,
         training_options: &TrainingOptions,
-    ) -> f32 {
+    ) -> Option<f32> {
         assert_eq!(
             training_input_samples.len(),
             training_expected_output_samples.len()
@@ -297,18 +297,19 @@ impl Model {
 
         let actual_sample_outputs = &self.predict(training_input_samples);
 
-        let new_loss = training_options
-            .loss_algorithm
-            .average_loss_for_samples(actual_sample_outputs, training_expected_output_samples);
 
         if training_options.should_print_information {
+            let new_loss = training_options
+                .loss_algorithm
+                .average_loss_for_samples(actual_sample_outputs, training_expected_output_samples);
             println!(
                 "{}s elapsed, now has loss of {}",
                 start_instant.elapsed().as_secs_f32(),
                 new_loss
             );
+            Some(new_loss)
+        } else {
+            None
         }
-
-        new_loss
     }
 }

@@ -41,7 +41,8 @@ fn should_apply_gradients_just_like_normal_dense() -> Result<(), ClError> {
     let inputs_amount = 10;
     let outputs_amount = 5;
 
-    let mut gpu_dense = DenseGPU::new(inputs_amount, outputs_amount, &context, &queue)?;
+    let mut gpu_dense = DenseGPU::new(inputs_amount, outputs_amount);
+    gpu_dense.init(&queue, &context)?;
 
     let mut normal_dense = Dense::new(inputs_amount, outputs_amount);
     normal_dense.weights = gpu_dense.weights.to_vec();
@@ -74,7 +75,7 @@ fn should_apply_gradients_just_like_normal_dense() -> Result<(), ClError> {
 
     input_samples_gpu_write_event.wait()?;
 
-    gpu_dense.last_inputs_buffer = Some(&input_samples_buffer);
+    gpu_dense.last_inputs_buffer = Some(input_samples_buffer);
 
     let mut loss_to_output_derivatives_buffer = Buffer::<cl_float>::create(
         &context,
@@ -137,7 +138,8 @@ fn should_propagate_to_same_value_as_normal_dense() -> Result<(), ClError> {
     let inputs_amount = 20;
     let outputs_amount = 5;
 
-    let mut gpu_dense = DenseGPU::new(inputs_amount, outputs_amount, &context, &queue)?;
+    let mut gpu_dense = DenseGPU::new(inputs_amount, outputs_amount);
+    gpu_dense.init(&queue, &context)?;
 
     let mut normal_dense = Dense::new(inputs_amount, outputs_amount);
     normal_dense.weights = gpu_dense.weights.to_vec();
@@ -169,13 +171,13 @@ fn should_propagate_to_same_value_as_normal_dense() -> Result<(), ClError> {
 
     input_samples_gpu_write_event.wait()?;
 
-    let gpu_outputs_buffer = gpu_dense.propagate(&input_samples_buffer)?;
+    let gpu_outputs_buffer = gpu_dense.propagate(input_samples_buffer)?;
 
     let mut outputs_vec = vec![0.0; samples_amount * outputs_amount];
     let gpu_flattend_outputs = outputs_vec.as_mut_slice();
 
     let read_flattened_outputs_gpu = queue.enqueue_read_buffer(
-        gpu_outputs_buffer,
+        &gpu_outputs_buffer,
         CL_NON_BLOCKING,
         0,
         gpu_flattend_outputs,
@@ -203,7 +205,7 @@ fn should_propagate_to_same_value_as_normal_dense() -> Result<(), ClError> {
 ///
 /// For this layer all the definitions are the same, the only difference
 /// is computation is done in all the devices Intricate is able to find
-pub struct DenseGPU<'a> {
+pub struct DenseGPU<'a, 'b> {
     pub inputs_amount: usize,
     pub outputs_amount: usize,
 
@@ -219,7 +221,7 @@ pub struct DenseGPU<'a> {
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    pub last_inputs_buffer: Option<&'a Buffer<cl_float>>,
+    pub last_inputs_buffer: Option<&'b Buffer<cl_float>>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
     pub last_outputs_buffer: Option<Buffer<cl_float>>,
@@ -258,9 +260,7 @@ impl<'a> DenseGPU<'a> {
     pub fn new(
         inputs_amount: usize,
         outputs_amount: usize,
-        context: &'a Context,
-        queue: &'a CommandQueue,
-    ) -> Result<DenseGPU<'a>, ClError> {
+    ) -> DenseGPU<'a> {
         let mut rng = rand::thread_rng();
 
         let weights = (0..inputs_amount)
@@ -272,95 +272,30 @@ impl<'a> DenseGPU<'a> {
                     .collect::<Vec<f32>>()
             })
             .collect::<Vec<Vec<f32>>>();
-        let mut weights_buffer = Buffer::<cl_float>::create(
-            context,
-            CL_MEM_READ_WRITE,
-            inputs_amount * outputs_amount,
-            ptr::null_mut(),
-        )?;
 
         let biases = (0..outputs_amount)
             .into_iter()
             .map(|_| rng.gen_range(-1.0_f32..=1.0_f32))
             .collect::<Vec<f32>>();
-        let mut biases_buffer = Buffer::<cl_float>::create(
-            context,
-            CL_MEM_READ_WRITE,
-            outputs_amount,
-            ptr::null_mut(),
-        )?;
 
-        let weights_gpu_write_event = queue.enqueue_write_buffer(
-            &mut weights_buffer,
-            CL_NON_BLOCKING,
-            0,
-            weights
-                .par_iter()
-                .map(|x| x.to_vec())
-                .flatten()
-                .collect::<Vec<f32>>()
-                .as_slice(),
-            &[],
-        )?;
-        let biases_gpu_write_event = queue.enqueue_write_buffer(
-            &mut biases_buffer,
-            CL_NON_BLOCKING,
-            0,
-            biases.as_slice(),
-            &[],
-        )?;
-
-        weights_gpu_write_event.wait()?;
-        biases_gpu_write_event.wait()?;
-
-        let propagation_program_compilation_result =
-            Program::create_and_build_from_source(context, PROPAGATION_PROGRAM_SORUCE, "");
-        if propagation_program_compilation_result.is_err() {
-            println!(
-                "A compilation error was found in the dense_propagation.cl Program:\n{:?}",
-                propagation_program_compilation_result.err().unwrap()
-            );
-            println!("Please report this issue at https://github.com/gabrielmfern/intricate");
-            panic!();
-        }
-        let back_propagation_program_compilation_result =
-            Program::create_and_build_from_source(&context, BACK_PROPAGATION_PROGRAM_SOURCE, "");
-        if back_propagation_program_compilation_result.is_err() {
-            println!(
-                "A compilation error was found in the dense_back_propagation.cl Program:\n{:?}",
-                back_propagation_program_compilation_result 
-                    .err()
-                    .unwrap()
-            );
-            println!("Please report this issue at https://github.com/gabrielmfern/intricate");
-            panic!();
-        }
-        let propagation_program = propagation_program_compilation_result.unwrap();
-        let propagation_kernel = Kernel::create(&propagation_program, PROPAGATION_KERNEL_NAME)?;
-
-        let back_propagation_program = back_propagation_program_compilation_result.unwrap();
-        let bias_gradient_application_kernel = Kernel::create(&back_propagation_program, BIAS_GRADIENT_APPLICATION_KERNEL_NAME)?;
-        let weights_gradient_application_kernel = Kernel::create(&back_propagation_program, WEIGHTS_GRADIENT_APPLICATION_KERNEL_NAME)?;
-        let loss_to_input_differentiation_kernel = Kernel::create(&back_propagation_program, LOSS_TO_INPUT_DIFFERENTIATION_KERNEL_NAME)?;
-
-        Ok(DenseGPU {
+        DenseGPU {
             inputs_amount,
             outputs_amount,
-            weights_buffer: Some(weights_buffer),
-            biases_buffer: Some(biases_buffer),
+            weights_buffer: None,
+            biases_buffer: None,
             weights,
             biases,
-            propagation_kernel: Some(propagation_kernel),
-            propagation_program: Some(propagation_program),
-            back_propagation_program: Some(back_propagation_program),
-            weights_gradient_application_kernel: Some(weights_gradient_application_kernel),
-            bias_gradient_application_kernel: Some(bias_gradient_application_kernel),
-            loss_to_input_differentiation_kernel: Some(loss_to_input_differentiation_kernel),
+            propagation_kernel: None,
+            propagation_program: None,
+            back_propagation_program: None,
+            weights_gradient_application_kernel: None,
+            bias_gradient_application_kernel: None,
+            loss_to_input_differentiation_kernel: None,
             last_inputs_buffer: None,
             last_outputs_buffer: None,
-            opencl_queue: Some(queue),
-            opencl_context: Some(context),
-        })
+            opencl_queue: None,
+            opencl_context: None,
+        }
     }
 }
 
@@ -431,7 +366,7 @@ impl<'a> OpenCLLayer<'a> for DenseGPU<'a> {
         Ok(())
     }
 
-    fn send_to_gpu(
+    fn init(
         &mut self,
         queue: &'a CommandQueue,
         context: &'a Context,
@@ -522,8 +457,8 @@ impl<'a> OpenCLLayer<'a> for DenseGPU<'a> {
         Ok(())
     }
 
-    fn get_last_inputs(&self) -> Option<&'a Buffer<cl_float>> {
-        self.last_inputs_buffer
+    fn get_last_inputs(&self) -> Option<&Buffer<cl_float>> {
+        self.last_inputs_buffer.as_ref()
     }
 
     fn get_last_outputs(&self) -> Option<&Buffer<cl_float>> {
@@ -540,17 +475,10 @@ impl<'a> OpenCLLayer<'a> for DenseGPU<'a> {
 
     fn propagate(
         &mut self,
-        input_samples: &'a Buffer<cl_float>,
-    ) -> Result<&Buffer<cl_float>, ClError> {
+        input_samples: Buffer<cl_float>,
+    ) -> Result<Buffer<cl_float>, ClError> {
         assert!(self.opencl_context.is_some());
         assert!(self.opencl_queue.is_some());
-
-        if self.last_inputs_buffer.is_some() {
-            drop(self.last_inputs_buffer.as_ref().unwrap());
-        }
-        if self.last_outputs_buffer.is_some() {
-            drop(self.last_outputs_buffer.as_ref().unwrap());
-        }
 
         self.last_inputs_buffer = Some(input_samples);
 
@@ -567,7 +495,7 @@ impl<'a> OpenCLLayer<'a> for DenseGPU<'a> {
         let arg_inputs_amount: cl_int = self.inputs_amount as cl_int;
 
         let kernel_event = ExecuteKernel::new(self.propagation_kernel.as_ref().unwrap())
-            .set_arg(input_samples)
+            .set_arg(&input_samples)
             .set_arg(self.biases_buffer.as_ref().unwrap())
             .set_arg(self.weights_buffer.as_ref().unwrap())
             .set_arg(&outputs_buffer)
@@ -578,7 +506,7 @@ impl<'a> OpenCLLayer<'a> for DenseGPU<'a> {
         kernel_event.wait()?;
 
         self.last_outputs_buffer = Some(outputs_buffer);
-        Ok(self.last_outputs_buffer.as_ref().unwrap())
+        Ok(self.last_outputs_buffer.unwrap())
     }
 
     fn back_propagate(
@@ -625,7 +553,7 @@ impl<'a> OpenCLLayer<'a> for DenseGPU<'a> {
         let weights_apply_gradients_kernel_event =
             ExecuteKernel::new(self.weights_gradient_application_kernel.as_ref().unwrap())
                 .set_arg(layer_output_to_error_derivative)
-                .set_arg(self.last_inputs_buffer.unwrap())
+                .set_arg(self.last_inputs_buffer.as_ref().unwrap())
                 .set_arg(self.weights_buffer.as_ref().unwrap())
                 .set_arg(&new_weights_buffer)
                 .set_arg(&(samples_amount as cl_int))
