@@ -2,13 +2,13 @@
 use opencl3::{
     command_queue::{CommandQueue, CL_BLOCKING, CL_NON_BLOCKING},
     context::Context,
-    device::{cl_float, get_all_devices, Device, CL_DEVICE_TYPE_GPU},
+    device::{cl_float, get_all_devices, Device, CL_DEVICE_TYPE_CPU, CL_DEVICE_TYPE_GPU},
     error_codes::{cl_int, ClError},
     kernel::{ExecuteKernel, Kernel},
     memory::{Buffer, ClMem, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE},
     program::Program,
 };
-use rand::Rng;
+use rand::{Rng, thread_rng};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator, IntoParallelIterator};
 use savefile_derive::Savefile;
 use std::mem;
@@ -357,7 +357,7 @@ impl<'a> OpenCLLayer<'a> for DenseGPU<'a> {
             .set_arg(self.biases_buffer.as_ref().unwrap())
             .set_arg(self.weights_buffer.as_ref().unwrap())
             .set_arg(&outputs_buffer)
-            .set_arg(&(arg_inputs_amount as cl_int))
+            .set_arg(&arg_inputs_amount)
             .set_global_work_sizes(&[samples_amount, self.outputs_amount])
             .enqueue_nd_range(queue)?;
 
@@ -555,7 +555,7 @@ fn should_propagate_to_same_value_as_normal_dense() -> Result<(), ClError> {
     let queue = CommandQueue::create_with_properties(&context, first_device.id(), 0, 0)?;
 
     let samples_amount = 100;
-    let inputs_amount = 20;
+    let inputs_amount = 5;
     let outputs_amount = 5;
 
     let mut gpu_dense = DenseGPU::new(inputs_amount, outputs_amount);
@@ -565,7 +565,10 @@ fn should_propagate_to_same_value_as_normal_dense() -> Result<(), ClError> {
     normal_dense.weights = gpu_dense.weights.to_vec();
     normal_dense.biases = gpu_dense.biases.to_vec();
 
-    let input_samples = vec![vec![0.1; inputs_amount]; samples_amount];
+    let mut rng = thread_rng();
+    let input_samples = (0..samples_amount).into_iter().map(|_| {
+        (0..inputs_amount).into_iter().map(|_| rng.gen_range(-1.0_f32..=1.0_f32)).collect()
+    }).collect();
 
     let expected_outputs = normal_dense.propagate(&input_samples);
 
@@ -612,7 +615,10 @@ fn should_propagate_to_same_value_as_normal_dense() -> Result<(), ClError> {
         .flatten()
         .collect();
 
-    assert_approx_equal_distance(&outputs_vec, &flattened_expected_outputs, 0.2);
+    println!("CPU prediction: {:?}", flattened_expected_outputs);
+    println!("\nGPU prediction: {:?}", outputs_vec);
+
+    assert_approx_equal_distance(&outputs_vec, &flattened_expected_outputs, 0.25);
 
     Ok(())
 }
