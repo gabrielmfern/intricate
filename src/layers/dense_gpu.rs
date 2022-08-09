@@ -345,7 +345,7 @@ impl<'a> OpenCLLayer<'a> for DenseGPU<'a> {
 
         let outputs_buffer = Buffer::<cl_float>::create(
             context,
-            CL_MEM_READ_ONLY,
+            CL_MEM_READ_WRITE,
             self.outputs_amount * samples_amount,
             ptr::null_mut(),
         )?;
@@ -357,7 +357,7 @@ impl<'a> OpenCLLayer<'a> for DenseGPU<'a> {
             .set_arg(self.biases_buffer.as_ref().unwrap())
             .set_arg(self.weights_buffer.as_ref().unwrap())
             .set_arg(&outputs_buffer)
-            .set_arg(&arg_inputs_amount)
+            .set_arg(&(arg_inputs_amount as cl_int))
             .set_global_work_sizes(&[samples_amount, self.outputs_amount])
             .enqueue_nd_range(queue)?;
 

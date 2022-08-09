@@ -24,6 +24,6 @@ impl LossFunction for CategoricalCrossEntropy {
         output: f32,
         expected_output: f32,
     ) -> f32 {
-        expected_output / output
+        -expected_output / output
     }
 }

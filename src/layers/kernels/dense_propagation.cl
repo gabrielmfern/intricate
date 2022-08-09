@@ -13,22 +13,22 @@ kernel void dense_propagate(
     int output_index = get_global_id(1);
     int outputs_amount = get_global_size(1);
 
-    if (sample_index >= samples_amount) {
+    if (sample_index > samples_amount || sample_index < 0) {
         return;
     }
-    if (output_index >= outputs_amount) {
+    if (output_index > outputs_amount || output_index < 0) {
         return;
     }
 
     int flattened_output_index = sample_index * outputs_amount + output_index;
 
-    float output = biases[output_index];
+    float output = (float) biases[output_index];
 
     for (int input_index = 0; input_index < inputs_amount; input_index++) {
         int flattened_input_index = sample_index * inputs_amount + input_index;
         int flattened_weight_index = input_index * outputs_amount + output_index;
 
-        output += (float) (flattened_input_samples[flattened_input_index] * flattened_weights[flattened_weight_index]);
+        output += (float)flattened_input_samples[flattened_input_index] * (float)flattened_weights[flattened_weight_index];
     }
 
     flattened_output_samples[flattened_output_index] = output;

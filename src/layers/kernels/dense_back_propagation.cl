@@ -14,19 +14,26 @@ kernel void weights_gradient_application(
     int output_index = get_global_id(1);
     int outputs_amount = get_global_size(1);
 
+    if (input_index > inputs_amount || input_index < 0) {
+        return;
+    }
+    if (output_index > outputs_amount || output_index < 0) {
+        return;
+    }
+
     int flat_weight_i = input_index * outputs_amount + output_index;
 
-    float weight_gradient = 0.0;
+    float weight_gradient = (float)0.0;
 
     for (int sample_index = 0; sample_index < samples_amount; sample_index++) {
         int flat_output_i = sample_index * outputs_amount + output_index;
         int flat_input_i = sample_index * inputs_amount + input_index;
-        weight_gradient += flattened_output_to_loss_derivatives[flat_output_i] * flattened_input_samples[flat_input_i];
+        weight_gradient += (float)flattened_output_to_loss_derivatives[flat_output_i] * (float)flattened_input_samples[flat_input_i];
     }
 
-    weight_gradient *= learning_rate / (float)samples_amount;
+    weight_gradient *= (float)learning_rate / (float)samples_amount;
 
-    flattened_new_weights[flat_weight_i] += flattened_weights[flat_weight_i] - weight_gradient;
+    flattened_new_weights[flat_weight_i] = (float)flattened_weights[flat_weight_i] - weight_gradient;
 }
 
 kernel void bias_gradient_application(
@@ -41,17 +48,21 @@ kernel void bias_gradient_application(
     int output_index = get_global_id(0);
     int outputs_amount = get_global_size(0);
 
+    if (output_index < outputs_amount || output_index < 0) {
+        return;
+    }
+
     float bias_gradient = 0.0;
 
     for (int sample_index = 0; sample_index < samples_amount; sample_index++) {
         int flat_output_i = sample_index * outputs_amount + output_index;
 
-        bias_gradient += flattened_output_to_loss_derivatives[flat_output_i];
+        bias_gradient += (float)flattened_output_to_loss_derivatives[flat_output_i];
     }
 
-    bias_gradient *= learning_rate / (float)samples_amount;
+    bias_gradient *= (float)learning_rate / (float)samples_amount;
 
-    new_biases[output_index] = biases[output_index] - bias_gradient;
+    new_biases[output_index] = (float)biases[output_index] - bias_gradient;
 }
 
 kernel void compute_loss_derivative_with_respect_to_inputs(
@@ -68,15 +79,22 @@ kernel void compute_loss_derivative_with_respect_to_inputs(
     int input_index = get_global_id(1);
     int inputs_amount = get_global_size(1);
 
-    float loss_to_input_derivative = 0.0;
+    if (sample_index > samples_amount || sample_index < 0) {
+        return;
+    }
+    if (input_index > inputs_amount || input_index < 0) {
+        return;
+    }
+
+    float loss_to_input_derivative = (float)0.0;
 
     for (int output_index = 0; output_index < outputs_amount; output_index++) {
         int flat_weight_i = input_index * outputs_amount + output_index;
         int flat_output_i = sample_index * outputs_amount + output_index;
-        loss_to_input_derivative += flattened_weights[flat_weight_i] * flattened_loss_to_output_derivatives[flat_output_i];
+        loss_to_input_derivative += (float)flattened_weights[flat_weight_i] * (float)flattened_loss_to_output_derivatives[flat_output_i];
     }
 
     int flat_input_i = sample_index * inputs_amount + input_index;
 
-    flattened_loss_to_input_derivatives[flat_input_i] = loss_to_input_derivative;
+    flattened_loss_to_input_derivatives[flat_input_i] = (float) loss_to_input_derivative;
 }
