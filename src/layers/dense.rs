@@ -122,7 +122,7 @@ impl Layer for Dense {
                     .into_iter()
                     .map(|j| {
                         self.weights[l][j]
-                            + learning_rate
+                            - learning_rate
                                 * layer_output_to_error_derivative
                                     .iter()
                                     .enumerate()
@@ -141,7 +141,7 @@ impl Layer for Dense {
             .into_par_iter()
             .map(|j| {
                 self.biases[j]
-                    + learning_rate
+                    - learning_rate
                         * layer_output_to_error_derivative
                             .iter()
                             .map(|sample_output_derivatives| sample_output_derivatives[j])

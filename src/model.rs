@@ -207,24 +207,29 @@ impl Model {
 
     /// fits the Model to best suit the training data
     /// using the back_propagate method of every layer
-    /// and prints the loss
+    /// and prints the loss if it is computing the loss
+    /// it will return the loss in the last epoch
     pub fn fit(
         &mut self,
         training_input_samples: &Vec<Vec<f32>>,
         training_expected_output_samples: &Vec<Vec<f32>>,
         training_options: TrainingOptions,
-    ) -> () {
+    ) -> Option<f32> {
+        let mut loss = None;
+
         for epoch_index in 0..training_options.epochs {
             if training_options.should_print_information {
                 println!("epoch #{}", epoch_index + 1);
             }
 
-            self.back_propagate(
+            loss = self.back_propagate(
                 training_input_samples,
                 training_expected_output_samples,
                 &training_options,
             );
         }
+
+        loss
     }
 
     /// Should compute the derivative of the loss with respect to the outputs

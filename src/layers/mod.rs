@@ -55,15 +55,6 @@ pub trait OpenCLLayer<'a> {
 
     /// Should calculate the outputs of the layer based on the inputs
     ///
-    /// is asynchronous so that communication between the gpu and the cpu
-    /// can happen normally on this function if needed in the layer
-    ///
-    /// the queue and the context here is used for
-    /// making OpenCL calls to run kernels
-    /// (opencl functions that run in the GPU) for computations
-    /// but of curse, this may run just on Rust in the CPU,
-    /// so it is an Option
-    ///
     /// take care with the buffer you pass into the layer_output_to_error_derivative
     /// because the buffer needs to be from the Context passed in
     /// and from when the Dense was initiated, so strictly associated with
@@ -128,15 +119,6 @@ pub trait Layer {
     fn get_outputs_amount(&self) -> usize;
 
     /// Should calculate the outputs of the layer based on the inputs
-    ///
-    /// is asynchronous so that communication between the gpu and the cpu
-    /// can happen normally on this function if needed in the layer
-    ///
-    /// the queue and the context here is used for
-    /// making OpenCL calls to run kernels
-    /// (opencl functions that run in the GPU) for computations
-    /// but of curse, this may run just on Rust in the CPU,
-    /// so it is an Option
     fn propagate(&mut self, inputs: &Vec<Vec<f32>>) -> Vec<Vec<f32>>;
 
     /// Should calculate and apply the gradients,
@@ -148,12 +130,6 @@ pub trait Layer {
     /// the returning part can be disabled in case of
     /// wanting to save some computing time where
     /// there is no other layer before it.
-    ///
-    /// the queue and the context here is used for
-    /// making OpenCL calls to run kernels
-    /// (opencl functions that run in the GPU) for computations
-    /// but of curse, this may run just on Rust in the CPU,
-    /// so it is an Option
     fn back_propagate(
         &mut self,
         should_calculate_input_to_error_derivative: bool,

@@ -60,7 +60,7 @@ fn should_return_same_value_as_normal_tanh_function() -> Result<(), ClError> {
         )?
         .wait()?;
 
-    let actual_outputs_buffer = gpu_tanh.propagate(input_samples_buffer)?;
+    let actual_outputs_buffer = gpu_tanh.propagate(&input_samples_buffer)?;
 
     let mut actual_outputs = vec![0.0; 100 * 100];
     let actual_outputs_slice = actual_outputs.as_mut_slice();
@@ -137,7 +137,7 @@ fn should_return_same_value_on_back_propagation_as_normal_tanh_function() -> Res
         )?
         .wait()?;
 
-    gpu_tanh.propagate(input_samples_buffer)?;
+    gpu_tanh.propagate(&input_samples_buffer)?;
     normal_tanh.propagate(&input_samples);
 
     let expected_loss_to_input_derivatives = normal_tanh
@@ -212,8 +212,7 @@ pub struct TanHGPU<'a> {
 }
 
 impl<'a> TanHGPU<'a> {
-    #[allow(dead_code)]
-    fn new(inputs_amount: usize) -> TanHGPU<'a> {
+    pub fn new(inputs_amount: usize) -> TanHGPU<'a> {
         TanHGPU {
             inputs_amount,
             opencl_context: None,
@@ -287,12 +286,34 @@ impl<'a> OpenCLLayer<'a> for TanHGPU<'a> {
         Ok(())
     }
 
-    fn propagate(&mut self, inputs: Buffer<cl_float>) -> Result<Buffer<cl_float>, ClError> {
+    fn propagate(&mut self, inputs: &Buffer<cl_float>) -> Result<&Buffer<cl_float>, ClError> {
         assert!(self.opencl_context.is_some());
         assert!(self.opencl_queue.is_some());
 
-        let cloned_inputs = Buffer::<cl_float>::new(inputs.get());
-        self.last_inputs_buffer = Some(cloned_inputs);
+        let context = self.opencl_context.unwrap();
+        let queue = self.opencl_queue.unwrap();
+
+        let inputs_size = inputs.size()? / mem::size_of::<cl_float>();
+
+        let mut copied_last_inputs_buffer = Buffer::<cl_float>::create(
+            context, 
+            CL_MEM_READ_ONLY, 
+            inputs_size,
+            ptr::null_mut()
+        )?;
+
+        // TODO: make copying this into the last inputs optional since this is only needed
+        // for fitting a model as to make everything more optimized both in RAM usage and computation
+        queue.enqueue_copy_buffer(
+            inputs, 
+            &mut copied_last_inputs_buffer, 
+            0, 
+            0, 
+            inputs_size, 
+            &[]
+        )?.wait()?;
+
+        self.last_inputs_buffer = Some(copied_last_inputs_buffer);
 
         let outputs_total_count = inputs.size()? / mem::size_of::<cl_float>();
 
@@ -304,7 +325,7 @@ impl<'a> OpenCLLayer<'a> for TanHGPU<'a> {
         )?;
 
         ExecuteKernel::new(self.opencl_propagate_kernel.as_ref().unwrap())
-            .set_arg(&inputs)
+            .set_arg(inputs)
             .set_arg(&outputs_buffer)
             .set_global_work_size(outputs_total_count)
             .enqueue_nd_range(self.opencl_queue.unwrap())?
@@ -312,7 +333,7 @@ impl<'a> OpenCLLayer<'a> for TanHGPU<'a> {
 
         self.last_outputs_buffer = Some(outputs_buffer);
 
-        Ok(self.last_outputs_buffer.unwrap())
+        Ok(self.last_outputs_buffer.as_ref().unwrap())
     }
 
     fn back_propagate(

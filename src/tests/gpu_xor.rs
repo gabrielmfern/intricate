@@ -1,18 +1,27 @@
-// use crate::layers::dense_gpu::DenseGPU;
-// use crate::gpu;
-// use crate::layers::activations::tanh::TanH;
-// use crate::loss_functions::mean_squared::MeanSquared;
-// use crate::model::{Model, ModelLayer, TrainingOptions};
+// #[allow(unused_imports)]
+// use opencl3::error_codes::ClError;
 //
-// #[allow(dead_code)]
-// async fn should_decerase_error_test() {
-//     let mut layers: Vec<ModelLayer> = Vec::new();
-//     layers.push(ModelLayer::DenseGPU(DenseGPU::new(2, 3)));
-//     layers.push(ModelLayer::TanH(TanH::new())); 
-//     layers.push(ModelLayer::DenseGPU(DenseGPU::new(3, 1))); 
-//     layers.push(ModelLayer::TanH(TanH::new())); 
+// #[allow(unused_imports)]
+// use crate::{
+//     layers::activations::tanh_gpu::TanHGPU,
+//     layers::dense_gpu::DenseGPU,
+//     loss_functions::mean_squared::OpenCLMeanSquared,
+//     loss_functions::OpenCLLossFunction,
+//     utils::{OpenCLState, setup_opencl},
+//     model_gpu::{GPUModel, GPUModelLayer, GPUModelLossFunction, GPUTrainingOptions}
+// };
 //
-//     let mut model = Model::new(layers);
+// #[test]
+// fn should_decrease_error() -> Result<(), ClError> {
+//     let mut layers: Vec<GPUModelLayer> = Vec::new();
+//     layers.push(GPUModelLayer::Dense(DenseGPU::new(2, 3)));
+//     layers.push(GPUModelLayer::TanH(TanHGPU::new(3)));
+//     layers.push(GPUModelLayer::Dense(DenseGPU::new(3, 1)));
+//     layers.push(GPUModelLayer::TanH(TanHGPU::new(1)));
+//
+//     let mut model = GPUModel::new(layers);
+//     let opencl_state = setup_opencl()?;
+//     model.init(&opencl_state)?;
 //
 //     let training_input_samples = Vec::from([
 //         Vec::from([0.0_f32, 0.0_f32]),
@@ -27,39 +36,21 @@
 //         Vec::from([0.0_f32]),
 //         Vec::from([1.0_f32]),
 //     ]);
-//     
-//     let (actual_device, actual_queue) = gpu::setup_device_and_queue().await;
-//     let device = &Some(actual_device);
-//     let queue = &Some(actual_queue);
 //
-//     let epochs: usize = 3000;
-//     let mut last_loss: f32 = 0.0;
+//     let last_loss = model.fit(
+//         &training_input_samples,
+//         &training_output_samples,
+//         &mut GPUTrainingOptions {
+//             loss_algorithm: GPUModelLossFunction::MeanSquared(OpenCLMeanSquared::new()),
+//             learning_rate: 0.1,
+//             should_print_information: true,
+//             epochs: 10000,
+//         },
+//     )?.unwrap();
 //
-//     for _ in 0..epochs {
-//         last_loss = model.back_propagate(
-//             &training_input_samples, 
-//             &training_output_samples, 
-//             &TrainingOptions {
-//                 loss_algorithm: Box::new(MeanSquared),
-//                 learning_rate: 0.1,
-//                 should_print_information: true,
-//                 instantiate_gpu: true,
-//                 epochs: 0,
-//             },
-//             device,
-//             queue,
-//         ).await;
-//     }
+//     let max_loss = 0.1;
 //
-//     // a maximum value that the loss can be after training to
-//     // be considered working
-//     let loss_maximum_threshold = 0.1_f32;
+//     assert!(last_loss <= max_loss);
 //
-//     assert!(last_loss <= loss_maximum_threshold);
+//     Ok(())
 // }
-//
-// #[test]
-// fn should_decrease_error() {
-//     pollster::block_on(should_decerase_error_test());
-// }
-//

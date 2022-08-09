@@ -26,7 +26,7 @@ kernel void weights_gradient_application(
 
     weight_gradient *= learning_rate / (float)samples_amount;
 
-    flattened_new_weights[flat_weight_i] += flattened_weights[flat_weight_i] + weight_gradient;
+    flattened_new_weights[flat_weight_i] += flattened_weights[flat_weight_i] - weight_gradient;
 }
 
 kernel void bias_gradient_application(
@@ -51,7 +51,7 @@ kernel void bias_gradient_application(
 
     bias_gradient *= learning_rate / (float)samples_amount;
 
-    new_biases[output_index] = biases[output_index] + bias_gradient;
+    new_biases[output_index] = biases[output_index] - bias_gradient;
 }
 
 kernel void compute_loss_derivative_with_respect_to_inputs(

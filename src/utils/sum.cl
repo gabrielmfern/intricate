@@ -1,0 +1,44 @@
+// this kernel this to be repeatedly evaluated in a array
+// about log(N) or ceil(log(N)) to get to the whole sum of the array 
+// where N is the total amount of numbers
+// and the log here is being taken with 
+// a base that is the size of the local workgroups
+kernel void sum_all_values_in_workgroups(
+    global float* original,
+    global float* reduced,
+
+    local float* workgroup_state
+) {
+    int local_id = get_local_id(0);
+    int global_id = get_global_id(0);
+    int group_size = get_local_size(0);
+
+    workgroup_state[local_id] = original[global_id];
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    int half_size = group_size / 2;
+    while (half_size > 0) {
+        // if the id in the work group is in the first half
+        if (local_id < half_size) {
+            // sum it and the corresponding value in the other half together into the local_id
+            workgroup_state[local_id] += workgroup_state[local_id + half_size];
+        }
+        barrier(CLK_LOCAL_MEM_FENCE);
+        group_size = half_size;
+        half_size = group_size / 2;
+    }
+
+    // if though the total in this piece of workgroup is odd
+    // we add the last value if the it is in the first value in
+    // the workgroup
+    if (group_size % 2 == 1 && local_id == 0) {
+        workgroup_state[0] += workgroup_state[group_size];
+    }
+
+    if (local_id == 0) {
+        // after summing all of the items in the work group
+        // should just take them and associate it with the sum of the
+        // current workgroup in the reduced array
+        reduced[get_group_id(0)] = workgroup_state[0];
+    }
+}

@@ -1,13 +1,14 @@
 use std::time::Instant;
 
+#[allow(unused_imports)]
 use opencl3::{
     command_queue::{CommandQueue, CL_NON_BLOCKING},
     context::Context,
-    device::{cl_float, get_all_devices, Device, CL_DEVICE_TYPE_GPU},
+    device::{cl_float, Device},
     error_codes::ClError,
-    event::wait_for_events,
     memory::{Buffer, ClMem, CL_MEM_READ_WRITE},
 };
+use super::utils::OpenCLState;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use savefile_derive::Savefile;
 use std::mem;
@@ -175,57 +176,66 @@ pub struct GPUModel<'a> {
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    pub opencl_context: Option<Context>,
-    #[savefile_ignore]
-    #[savefile_introspect_ignore]
-    pub opencl_queue: Option<CommandQueue>,
-    #[savefile_ignore]
-    #[savefile_introspect_ignore]
-    pub opencl_device: Option<Device>,
+    pub opencl_state: Option<&'a OpenCLState>,
 }
+
 
 impl<'a> GPUModel<'a> {
     pub fn new(layers: Vec<GPUModelLayer<'a>>) -> GPUModel<'a> {
         GPUModel {
             layers,
-            opencl_device: None,
-            opencl_queue: None,
-            opencl_context: None,
+            opencl_state: None,
         }
     }
 
-    pub fn init(&'a mut self) -> Result<(), ClError> {
-        let device_ids = get_all_devices(CL_DEVICE_TYPE_GPU)?;
-        let first_gpu = Device::new(device_ids[0]);
-        let context = Context::from_device(&first_gpu)?;
-        // here it can be activated to make profiling on kernels
-        let queue = CommandQueue::create_with_properties(&context, first_gpu.id(), 0, 0)?;
 
-        self.opencl_device = Some(first_gpu);
-        self.opencl_queue = Some(queue);
-        self.opencl_context = Some(context);
-
+    pub fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), ClError> {
         for layer in self.layers.iter_mut() {
-            layer.init(self.opencl_queue.as_ref().unwrap(), self.opencl_context.as_ref().unwrap())?;
+            layer.init(&opencl_state.queue, &opencl_state.context)?;
         }
 
+        self.opencl_state = Some(opencl_state);
+
         Ok(())
+    }
+
+    pub fn to_cpu(&self, buffer: &Buffer<cl_float>) -> Result<Vec<f32>, ClError> {
+        assert!(self.opencl_state.is_some());
+        let state = self.opencl_state.unwrap();
+
+        let size = buffer.size()? / mem::size_of::<cl_float>();
+        let mut resulting_vec = vec![0.0; size];
+        let resulting_slice = resulting_vec.as_mut_slice();
+
+        state.queue.enqueue_read_buffer(
+            buffer,
+            CL_NON_BLOCKING,
+            0,
+            resulting_slice,
+            &[]
+        )?.wait()?;
+        
+        Ok(resulting_vec)
     }
 
     pub fn predict(
         &mut self,
         input_samples: &Vec<Vec<f32>>,
-    ) -> Result<Buffer<cl_float>, ClError> {
+    ) -> Result<&Buffer<cl_float>, ClError> {
+        assert!(self.opencl_state.is_some());
+
+        let state = self.opencl_state.unwrap();
+        
         let samples_amount = input_samples.len();
+
         let mut first_input_samples_buffer = Buffer::<cl_float>::create(
-            self.opencl_context.as_ref().unwrap(),
+            &state.context,
             CL_MEM_READ_WRITE,
             samples_amount * input_samples[0].len(),
             ptr::null_mut(),
         )?;
-        let queue = self.opencl_queue.as_ref().unwrap();
 
-        queue
+        state.queue
             .enqueue_write_buffer(
                 &mut first_input_samples_buffer,
                 CL_NON_BLOCKING,
@@ -240,16 +250,37 @@ impl<'a> GPUModel<'a> {
             )?
             .wait()?;
 
-        self.predict_with_buffer(first_input_samples_buffer)
+        let result = self.predict_with_moved_buffer(first_input_samples_buffer)?;
+
+        Ok(result)
     }
 
-    pub fn predict_with_buffer(
+    pub fn predict_with_moved_buffer(
         &mut self,
-        input_samples: &Buffer<cl_float>,
-    ) -> Result<Buffer<cl_float>, ClError> {
-        let mut current_values: &Buffer<cl_float>;
+        input_samples: Buffer<cl_float>,
+    ) -> Result<&Buffer<cl_float>, ClError> {
+        assert!(!self.layers.is_empty());
 
-        current_values = input_samples;
+        let mut current_value: Option<&Buffer<cl_float>> = None;
+
+        for (i, layer) in self.layers.iter_mut().enumerate() {
+            if i == 0 {
+                current_value = Some(layer.propagate(&input_samples)?);
+            } else if current_value.is_some() {
+                current_value = Some(layer.propagate(current_value.unwrap())?);
+            }
+        }
+
+        Ok(current_value.unwrap())
+    }
+
+    pub fn predict_with_buffer<'b>(
+        &'b mut self,
+        input_samples: &'b Buffer<cl_float>,
+    ) -> Result<&'b Buffer<cl_float>, ClError> {
+        assert!(!self.layers.is_empty());
+
+        let mut current_values: &Buffer<cl_float> = input_samples;
 
         for layer in self.layers.iter_mut() {
             current_values = layer.propagate(current_values)?;
@@ -260,70 +291,72 @@ impl<'a> GPUModel<'a> {
 
     /// fits the Model to best suit the training data
     /// using the back_propagate method of every layer
-    /// and prints the loss
+    /// and prints the loss, if it is computing the loss
+    /// it will return the loss in the last epoch
     pub fn fit(
         &mut self,
         training_input_samples: &Vec<Vec<f32>>,
         training_expected_output_samples: &Vec<Vec<f32>>,
-        training_options: GPUTrainingOptions,
-    ) -> Result<(), ClError> {
+        training_options: &mut GPUTrainingOptions<'a>,
+    ) -> Result<Option<f32>, ClError> {
+        assert!(self.opencl_state.is_some());
+        let state = self.opencl_state.unwrap();
+
         let samples_amount = training_input_samples.len();
+
+        training_options.loss_algorithm.init(&state.context, &state.queue)?;
+
         let mut input_samples_buffer = Buffer::<cl_float>::create(
-            self.opencl_context.as_ref().unwrap(),
+            &state.context,
             CL_MEM_READ_WRITE,
             samples_amount * training_input_samples[0].len(),
             ptr::null_mut(),
         )?;
 
         let mut expected_output_samples_buffer = Buffer::<cl_float>::create(
-            self.opencl_context.as_ref().unwrap(),
+            &state.context,
             CL_MEM_READ_WRITE,
             samples_amount * training_expected_output_samples[0].len(),
             ptr::null_mut(),
         )?;
-        let queue = self.opencl_queue.as_ref().unwrap();
 
-        let mut events = Vec::default();
-        events.push(
-            queue
-                .enqueue_write_buffer(
-                    &mut input_samples_buffer,
-                    CL_NON_BLOCKING,
-                    0,
-                    training_input_samples
-                        .par_iter()
-                        .map(|x| x.to_vec())
-                        .flatten()
-                        .collect::<Vec<f32>>()
-                        .as_slice(),
-                    &[],
-                )?
-                .get(),
-        );
-        events.push(
-            queue
-                .enqueue_write_buffer(
-                    &mut expected_output_samples_buffer,
-                    CL_NON_BLOCKING,
-                    0,
-                    training_expected_output_samples
-                        .par_iter()
-                        .map(|x| x.to_vec())
-                        .flatten()
-                        .collect::<Vec<f32>>()
-                        .as_slice(),
-                    &[],
-                )?
-                .get(),
-        );
-        wait_for_events(events.as_slice())?;
+        state.queue
+            .enqueue_write_buffer(
+                &mut input_samples_buffer,
+                CL_NON_BLOCKING,
+                0,
+                training_input_samples
+                    .par_iter()
+                    .map(|x| x.to_vec())
+                    .flatten()
+                    .collect::<Vec<f32>>()
+                    .as_slice(),
+                &[],
+            )?
+            .wait()?;
+        state.queue
+            .enqueue_write_buffer(
+                &mut expected_output_samples_buffer,
+                CL_NON_BLOCKING,
+                0,
+                training_expected_output_samples
+                    .par_iter()
+                    .map(|x| x.to_vec())
+                    .flatten()
+                    .collect::<Vec<f32>>()
+                    .as_slice(),
+                &[],
+            )?
+            .wait()?;
+
+        let mut loss = None; 
 
         for epoch_index in 0..training_options.epochs {
             if training_options.should_print_information {
                 println!("epoch #{}", epoch_index + 1);
             }
 
-            self.back_propagate(
+            loss = self.back_propagate(
                 samples_amount,
                 &input_samples_buffer,
                 &expected_output_samples_buffer,
@@ -331,7 +364,7 @@ impl<'a> GPUModel<'a> {
             )?;
         }
 
-        Ok(())
+        Ok(loss)
     }
 
     pub fn back_propagate(
@@ -341,19 +374,18 @@ impl<'a> GPUModel<'a> {
         training_expected_output_samples: &Buffer<cl_float>,
         training_options: &GPUTrainingOptions,
     ) -> Result<Option<f32>, ClError> {
-        assert_eq!(
-            training_input_samples.size()?,
-            training_expected_output_samples.size()?
-        );
+        // dumb
+        // assert_eq!(
+        //     training_input_samples.size()?,
+        //     training_expected_output_samples.size()?
+        // );
 
         let start_instant = Instant::now();
 
         let training_actual_outputs = self.predict_with_buffer(training_input_samples)?;
 
-        let outputs_amount = training_expected_output_samples.size()? / mem::size_of::<cl_float>();
+        let outputs_amount = training_expected_output_samples.size()? / samples_amount / mem::size_of::<cl_float>();
 
-        // Not sure if this can be implemented on the GPU because of the
-        // computation of the loss bellow being done on dyn LossFunction
         let mut lost_to_outputs_derivatives = training_options
             .loss_algorithm
             .compute_loss_derivative_with_respect_to_output_samples(
