@@ -26,15 +26,15 @@ fn should_decrease_error() -> Result<(), ClError> {
     let training_input_samples = Vec::from([
         Vec::from([0.0_f32, 0.0_f32]),
         Vec::from([1.0_f32, 0.0_f32]),
-        Vec::from([1.0_f32, 1.0_f32]),
         Vec::from([0.0_f32, 1.0_f32]),
+        Vec::from([1.0_f32, 1.0_f32]),
     ]);
 
     let training_output_samples = Vec::from([
         Vec::from([0.0_f32]),
         Vec::from([1.0_f32]),
-        Vec::from([0.0_f32]),
         Vec::from([1.0_f32]),
+        Vec::from([0.0_f32]),
     ]);
 
     let last_loss = model.fit(
@@ -44,7 +44,7 @@ fn should_decrease_error() -> Result<(), ClError> {
             loss_algorithm: GPUModelLossFunction::MeanSquared(OpenCLMeanSquared::new()),
             learning_rate: 0.1,
             should_print_information: true,
-            epochs: 1000,
+            epochs: 10000,
         },
     )?.unwrap();
 

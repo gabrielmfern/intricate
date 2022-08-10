@@ -16,7 +16,7 @@ kernel void dense_propagate(
     int flattened_output_index = sample_index * outputs_amount + output_index;
 
     float bias = (float)biases[output_index];
-    float output = (float)bias;
+    float output = bias;
 
     // printf("%d\n", inputs_amount);
     for (int input_index = 0; input_index < inputs_amount; input_index++) {
@@ -27,7 +27,7 @@ kernel void dense_propagate(
         float input = (float)flattened_input_samples[flattened_input_index];
         float weight = (float)flattened_weights[flattened_weight_index];
         // float last_output = (float)output;
-        output = output + input * weight;
+        output += input * weight;
         // printf("%e * %e + %e = %e\n", input, weight, last_output, output);
     }
 

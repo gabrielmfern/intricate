@@ -395,7 +395,7 @@ impl<'a> OpenCLLayer<'a> for DenseGPU<'a> {
                     .set_arg(self.weights_buffer.as_ref().unwrap())
                     .set_arg(layer_output_to_error_derivative)
                     .set_arg(layer_input_to_error_derivatives_buffer.as_ref().unwrap())
-                    .set_arg(&(self.inputs_amount as cl_int))
+                    .set_arg(&(self.outputs_amount as cl_int))
                     .set_global_work_sizes(&[samples_amount, self.inputs_amount])
                     .enqueue_nd_range(queue)?;
 
@@ -458,7 +458,7 @@ fn should_apply_gradients_just_like_normal_dense() -> Result<(), ClError> {
     let queue = CommandQueue::create_with_properties(&context, first_device.id(), 0, 0)?;
 
     let samples_amount = 100;
-    let inputs_amount = 10;
+    let inputs_amount = 5;
     let outputs_amount = 5;
 
     let mut gpu_dense = DenseGPU::new(inputs_amount, outputs_amount);
@@ -519,8 +519,8 @@ fn should_apply_gradients_just_like_normal_dense() -> Result<(), ClError> {
 
     derivatives_write_event.wait()?;
 
-    gpu_dense.back_propagate(false, &loss_to_output_derivatives_buffer, 0.05)?;
-    normal_dense.back_propagate(false, &loss_to_output_derivatives, 0.05);
+    gpu_dense.back_propagate(false, &loss_to_output_derivatives_buffer, 0.1)?;
+    normal_dense.back_propagate(false, &loss_to_output_derivatives, 0.1);
 
     gpu_dense.sync_data_from_gpu_with_cpu()?;
 

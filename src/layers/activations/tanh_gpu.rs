@@ -15,6 +15,8 @@ use opencl3::{
     memory::{Buffer, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE},
     program::Program,
 };
+#[allow(unused_imports)]
+use rand::{thread_rng, Rng};
 use std::mem;
 use std::ptr;
 
@@ -35,15 +37,23 @@ fn should_return_same_value_as_normal_tanh_function() -> Result<(), ClError> {
     let context = Context::from_device(&first_device)?;
     let queue = CommandQueue::create_with_properties(&context, device_ids[0], 0, 0)?;
 
+    let samples_amount = 100;
+    let numbers_amount = 100;
+
     let mut normal_tanh = TanH::new();
-    let mut gpu_tanh = TanHGPU::new(100);
+    let mut gpu_tanh = TanHGPU::new(numbers_amount);
     gpu_tanh.init(&queue, &context)?;
 
-    let input_samples = vec![vec![0.412; 100]; 100];
+    let mut rng = thread_rng();
+    let input_samples = (0..samples_amount).into_iter().map(|_| {
+        (0..numbers_amount).into_iter().map(|_| {
+            rng.gen_range(-1.0_f32..1.0_f32)
+        }).collect()
+    }).collect();
     let expected_outputs = normal_tanh.propagate(&input_samples);
 
     let mut input_samples_buffer =
-        Buffer::<cl_float>::create(&context, CL_MEM_READ_ONLY, 100 * 100, ptr::null_mut())?;
+        Buffer::<cl_float>::create(&context, CL_MEM_READ_ONLY, numbers_amount * samples_amount, ptr::null_mut())?;
 
     queue
         .enqueue_write_buffer(
@@ -62,7 +72,7 @@ fn should_return_same_value_as_normal_tanh_function() -> Result<(), ClError> {
 
     let actual_outputs_buffer = gpu_tanh.propagate(&input_samples_buffer)?;
 
-    let mut actual_outputs = vec![0.0; 100 * 100];
+    let mut actual_outputs = vec![0.0; numbers_amount * samples_amount];
     let actual_outputs_slice = actual_outputs.as_mut_slice();
     queue
         .enqueue_read_buffer(
@@ -95,17 +105,29 @@ fn should_return_same_value_on_back_propagation_as_normal_tanh_function() -> Res
     let context = Context::from_device(&first_device)?;
     let queue = CommandQueue::create_with_properties(&context, device_ids[0], 0, 0)?;
 
+    let samples_amount = 100;
+    let numbers_amount = 100;
+
     let mut normal_tanh = TanH::new();
-    let mut gpu_tanh = TanHGPU::new(100);
+    let mut gpu_tanh = TanHGPU::new(numbers_amount);
     gpu_tanh.init(&queue, &context)?;
 
-    let input_samples = vec![vec![0.412; 100]; 100];
-    let first_derivatives = vec![vec![2.3; 100]; 100];
+    let mut rng = thread_rng();
+    let input_samples: Vec<Vec<f32>> = (0..samples_amount).into_iter().map(|_| {
+        (0..numbers_amount).into_iter().map(|_| {
+            rng.gen_range(-1.0_f32..1.0_f32)
+        }).collect()
+    }).collect();
+    let first_derivatives: Vec<Vec<f32>> = (0..samples_amount).into_iter().map(|_| {
+        (0..numbers_amount).into_iter().map(|_| {
+            rng.gen_range(-1.0_f32..1.0_f32)
+        }).collect()
+    }).collect();
 
     let mut input_samples_buffer =
-        Buffer::<cl_float>::create(&context, CL_MEM_READ_ONLY, 100 * 100, ptr::null_mut())?;
+        Buffer::<cl_float>::create(&context, CL_MEM_READ_ONLY, numbers_amount * samples_amount, ptr::null_mut())?;
     let mut first_derivatives_buffer =
-        Buffer::<cl_float>::create(&context, CL_MEM_READ_ONLY, 100 * 100, ptr::null_mut())?;
+        Buffer::<cl_float>::create(&context, CL_MEM_READ_ONLY, numbers_amount * samples_amount, ptr::null_mut())?;
 
     queue
         .enqueue_write_buffer(
@@ -147,7 +169,7 @@ fn should_return_same_value_on_back_propagation_as_normal_tanh_function() -> Res
     let actual_loss_to_input_derivatives_buffer = gpu_tanh
         .back_propagate(true, &first_derivatives_buffer, 0.0)?
         .unwrap();
-    let mut actual_loss_to_input_derivatives = vec![0.0; 100 * 100];
+    let mut actual_loss_to_input_derivatives = vec![0.0; numbers_amount * samples_amount];
     let actual_loss_to_input_derivatives_slice = actual_loss_to_input_derivatives.as_mut_slice();
     queue
         .enqueue_read_buffer(
@@ -167,7 +189,7 @@ fn should_return_same_value_on_back_propagation_as_normal_tanh_function() -> Res
             .flatten()
             .collect::<Vec<f32>>()
     );
-    println!("derivatives GPU: {:?}", &actual_loss_to_input_derivatives);
+    println!("\nderivatives GPU: {:?}", &actual_loss_to_input_derivatives);
 
     assert_approx_equal_distance(
         &actual_loss_to_input_derivatives,
