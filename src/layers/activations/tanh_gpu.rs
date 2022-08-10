@@ -91,7 +91,7 @@ fn should_return_same_value_as_normal_tanh_function() -> Result<(), ClError> {
             .flatten()
             .collect(),
         &actual_outputs,
-        0.2,
+        0.01,
     );
 
     Ok(())
@@ -198,7 +198,7 @@ fn should_return_same_value_on_back_propagation_as_normal_tanh_function() -> Res
             .map(|v| v.to_vec())
             .flatten()
             .collect(),
-        0.2,
+        0.01,
     );
 
     Ok(())

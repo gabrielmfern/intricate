@@ -8,6 +8,7 @@ use opencl3::{
     memory::{Buffer, ClMem, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE},
     program::Program,
 };
+#[allow(unused_imports)]
 use rand::{Rng, thread_rng};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator, IntoParallelIterator};
 use savefile_derive::Savefile;
@@ -519,8 +520,8 @@ fn should_apply_gradients_just_like_normal_dense() -> Result<(), ClError> {
 
     derivatives_write_event.wait()?;
 
-    gpu_dense.back_propagate(false, &loss_to_output_derivatives_buffer, 0.1)?;
-    normal_dense.back_propagate(false, &loss_to_output_derivatives, 0.1);
+    gpu_dense.back_propagate(false, &loss_to_output_derivatives_buffer, 0.3)?;
+    normal_dense.back_propagate(false, &loss_to_output_derivatives, 0.3);
 
     gpu_dense.sync_data_from_gpu_with_cpu()?;
 
@@ -530,7 +531,7 @@ fn should_apply_gradients_just_like_normal_dense() -> Result<(), ClError> {
     assert_approx_equal_distance(
         &gpu_dense.weights.iter().map(|x| x.to_vec()).flatten().collect(),
         &normal_dense.weights.iter().map(|x| x.to_vec()).flatten().collect(),
-        0.05,
+        0.1,
     );
 
     println!("new biases GPU: {:?}", gpu_dense.biases);
@@ -539,7 +540,7 @@ fn should_apply_gradients_just_like_normal_dense() -> Result<(), ClError> {
     assert_approx_equal_distance(
         &gpu_dense.biases, 
         &normal_dense.biases, 
-        0.05
+        0.2
     );
 
     Ok(())
@@ -618,7 +619,7 @@ fn should_propagate_to_same_value_as_normal_dense() -> Result<(), ClError> {
     println!("CPU prediction: {:?}", flattened_expected_outputs);
     println!("\nGPU prediction: {:?}", outputs_vec);
 
-    assert_approx_equal_distance(&outputs_vec, &flattened_expected_outputs, 0.25);
+    assert_approx_equal_distance(&outputs_vec, &flattened_expected_outputs, 0.01);
 
     Ok(())
 }
