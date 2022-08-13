@@ -1,6 +1,12 @@
 use super::vector_operations::VectorOperations;
 
-/// same things as the other method but for matrices
+/// Asserts two matrices are approximately equal using the **assert_approx_equal**
+/// function in every single vector of both matrices.
+///
+/// # Panics
+///
+/// Panics if the length of both matrices are not euqal, or
+/// the length of vectors being compared are not equal.
 pub fn assert_approx_equal_matrix(a: &Vec<Vec<f32>>, b: &Vec<Vec<f32>>, decimal_place: u32) -> () {
     assert_eq!(a.len(), b.len());
     for (arr1, arr2) in a.iter().zip(b) {
@@ -8,11 +14,15 @@ pub fn assert_approx_equal_matrix(a: &Vec<Vec<f32>>, b: &Vec<Vec<f32>>, decimal_
     }
 }
 
-/// just used for comparing floating point numbers in tests
-/// so that you don't need to compare up to the last precision
-/// and sometimes fail in tests that should have passed
+/// Asserts that two vectors are approximately equal comparing all of their numbers
+/// up to a certain **decimal_place**.
+///
+/// # Panics
+///
+/// Panics if the length of both vectors are not equal.
 pub fn assert_approx_equal(a: &Vec<f32>, b: &Vec<f32>, decimal_place: u32) -> () {
     assert_eq!(a.len(), b.len());
+
     let power_ten = &10.0_f32.powf(decimal_place as f32);
     let approximate_a = a.multiply_number(power_ten)
                          .floor()
@@ -24,6 +34,12 @@ pub fn assert_approx_equal(a: &Vec<f32>, b: &Vec<f32>, decimal_place: u32) -> ()
     assert_eq!(approximate_a, approximate_b);
 }
 
+/// Asserts if the vectors **a** and **b** are approximately equal
+/// being at most **max_dist** of a difference.
+///
+/// # Panics
+/// 
+/// Panics if the length of both vectors are not equal.
 pub fn assert_approx_equal_distance(a: &Vec<f32>, b: &Vec<f32>, max_dist: f32) -> () {
     assert_eq!(a.len(), b.len());
 

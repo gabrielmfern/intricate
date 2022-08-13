@@ -1,3 +1,7 @@
 /target
 /intricate-macros
+intricate-macros
+intricate-macros/**
+intricate-macros/*
+intricate-macros/**/*
 xor-model.bin

@@ -7,11 +7,17 @@ kernel void sum_all_values_in_workgroups(
     global float* original,
     global float* reduced,
 
-    local float* workgroup_state
+    local float* workgroup_state,
+
+    int buffer_length
 ) {
     int local_id = get_local_id(0);
     int global_id = get_global_id(0);
     int group_size = get_local_size(0);
+
+    if (global_id > buffer_length) {
+        return;
+    }
 
     workgroup_state[local_id] = original[global_id];
     barrier(CLK_LOCAL_MEM_FENCE);
@@ -22,18 +28,19 @@ kernel void sum_all_values_in_workgroups(
         if (local_id < half_size) {
             // sum it and the corresponding value in the other half together into the local_id
             workgroup_state[local_id] += workgroup_state[local_id + half_size];
+
+            // if though the total in this piece of workgroup is odd
+            // we add the last value if the it is in the first value in
+            // the workgroup
+            if (group_size % 2 == 1 && local_id == 0) {
+                workgroup_state[0] += workgroup_state[half_size];
+            }
         }
         barrier(CLK_LOCAL_MEM_FENCE);
         group_size = half_size;
         half_size = group_size / 2;
     }
 
-    // if though the total in this piece of workgroup is odd
-    // we add the last value if the it is in the first value in
-    // the workgroup
-    if (group_size % 2 == 1 && local_id == 0) {
-        workgroup_state[0] += workgroup_state[group_size];
-    }
 
     if (local_id == 0) {
         // after summing all of the items in the work group

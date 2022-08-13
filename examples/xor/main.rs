@@ -42,7 +42,7 @@ fn main() {
                 learning_rate: 0.1,
                 loss_algorithm: ModelLossFunction::MeanSquared(MeanSquared), // The Mean Squared loss function
                 should_print_information: true,        // Should be verbose
-                epochs: 10000,
+                epochs: 5000,
             },
         );
 

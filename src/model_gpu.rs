@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use super::utils::OpenCLState;
 #[allow(unused_imports)]
 use opencl3::{
     command_queue::{CommandQueue, CL_NON_BLOCKING},
@@ -8,7 +9,6 @@ use opencl3::{
     error_codes::ClError,
     memory::{Buffer, ClMem, CL_MEM_READ_WRITE},
 };
-use super::utils::OpenCLState;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use savefile_derive::Savefile;
 use std::mem;
@@ -46,9 +46,7 @@ impl<'a> OpenCLLossFunction<'a> for GPUModelLossFunction<'a> {
 
     fn init(&mut self, context: &'a Context, queue: &'a CommandQueue) -> Result<(), ClError> {
         match self {
-            GPUModelLossFunction::MeanSquared(lossfn) => {
-                lossfn.init(context, queue)
-            }
+            GPUModelLossFunction::MeanSquared(lossfn) => lossfn.init(context, queue),
         }
     }
 
@@ -179,7 +177,6 @@ pub struct GPUModel<'a> {
     pub opencl_state: Option<&'a OpenCLState>,
 }
 
-
 impl<'a> GPUModel<'a> {
     pub fn new(layers: Vec<GPUModelLayer<'a>>) -> GPUModel<'a> {
         GPUModel {
@@ -187,7 +184,6 @@ impl<'a> GPUModel<'a> {
             opencl_state: None,
         }
     }
-
 
     pub fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), ClError> {
         for layer in self.layers.iter_mut() {
@@ -199,33 +195,29 @@ impl<'a> GPUModel<'a> {
         Ok(())
     }
 
-    pub fn to_cpu(&self, buffer: &Buffer<cl_float>) -> Result<Vec<f32>, ClError> {
+    pub fn get_last_prediction(&self) -> Result<Vec<f32>, ClError> {
         assert!(self.opencl_state.is_some());
         let state = self.opencl_state.unwrap();
+
+        let buffer = self.layers.last().unwrap().get_last_outputs().unwrap();
 
         let size = buffer.size()? / mem::size_of::<cl_float>();
         let mut resulting_vec = vec![0.0; size];
         let resulting_slice = resulting_vec.as_mut_slice();
 
-        state.queue.enqueue_read_buffer(
-            buffer,
-            CL_NON_BLOCKING,
-            0,
-            resulting_slice,
-            &[]
-        )?.wait()?;
-        
+        state
+            .queue
+            .enqueue_read_buffer(buffer, CL_NON_BLOCKING, 0, resulting_slice, &[])?
+            .wait()?;
+
         Ok(resulting_vec)
     }
 
-    pub fn predict(
-        &mut self,
-        input_samples: &Vec<Vec<f32>>,
-    ) -> Result<&Buffer<cl_float>, ClError> {
+    pub fn predict(&mut self, input_samples: &Vec<Vec<f32>>) -> Result<&Buffer<cl_float>, ClError> {
         assert!(self.opencl_state.is_some());
 
         let state = self.opencl_state.unwrap();
-        
+
         let samples_amount = input_samples.len();
 
         let mut first_input_samples_buffer = Buffer::<cl_float>::create(
@@ -235,7 +227,8 @@ impl<'a> GPUModel<'a> {
             ptr::null_mut(),
         )?;
 
-        state.queue
+        state
+            .queue
             .enqueue_write_buffer(
                 &mut first_input_samples_buffer,
                 CL_NON_BLOCKING,
@@ -304,7 +297,9 @@ impl<'a> GPUModel<'a> {
 
         let samples_amount = training_input_samples.len();
 
-        training_options.loss_algorithm.init(&state.context, &state.queue)?;
+        training_options
+            .loss_algorithm
+            .init(&state.context, &state.queue)?;
 
         let mut input_samples_buffer = Buffer::<cl_float>::create(
             &state.context,
@@ -320,7 +315,8 @@ impl<'a> GPUModel<'a> {
             ptr::null_mut(),
         )?;
 
-        state.queue
+        state
+            .queue
             .enqueue_write_buffer(
                 &mut input_samples_buffer,
                 CL_NON_BLOCKING,
@@ -334,7 +330,8 @@ impl<'a> GPUModel<'a> {
                 &[],
             )?
             .wait()?;
-        state.queue
+        state
+            .queue
             .enqueue_write_buffer(
                 &mut expected_output_samples_buffer,
                 CL_NON_BLOCKING,
@@ -349,7 +346,7 @@ impl<'a> GPUModel<'a> {
             )?
             .wait()?;
 
-        let mut loss = None; 
+        let mut loss = None;
 
         for epoch_index in 0..training_options.epochs {
             if training_options.should_print_information {
@@ -384,7 +381,8 @@ impl<'a> GPUModel<'a> {
 
         let training_actual_outputs = self.predict_with_buffer(training_input_samples)?;
 
-        let outputs_amount = training_expected_output_samples.size()? / samples_amount / mem::size_of::<cl_float>();
+        let outputs_amount =
+            training_expected_output_samples.size()? / samples_amount / mem::size_of::<cl_float>();
 
         let mut lost_to_outputs_derivatives = training_options
             .loss_algorithm
@@ -417,9 +415,11 @@ impl<'a> GPUModel<'a> {
         let actual_sample_outputs = self.predict_with_buffer(training_input_samples)?;
 
         if training_options.should_print_information {
-            let new_loss = training_options
-                .loss_algorithm
-                .compute_loss(&actual_sample_outputs, &training_expected_output_samples, outputs_amount)?;
+            let new_loss = training_options.loss_algorithm.compute_loss(
+                &actual_sample_outputs,
+                &training_expected_output_samples,
+                outputs_amount,
+            )?;
             println!(
                 "{}s elapsed, now has loss of {}",
                 start_instant.elapsed().as_secs_f32(),

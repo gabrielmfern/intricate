@@ -75,7 +75,7 @@ impl Layer for Dense {
         self.last_inputs = inputs_samples.to_vec();
         self.last_outputs = inputs_samples
             .par_iter()
-            .map(|inputs| self.biases.add(&self.weights.dot_product(inputs)))
+            .map(|inputs| self.biases.add(&self.weights.dot_product(inputs).unwrap()))
             .collect::<Vec<Vec<f32>>>();
         self.last_outputs.to_vec()
     }

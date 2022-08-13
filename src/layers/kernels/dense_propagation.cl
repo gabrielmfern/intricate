@@ -5,13 +5,22 @@ kernel void dense_propagate(
     
     global float* flattened_output_samples,
 
-    int inputs_amount
+    int inputs_amount,
+    int samples_amount,
+    int outputs_amount
 ) {
     int sample_index = get_global_id(0);
-    int samples_amount = get_global_size(0);
+    // int samples_amount = get_global_size(0);
 
     int output_index = get_global_id(1);
-    int outputs_amount = get_global_size(1);
+    // int outputs_amount = get_global_size(1);
+
+    if (sample_index >= samples_amount) {
+        return;
+    }
+    if (output_index > outputs_amount) {
+        return;
+    }
 
     int flattened_output_index = sample_index * outputs_amount + output_index;
 

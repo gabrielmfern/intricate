@@ -16,7 +16,7 @@ use std::mem;
 use std::ptr;
 
 #[allow(unused_imports)]
-use crate::{layers::Layer, utils::approx_eq::assert_approx_equal_distance};
+use crate::layers::Layer;
 
 #[allow(unused_imports)]
 use super::{dense::Dense, OpenCLLayer};
@@ -319,12 +319,13 @@ impl<'a> OpenCLLayer<'a> for DenseGPU<'a> {
         let queue = self.opencl_queue.unwrap();
         let context = self.opencl_context.unwrap();
 
-        let inputs_size = input_samples.size()? / mem::size_of::<cl_float>();
+        let inputs_size = input_samples.size()?;
+        let inputs_total_count = inputs_size / mem::size_of::<cl_float>();
 
         let mut copied_last_inputs_buffer = Buffer::<cl_float>::create(
             context, 
             CL_MEM_READ_ONLY, 
-            inputs_size,
+            inputs_total_count,
             ptr::null_mut()
         )?;
 
@@ -351,14 +352,14 @@ impl<'a> OpenCLLayer<'a> for DenseGPU<'a> {
             ptr::null_mut(),
         )?;
 
-        let arg_inputs_amount: cl_int = self.inputs_amount as cl_int;
-
         let kernel_event = ExecuteKernel::new(self.propagation_kernel.as_ref().unwrap())
             .set_arg(input_samples)
             .set_arg(self.biases_buffer.as_ref().unwrap())
             .set_arg(self.weights_buffer.as_ref().unwrap())
             .set_arg(&outputs_buffer)
-            .set_arg(&arg_inputs_amount)
+            .set_arg(&(self.inputs_amount as cl_int))
+            .set_arg(&(samples_amount as cl_int))
+            .set_arg(&(self.outputs_amount as cl_int))
             .set_global_work_sizes(&[samples_amount, self.outputs_amount])
             .enqueue_nd_range(queue)?;
 
@@ -397,6 +398,8 @@ impl<'a> OpenCLLayer<'a> for DenseGPU<'a> {
                     .set_arg(layer_output_to_error_derivative)
                     .set_arg(layer_input_to_error_derivatives_buffer.as_ref().unwrap())
                     .set_arg(&(self.outputs_amount as cl_int))
+                    .set_arg(&(samples_amount as cl_int))
+                    .set_arg(&(self.inputs_amount as cl_int))
                     .set_global_work_sizes(&[samples_amount, self.inputs_amount])
                     .enqueue_nd_range(queue)?;
 
@@ -417,6 +420,8 @@ impl<'a> OpenCLLayer<'a> for DenseGPU<'a> {
                 .set_arg(self.weights_buffer.as_ref().unwrap())
                 .set_arg(&new_weights_buffer)
                 .set_arg(&(samples_amount as cl_int))
+                .set_arg(&(self.outputs_amount as cl_int))
+                .set_arg(&(self.inputs_amount as cl_int))
                 .set_arg(&(learning_rate as cl_float))
                 .set_global_work_sizes(&[self.inputs_amount, self.outputs_amount])
                 .enqueue_nd_range(queue)?;
@@ -436,6 +441,7 @@ impl<'a> OpenCLLayer<'a> for DenseGPU<'a> {
                 .set_arg(self.biases_buffer.as_ref().unwrap())
                 .set_arg(&new_biases_buffer)
                 .set_arg(&(samples_amount as cl_int))
+                .set_arg(&(self.outputs_amount as cl_int))
                 .set_arg(&(learning_rate as cl_float))
                 .set_global_work_size(self.outputs_amount)
                 .enqueue_nd_range(queue)?;
@@ -528,20 +534,32 @@ fn should_apply_gradients_just_like_normal_dense() -> Result<(), ClError> {
     println!("new weights GPU: {:?}", gpu_dense.weights);
     println!("new weights CPU: {:?}", normal_dense.weights);
 
-    assert_approx_equal_distance(
-        &gpu_dense.weights.iter().map(|x| x.to_vec()).flatten().collect(),
-        &normal_dense.weights.iter().map(|x| x.to_vec()).flatten().collect(),
-        0.1,
-    );
+    {
+        let a: &Vec<f32> = &gpu_dense.weights.iter().map(|x| x.to_vec()).flatten().collect();
+        let b: &Vec<f32> = &normal_dense.weights.iter().map(|x| x.to_vec()).flatten().collect();
+        let max_dist = 0.1;
+        assert_eq!(a.len(), b.len());
+
+        a.iter().zip(b).for_each(|(x, y)| {
+            println!("x:{}\ny:{}", x, y);
+            assert!((x - y).abs() <= max_dist);
+        });
+    };
 
     println!("new biases GPU: {:?}", gpu_dense.biases);
     println!("new biases CPU: {:?}", normal_dense.biases);
 
-    assert_approx_equal_distance(
-        &gpu_dense.biases, 
-        &normal_dense.biases, 
-        0.2
-    );
+    {
+        let a = &gpu_dense.biases;
+        let b = &normal_dense.biases;
+        let max_dist = 0.2;
+        assert_eq!(a.len(), b.len());
+
+        a.iter().zip(b).for_each(|(x, y)| {
+            println!("x:{}\ny:{}", x, y);
+            assert!((x - y).abs() <= max_dist);
+        });
+    };
 
     Ok(())
 }
@@ -555,7 +573,7 @@ fn should_propagate_to_same_value_as_normal_dense() -> Result<(), ClError> {
     let context = Context::from_device(&first_device)?;
     let queue = CommandQueue::create_with_properties(&context, first_device.id(), 0, 0)?;
 
-    let samples_amount = 100;
+    let samples_amount = 4;
     let inputs_amount = 5;
     let outputs_amount = 5;
 
@@ -610,7 +628,7 @@ fn should_propagate_to_same_value_as_normal_dense() -> Result<(), ClError> {
 
     read_flattened_outputs_gpu.wait()?;
 
-    let flattened_expected_outputs = expected_outputs
+    let flattened_expected_outputs: Vec<f32> = expected_outputs
         .iter()
         .map(|x| x.to_vec())
         .flatten()
@@ -619,7 +637,17 @@ fn should_propagate_to_same_value_as_normal_dense() -> Result<(), ClError> {
     println!("CPU prediction: {:?}", flattened_expected_outputs);
     println!("\nGPU prediction: {:?}", outputs_vec);
 
-    assert_approx_equal_distance(&outputs_vec, &flattened_expected_outputs, 0.01);
+    {
+        let a = &outputs_vec;
+        let b = &flattened_expected_outputs;
+        let max_dist = 0.01;
+        assert_eq!(a.len(), b.len());
+
+        a.iter().zip(b).for_each(|(x, y)| {
+            println!("x:{}\ny:{}", x, y);
+            assert!((x - y).abs() <= max_dist);
+        });
+    };
 
     Ok(())
 }

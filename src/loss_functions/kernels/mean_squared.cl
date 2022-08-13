@@ -4,10 +4,15 @@ kernel void compute_loss(
 
     global float* sample_losses,
 
-    int outputs_amount
+    int outputs_amount,
+    int samples_amount
 ) {
     int sample_index = get_global_id(0);
-    int samples_amount = get_global_size(0);
+    // int samples_amount = get_global_size(0);
+
+    if (sample_index >= samples_amount) {
+        return;
+    }
 
     float sample_loss = 0.0;
 
@@ -24,13 +29,23 @@ kernel void compute_loss_to_output_derivatives(
     global float* output_samples,
     global float* expected_output_samples,
 
-    global float* loss_to_output_derivatives
+    global float* loss_to_output_derivatives,
+
+    int samples_amount,
+    int outputs_amount
 ) {
     int sample_index = get_global_id(0);
-    int samples_amount = get_global_size(0);
+    // int samples_amount = get_global_size(0);
 
     int output_index = get_global_id(1);
-    int outputs_amount = get_global_size(1);
+    // int outputs_amount = get_global_size(1);
+
+    if (sample_index >= samples_amount) {
+        return;
+    }
+    if (output_index > outputs_amount) {
+        return;
+    }
 
     int flat_i = sample_index * outputs_amount + output_index;
 

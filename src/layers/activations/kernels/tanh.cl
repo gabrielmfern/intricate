@@ -1,9 +1,15 @@
 kernel void propagate(
     global float* flattened_input_samples,
 
-    global float* flattened_output_samples
+    global float* flattened_output_samples,
+
+    int size
 ) {
     int index = get_global_id(0);
+
+    if (index >= size) {
+        return;
+    }
 
     flattened_output_samples[index] = (float)tanh(flattened_input_samples[index]);
 }
@@ -14,13 +20,22 @@ kernel void back_propagate(
 
     global float* flattened_loss_to_input_derivatives,
 
-    int outputs_amount
+    int outputs_amount,
+    int samples_amount,
+    int inputs_amount
 ) {
     int sample_index = get_global_id(0);
-    int samples_amount = get_global_size(0);
+    // int samples_amount = get_global_size(0);
 
     int input_index = get_global_id(1);
-    int inputs_amount = get_global_size(1);
+    // int inputs_amount = get_global_size(1);
+    
+    if (sample_index >= samples_amount) {
+        return;
+    }
+    if (input_index >= inputs_amount) {
+        return;
+    }
 
     int flat_input_i = sample_index * inputs_amount + input_index;
 

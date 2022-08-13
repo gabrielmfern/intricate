@@ -4,8 +4,8 @@
 //! at least for the calculation of gradients and the definition of
 //! activation functions as layers.
 //! 
-//! A GPU accelerated library that creates/trains/runs neural networks
-//! in pure safe Rust code.
+//! A OpenCL accelerated library that creates, trains and runs neural networks
+//! in safe Rust code.
 
 pub mod layers;
 pub mod loss_functions;

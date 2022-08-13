@@ -8,13 +8,16 @@ use opencl3::{
     memory::{Buffer, ClMem, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE},
     program::Program,
 };
+#[allow(unused_imports)]
+use rand::{thread_rng, Rng};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::mem;
 use std::ptr;
 
-use crate::loss_functions::LossFunction;
+#[allow(unused_imports)]
+use crate::{loss_functions::LossFunction, utils::approx_eq::assert_approx_equal_distance};
 use crate::utils::{
-    opencl::compile_buffer_summation_kernel, vector_operations::VectorOperations, GpuSummable,
+    opencl::compile_buffer_summation_kernel, vector_operations::VectorOperations, OpenCLSummable,
 };
 #[allow(unused_imports)]
 use crate::utils::{setup_opencl, OpenCLState};
@@ -129,6 +132,7 @@ impl<'a> OpenCLLossFunction<'a> for OpenCLMeanSquared<'a> {
             .set_arg(expected_outputs)
             .set_arg(&sample_losses_buffer)
             .set_arg(&(outputs_amount as cl_int))
+            .set_arg(&(samples_amount as cl_int))
             .set_global_work_size(samples_amount)
             .enqueue_nd_range(queue)?
             .wait()?;
@@ -171,6 +175,8 @@ impl<'a> OpenCLLossFunction<'a> for OpenCLMeanSquared<'a> {
             .set_arg(output_samples)
             .set_arg(expected_outputs)
             .set_arg(&derivatives_buffer)
+            .set_arg(&(samples_amount as cl_int))
+            .set_arg(&(outputs_amount as cl_int))
             .set_global_work_sizes(&[samples_amount, outputs_amount])
             .enqueue_nd_range(self.oepncl_queue.unwrap())?
             .wait()?;
@@ -205,18 +211,49 @@ impl LossFunction for MeanSquared {
 #[test]
 fn opencl_mean_squared_computation_of_loss_derivatives_should_be_the_same_as_normal_mean_squred(
 ) -> Result<(), ClError> {
-    let normal_loss = MeanSquared;
-
     let opencl_state: OpenCLState = setup_opencl()?;
 
     let mut gpu_loss = OpenCLMeanSquared::new();
     gpu_loss.init(&opencl_state.context, &opencl_state.queue)?;
 
-    let expected_derivative = normal_loss.compute_loss_derivative_with_respect_to_output(5, 0.5, 0.1);
+    let outputs_amount: usize = 61;
+    let samples_amount: usize = 113;
+    let mut rng = rand::thread_rng();
+
+    let output_samples: Vec<f32> = (0..(samples_amount * outputs_amount)).into_iter().map(|_| {
+        rng.gen_range(-13123.0_f32..15413_f32)
+    }).collect();
+    let expected_outputs: Vec<f32> = (0..(samples_amount * outputs_amount)).into_iter().map(|_| {
+        rng.gen_range(-13123.0_f32..15413_f32)
+    }).collect();
+
+    let normal_loss = MeanSquared;
+    let expected_derivatives: Vec<f32> = expected_outputs
+            .iter()
+            .zip(&output_samples)
+            .map(|(expected_output, actual_output)| {
+                normal_loss.compute_loss_derivative_with_respect_to_output(
+                    outputs_amount,
+                    *actual_output,
+                    *expected_output,
+                )
+            })
+            .collect();
+
     let mut outputs_buf =
-        Buffer::<cl_float>::create(&opencl_state.context, CL_MEM_READ_ONLY, 5, ptr::null_mut())?;
+        Buffer::<cl_float>::create(
+            &opencl_state.context, 
+            CL_MEM_READ_ONLY, 
+            samples_amount * outputs_amount, 
+            ptr::null_mut()
+        )?;
     let mut expected_outputs_buf =
-        Buffer::<cl_float>::create(&opencl_state.context, CL_MEM_READ_ONLY, 5, ptr::null_mut())?;
+        Buffer::<cl_float>::create(
+            &opencl_state.context, 
+            CL_MEM_READ_ONLY, 
+            samples_amount * outputs_amount, 
+            ptr::null_mut()
+        )?;
 
     opencl_state
         .queue
@@ -224,7 +261,7 @@ fn opencl_mean_squared_computation_of_loss_derivatives_should_be_the_same_as_nor
             &mut outputs_buf,
             CL_NON_BLOCKING,
             0,
-            &[0.5, 0.0, 0.0, 0.0, 0.0],
+            output_samples.as_slice(),
             &[],
         )?
         .wait()?;
@@ -234,18 +271,28 @@ fn opencl_mean_squared_computation_of_loss_derivatives_should_be_the_same_as_nor
             &mut expected_outputs_buf,
             CL_NON_BLOCKING,
             0,
-            &[0.1, 0.0, 0.0, 0.0, 0.0],
+            expected_outputs.as_slice(),
             &[],
         )?
         .wait()?;
 
-    let buf = gpu_loss.compute_loss_derivative_with_respect_to_output_samples(&outputs_buf, &expected_outputs_buf, 1)?;
-    let mut slice = [0.0, 0.0, 0.0, 0.0, 0.0];
+    let buf = gpu_loss.compute_loss_derivative_with_respect_to_output_samples(
+        &outputs_buf, 
+        &expected_outputs_buf, 
+        samples_amount
+    )?;
+    let mut derivatives_vec = vec![0.0; samples_amount * outputs_amount];
+    let derivatives_slice = derivatives_vec.as_mut_slice();
 
-    opencl_state.queue.enqueue_read_buffer(&buf, CL_NON_BLOCKING, 0, &mut slice, &[])?.wait()?;
+    opencl_state.queue.enqueue_read_buffer(
+        &buf, 
+        CL_NON_BLOCKING, 
+        0, 
+        derivatives_slice, 
+        &[]
+    )?.wait()?;
 
-    println!("{} - {} <= 0.1", slice[0], expected_derivative);
-    assert!((slice[0] - expected_derivative).abs() <= 0.05);
+    assert_approx_equal_distance(&expected_derivatives, &derivatives_vec, 0.01);
 
     Ok(())
 }
