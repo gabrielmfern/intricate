@@ -1,16 +1,21 @@
 use std::{mem, ptr};
 
+use crate::types::CompilationOrOpenCLError;
+
+use super::gcd;
 use opencl3::{
     command_queue::{CommandQueue, CL_NON_BLOCKING},
     context::Context,
-    device::{get_all_devices, Device, CL_DEVICE_TYPE_GPU},
-    error_codes::{ClError, cl_int},
-    kernel::{Kernel, ExecuteKernel},
+    device::{
+        get_all_devices, Device, CL_DEVICE_TYPE_ACCELERATOR, CL_DEVICE_TYPE_ALL,
+        CL_DEVICE_TYPE_CPU, CL_DEVICE_TYPE_CUSTOM, CL_DEVICE_TYPE_GPU,
+    },
+    error_codes::{cl_int, ClError},
+    kernel::{ExecuteKernel, Kernel},
     memory::{Buffer, ClMem, CL_MEM_READ_WRITE},
     program::Program,
     types::cl_float,
 };
-use super::gcd;
 
 const SUM_PROGRAM_SOURCE: &str = include_str!("sum.cl");
 
@@ -23,21 +28,12 @@ const SUM_PROGRAM_SOURCE: &str = include_str!("sum.cl");
 ///
 /// # Errors
 ///
-/// This function will return an error if the kernel of summation 
+/// This function will return an error if the kernel of summation
 /// cannot be found inside th program.
-pub fn compile_buffer_summation_kernel(context: &Context) -> Result<(Program, Kernel), ClError> {
-    let program_compilation_result =
-        Program::create_and_build_from_source(context, SUM_PROGRAM_SOURCE, "");
-    if program_compilation_result.is_err() {
-        println!(
-            "A compilation error was found in the sum.cl Program:\n{:?}",
-            program_compilation_result.err().unwrap()
-        );
-        println!("Please report this issue at https://github.com/gabrielmfern/intricate");
-        panic!();
-    }
+pub fn compile_buffer_summation_kernel(context: &Context) -> Result<(Program, Kernel), CompilationOrOpenCLError> {
+    let program =
+        Program::create_and_build_from_source(context, SUM_PROGRAM_SOURCE, "")?;
 
-    let program = program_compilation_result.unwrap();
     let kernel = Kernel::create(&program, "sum_all_values_in_workgroups")?;
 
     Ok((program, kernel))
@@ -50,7 +46,8 @@ pub trait OpenCLSummable
 where
     Self: ClMem,
 {
-    fn sum(&self, context: &Context, queue: &CommandQueue, kernel: &Kernel) -> Result<f32, ClError>;
+    fn sum(&self, context: &Context, queue: &CommandQueue, kernel: &Kernel)
+        -> Result<f32, ClError>;
 
     fn reduce(
         &self,
@@ -68,7 +65,7 @@ impl OpenCLSummable for Buffer<cl_float> {
     /// # Params
     ///
     /// - **kernel**: It is the kernel that is written for summing all of the values
-    /// of a certain buffer in a workgroup. It can be compiled and built using the 
+    /// of a certain buffer in a workgroup. It can be compiled and built using the
     /// **compile_buffer_summation_kernel** function that is defined in this same module.
     ///
     /// - **context**: Is OpenCL's context over the application.
@@ -77,9 +74,14 @@ impl OpenCLSummable for Buffer<cl_float> {
     ///
     /// # Errors
     ///
-    /// This function will return an error if something wrong occurs inside of 
+    /// This function will return an error if something wrong occurs inside of
     /// OpenCL.
-    fn sum(&self, context: &Context, queue: &CommandQueue, kernel: &Kernel) -> Result<f32, ClError> {
+    fn sum(
+        &self,
+        context: &Context,
+        queue: &CommandQueue,
+        kernel: &Kernel,
+    ) -> Result<f32, ClError> {
         let device = Device::new(queue.device()?);
         let max_local_size = device.max_work_group_size()?;
 
@@ -166,6 +168,20 @@ impl From<ClError> for UnableToSetupOpenCLError {
     }
 }
 
+#[derive(Debug)]
+/// A enum used for telling Intricate what type of device it should try using with OpenCL.
+pub enum DeviceType {
+    /// Just the normal and usual **Graphics Processing Unit**
+    GPU = CL_DEVICE_TYPE_GPU as isize,
+    /// The **Central Processing Unit**
+    CPU = CL_DEVICE_TYPE_CPU as isize,
+    /// This will allow all types, and in turn, as of v0.3.0, will just get the first device
+    /// it is able to find in your computer
+    ALL = CL_DEVICE_TYPE_ALL as isize,
+    CUSTOM = CL_DEVICE_TYPE_CUSTOM as isize,
+    ACCELERATOR = CL_DEVICE_TYPE_ACCELERATOR as isize,
+}
+
 /// Gets the first device of a certain type it can find, starts the Context and the Command Queue
 /// and then returns them all on a OpenCLState struct.
 ///
@@ -173,8 +189,8 @@ impl From<ClError> for UnableToSetupOpenCLError {
 ///
 /// Will return an error if OpenCL is unable to do something with the first device it finds,
 /// or will return another type of error in case there is no available device.
-pub fn setup_opencl() -> Result<OpenCLState, UnableToSetupOpenCLError> {
-    let device_ids = get_all_devices(CL_DEVICE_TYPE_GPU)?;
+pub fn setup_opencl(device_type: DeviceType) -> Result<OpenCLState, UnableToSetupOpenCLError> {
+    let device_ids = get_all_devices(device_type as u64)?;
     if device_ids.len() > 0 {
         let first_gpu = Device::new(device_ids[0]);
         let context = Context::from_device(&first_gpu)?;

@@ -178,12 +178,12 @@ mod mean_squared_tests {
     use rand::{thread_rng, Rng};
 
     use super::MeanSquared;
-    use crate::{types::CompilationOrOpenCLError, loss_functions::LossFunction};
+    use crate::{types::CompilationOrOpenCLError, loss_functions::LossFunction, utils::opencl::DeviceType};
     use crate::utils::{approx_eq::assert_approx_equal_distance, setup_opencl, OpenCLState};
 
     #[test]
     fn should_compute_derivatives_up_to_a_certain_precision() -> Result<(), CompilationOrOpenCLError> {
-        let opencl_state: OpenCLState = setup_opencl()?;
+        let opencl_state: OpenCLState = setup_opencl(DeviceType::CPU)?;
 
         let mut gpu_loss = MeanSquared::new();
         gpu_loss.init(&opencl_state.context, &opencl_state.queue)?;
@@ -268,7 +268,7 @@ mod mean_squared_tests {
 
     #[test]
     fn should_compute_loss_up_to_a_certain_precision() -> Result<(), CompilationOrOpenCLError> {
-        let opencl_state: OpenCLState = setup_opencl()?;
+        let opencl_state: OpenCLState = setup_opencl(DeviceType::CPU)?;
 
         let mut loss = MeanSquared::new();
         loss.init(&opencl_state.context, &opencl_state.queue)?;

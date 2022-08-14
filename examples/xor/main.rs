@@ -3,6 +3,7 @@ use intricate::layers::Dense;
 
 use intricate::loss_functions::MeanSquared;
 use intricate::types::{ModelLayer, TrainingOptions};
+use intricate::utils::opencl::DeviceType;
 use intricate::utils::setup_opencl;
 use intricate::Model;
 use savefile::{load_file, save_file};
@@ -33,7 +34,8 @@ fn main() -> () {
 
     // Actually instantiate the Model with the layers
     let mut xor_model = Model::new(layers);
-    let opencl_state = setup_opencl().unwrap();
+    //            you can change this to DeviceType::GPU if you want
+    let opencl_state = setup_opencl(DeviceType::CPU).unwrap();
     xor_model.init(&opencl_state).unwrap();
 
     // Fit the model however many times we want

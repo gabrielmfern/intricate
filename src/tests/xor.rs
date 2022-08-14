@@ -1,7 +1,11 @@
 #[allow(unused_imports)]
 use opencl3::error_codes::ClError;
 #[allow(unused_imports)]
-use crate::types::CompilationOrOpenCLError;
+use crate::{
+    types::CompilationOrOpenCLError,
+    utils::opencl::DeviceType
+};
+
 #[allow(unused_imports)]
 use crate::{
     layers::activations::TanH,
@@ -23,22 +27,22 @@ fn should_decrease_error() -> () {
     ];
 
     let mut model = Model::new(layers);
-    let opencl_state = setup_opencl().unwrap();
+    let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
     model.init(&opencl_state).unwrap();
 
-    let training_input_samples = Vec::from([
-        Vec::from([0.0_f32, 0.0_f32]),
-        Vec::from([1.0_f32, 0.0_f32]),
-        Vec::from([0.0_f32, 1.0_f32]),
-        Vec::from([1.0_f32, 1.0_f32]),
-    ]);
+    let training_input_samples = vec![
+        vec![0.0_f32, 0.0_f32],
+        vec![1.0_f32, 0.0_f32],
+        vec![0.0_f32, 1.0_f32],
+        vec![1.0_f32, 1.0_f32],
+    ];
 
-    let training_output_samples = Vec::from([
-        Vec::from([0.0_f32]),
-        Vec::from([1.0_f32]),
-        Vec::from([1.0_f32]),
-        Vec::from([0.0_f32]),
-    ]);
+    let training_output_samples = vec![
+        vec![0.0_f32],
+        vec![1.0_f32],
+        vec![1.0_f32],
+        vec![0.0_f32],
+    ];
 
 
     let last_loss = model
@@ -49,7 +53,7 @@ fn should_decrease_error() -> () {
                 loss_algorithm: MeanSquared::new(), 
                 learning_rate: 0.1,
                 should_print_information: true,
-                epochs: 10000,
+                epochs: 5000,
             },
         ).unwrap()
         .unwrap();

@@ -91,8 +91,12 @@ we do need to initialize a `OpenCLState` which is just a struct
 containing some necessary OpenCL stuff:
 
 ```rust
-use intricate::utils::setup_opencl;
-let opencl_state = setup_opencl().unwrap();
+use intricate::utils::{
+    setup_opencl,
+    DeviceType
+}
+//              you can change this device type to GPU if you want
+let opencl_state = setup_opencl(DeviceType::CPU).unwrap();
 ```
 
 After setting it up we need to initialize the Model using this state
