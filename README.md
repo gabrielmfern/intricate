@@ -135,7 +135,8 @@ For saving and loading models Intricate uses the [savefile](https://github.com/a
 To load and save data, as an example, say for the XoR model
 we trained above, we can just call the `save_file` function as such:
 
-```rs
+```rust
+xor_model.sync_gpu_data_with_cpu().unwrap();
 save_file("xor-model.bin", 0, &xor_model).unwrap();
 ```
 
@@ -148,7 +149,7 @@ information.
 As for the loading of the data we must create some dummy dense layers and tell
 them to load their data from the paths created above
 
-```rs
+```rust
 let mut loaded_xor_model: Model = load_file("xor-model.bin", 0).unwrap();
 ```
 

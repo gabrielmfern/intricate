@@ -74,6 +74,20 @@ impl<'a> Model<'a> {
         }
     }
 
+    /// Sends the trained parameters in each layer from the GPU to the CPU.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if something goes wrong
+    /// while reading the buffers into the CPU.
+    pub fn sync_gpu_data_with_cpu(&mut self) -> Result<(), ClError> {
+        for layer in self.layers.iter_mut() {
+            layer.sync_data_from_gpu_with_cpu()?;
+        }
+
+        Ok(())
+    }
+
     /// Initializes all of the layers inside of the Model and starts holding the reference to the
     /// OpenCL state passed in as parameter.
     ///

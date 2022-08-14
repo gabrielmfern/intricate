@@ -222,7 +222,7 @@ impl<'a> Layer<'a> for Dense<'a> {
             ptr::null_mut(),
         )?;
 
-        let weights_gpu_write_event = queue.enqueue_write_buffer(
+        queue.enqueue_write_buffer(
             &mut weights_buffer,
             CL_NON_BLOCKING,
             0,
@@ -233,17 +233,14 @@ impl<'a> Layer<'a> for Dense<'a> {
                 .collect::<Vec<f32>>()
                 .as_slice(),
             &[],
-        )?;
-        let biases_gpu_write_event = queue.enqueue_write_buffer(
+        )?.wait()?;
+        queue.enqueue_write_buffer(
             &mut biases_buffer,
             CL_NON_BLOCKING,
             0,
             self.biases.as_slice(),
             &[],
-        )?;
-
-        weights_gpu_write_event.wait()?;
-        biases_gpu_write_event.wait()?;
+        )?.wait()?;
 
         self.weights_buffer = Some(weights_buffer);
         self.biases_buffer = Some(biases_buffer);
@@ -342,7 +339,7 @@ impl<'a> Layer<'a> for Dense<'a> {
             ptr::null_mut(),
         )?;
 
-        let kernel_event = ExecuteKernel::new(self.propagation_kernel.as_ref().unwrap())
+        ExecuteKernel::new(self.propagation_kernel.as_ref().unwrap())
             .set_arg(input_samples)
             .set_arg(self.biases_buffer.as_ref().unwrap())
             .set_arg(self.weights_buffer.as_ref().unwrap())
@@ -351,9 +348,9 @@ impl<'a> Layer<'a> for Dense<'a> {
             .set_arg(&(samples_amount as cl_int))
             .set_arg(&(self.outputs_amount as cl_int))
             .set_global_work_sizes(&[samples_amount, self.outputs_amount])
-            .enqueue_nd_range(queue)?;
+            .enqueue_nd_range(queue)?
+            .wait()?;
 
-        kernel_event.wait()?;
 
         self.last_outputs_buffer = Some(outputs_buffer);
         Ok(self.last_outputs_buffer.as_ref().unwrap())
@@ -382,8 +379,7 @@ impl<'a> Layer<'a> for Dense<'a> {
                 ptr::null_mut(),
             )?);
 
-            let layer_loss_to_input_differentiation_kernel_event =
-                ExecuteKernel::new(self.loss_to_input_differentiation_kernel.as_ref().unwrap())
+            ExecuteKernel::new(self.loss_to_input_differentiation_kernel.as_ref().unwrap())
                     .set_arg(self.weights_buffer.as_ref().unwrap())
                     .set_arg(layer_output_to_error_derivative)
                     .set_arg(layer_input_to_error_derivatives_buffer.as_ref().unwrap())
@@ -391,9 +387,8 @@ impl<'a> Layer<'a> for Dense<'a> {
                     .set_arg(&(samples_amount as cl_int))
                     .set_arg(&(self.inputs_amount as cl_int))
                     .set_global_work_sizes(&[samples_amount, self.inputs_amount])
-                    .enqueue_nd_range(queue)?;
-
-            layer_loss_to_input_differentiation_kernel_event.wait()?;
+                    .enqueue_nd_range(queue)?
+                    .wait()?;
         }
 
         let new_weights_buffer = Buffer::<cl_float>::create(
@@ -403,20 +398,18 @@ impl<'a> Layer<'a> for Dense<'a> {
             ptr::null_mut(),
         )?;
 
-        let weights_apply_gradients_kernel_event =
-            ExecuteKernel::new(self.weights_gradient_application_kernel.as_ref().unwrap())
-                .set_arg(layer_output_to_error_derivative)
-                .set_arg(self.last_inputs_buffer.as_ref().unwrap())
-                .set_arg(self.weights_buffer.as_ref().unwrap())
-                .set_arg(&new_weights_buffer)
-                .set_arg(&(samples_amount as cl_int))
-                .set_arg(&(self.outputs_amount as cl_int))
-                .set_arg(&(self.inputs_amount as cl_int))
-                .set_arg(&(learning_rate as cl_float))
-                .set_global_work_sizes(&[self.inputs_amount, self.outputs_amount])
-                .enqueue_nd_range(queue)?;
-
-        weights_apply_gradients_kernel_event.wait()?;
+        ExecuteKernel::new(self.weights_gradient_application_kernel.as_ref().unwrap())
+            .set_arg(layer_output_to_error_derivative)
+            .set_arg(self.last_inputs_buffer.as_ref().unwrap())
+            .set_arg(self.weights_buffer.as_ref().unwrap())
+            .set_arg(&new_weights_buffer)
+            .set_arg(&(samples_amount as cl_int))
+            .set_arg(&(self.outputs_amount as cl_int))
+            .set_arg(&(self.inputs_amount as cl_int))
+            .set_arg(&(learning_rate as cl_float))
+            .set_global_work_sizes(&[self.inputs_amount, self.outputs_amount])
+            .enqueue_nd_range(queue)?
+            .wait()?;
 
         let new_biases_buffer = Buffer::<cl_float>::create(
             self.opencl_context.unwrap(),
@@ -425,18 +418,16 @@ impl<'a> Layer<'a> for Dense<'a> {
             ptr::null_mut(),
         )?;
 
-        let bias_apply_gradients_kernel_event =
-            ExecuteKernel::new(self.bias_gradient_application_kernel.as_ref().unwrap())
-                .set_arg(layer_output_to_error_derivative)
-                .set_arg(self.biases_buffer.as_ref().unwrap())
-                .set_arg(&new_biases_buffer)
-                .set_arg(&(samples_amount as cl_int))
-                .set_arg(&(self.outputs_amount as cl_int))
-                .set_arg(&(learning_rate as cl_float))
-                .set_global_work_size(self.outputs_amount)
-                .enqueue_nd_range(queue)?;
-
-        bias_apply_gradients_kernel_event.wait()?;
+        ExecuteKernel::new(self.bias_gradient_application_kernel.as_ref().unwrap())
+            .set_arg(layer_output_to_error_derivative)
+            .set_arg(self.biases_buffer.as_ref().unwrap())
+            .set_arg(&new_biases_buffer)
+            .set_arg(&(samples_amount as cl_int))
+            .set_arg(&(self.outputs_amount as cl_int))
+            .set_arg(&(learning_rate as cl_float))
+            .set_global_work_size(self.outputs_amount)
+            .enqueue_nd_range(queue)?
+            .wait()?;
 
         self.weights_buffer = Some(new_weights_buffer);
         self.biases_buffer = Some(new_biases_buffer);

@@ -33,7 +33,7 @@ kernel void sum_all_values_in_workgroups(
             // we add the last value if the it is in the first value in
             // the workgroup
             if (group_size % 2 == 1 && local_id == 0) {
-                workgroup_state[0] += workgroup_state[half_size];
+                workgroup_state[0] += workgroup_state[group_size - 1];
             }
         }
         barrier(CLK_LOCAL_MEM_FENCE);
