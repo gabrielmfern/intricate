@@ -1,25 +1,27 @@
 #[allow(unused_imports)]
 use opencl3::error_codes::ClError;
-
+#[allow(unused_imports)]
+use crate::types::CompilationOrOpenCLError;
 #[allow(unused_imports)]
 use crate::{
-    layers::activations::tanh_gpu::TanHGPU,
-    layers::dense_gpu::DenseGPU,
-    loss_functions::mean_squared::OpenCLMeanSquared,
-    loss_functions::OpenCLLossFunction,
-    model_gpu::{GPUModel, GPUModelLayer, GPUModelLossFunction, GPUTrainingOptions},
+    layers::activations::TanH,
+    layers::Dense,
+    loss_functions::MeanSquared,
+    loss_functions::LossFunction,
+    model::Model,
+    types::{ModelLayer, ModelLossFunction, TrainingOptions},
     utils::{setup_opencl, OpenCLState},
 };
 
 #[test]
-fn should_decrease_error() -> Result<(), ClError> {
-    let mut layers: Vec<GPUModelLayer> = Vec::new();
-    layers.push(GPUModelLayer::Dense(DenseGPU::new(2, 3)));
-    layers.push(GPUModelLayer::TanH(TanHGPU::new(3)));
-    layers.push(GPUModelLayer::Dense(DenseGPU::new(3, 1)));
-    layers.push(GPUModelLayer::TanH(TanHGPU::new(1)));
+fn should_decrease_error() -> Result<(), CompilationOrOpenCLError> {
+    let mut layers: Vec<ModelLayer> = Vec::new();
+    layers.push(ModelLayer::Dense(Dense::new(2, 3)));
+    layers.push(ModelLayer::TanH(TanH::new(3)));
+    layers.push(ModelLayer::Dense(Dense::new(3, 1)));
+    layers.push(ModelLayer::TanH(TanH::new(1)));
 
-    let mut model = GPUModel::new(layers);
+    let mut model = Model::new(layers);
     let opencl_state = setup_opencl()?;
     model.init(&opencl_state)?;
 
@@ -42,8 +44,8 @@ fn should_decrease_error() -> Result<(), ClError> {
         .fit(
             &training_input_samples,
             &training_output_samples,
-            &mut GPUTrainingOptions {
-                loss_algorithm: GPUModelLossFunction::MeanSquared(OpenCLMeanSquared::new()),
+            &mut TrainingOptions {
+                loss_algorithm: ModelLossFunction::MeanSquared(MeanSquared::new()),
                 learning_rate: 0.1,
                 should_print_information: true,
                 epochs: 5000,

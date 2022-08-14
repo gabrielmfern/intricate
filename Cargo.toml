@@ -13,7 +13,6 @@ readme = "README.md"
 rayon = "1.5.3"
 rand = "0.8.5"
 savefile-derive="0.10"
-bytemuck = "1.10.0"
 savefile="0.10"
 opencl3="0.8.1"
 

@@ -1,220 +1,221 @@
 use std::time::Instant;
 
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
-use savefile_derive::Savefile;
-
-use crate::{
-    layers::{
-        activations::{relu::ReLU, sigmoid::Sigmoid, softmax::SoftMax, tanh::TanH},
-        dense::Dense,
-        Layer,
-    },
-    loss_functions::{
-        categorical_cross_entropy::CategoricalCrossEntropy, mean_squared::MeanSquared, LossFunction,
-    },
+use super::utils::OpenCLState;
+#[allow(unused_imports)]
+use opencl3::{
+    command_queue::{CommandQueue, CL_NON_BLOCKING},
+    context::Context,
+    device::{cl_float, Device},
+    error_codes::ClError,
+    memory::{Buffer, ClMem, CL_MEM_READ_WRITE},
 };
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use savefile_derive::Savefile;
+use std::mem;
+use std::ptr;
 
-#[derive(Debug, Clone, Savefile)]
-pub enum ModelLayer {
-    Dense(Dense),
-    TanH(TanH),
-    Sigmoid(Sigmoid),
-    SoftMax(SoftMax),
-    ReLU(ReLU),
-}
-
-#[derive(Debug)]
-pub enum ModelLossFunction {
-    CategoricalCrossEntropy(CategoricalCrossEntropy),
-    MeanSquared(MeanSquared),
-}
-
-impl LossFunction for ModelLossFunction {
-    fn compute_loss(&self, outputs: &Vec<f32>, expected_outputs: &Vec<f32>) -> f32 {
-        match self {
-            ModelLossFunction::MeanSquared(lossfn) => {
-                lossfn.compute_loss(outputs, expected_outputs)
-            }
-            ModelLossFunction::CategoricalCrossEntropy(lossfn) => {
-                lossfn.compute_loss(outputs, expected_outputs)
-            }
-        }
-    }
-
-    fn average_loss_for_samples(
-        &self,
-        sample_outputs: &Vec<Vec<f32>>,
-        sample_expected_outputs: &Vec<Vec<f32>>,
-    ) -> f32 {
-        match self {
-            ModelLossFunction::MeanSquared(lossfn) => {
-                lossfn.average_loss_for_samples(sample_outputs, sample_expected_outputs)
-            }
-            ModelLossFunction::CategoricalCrossEntropy(lossfn) => {
-                lossfn.average_loss_for_samples(sample_outputs, sample_expected_outputs)
-            }
-        }
-    }
-
-    fn compute_loss_derivative_with_respect_to_output(
-        &self,
-        ouputs_amount: usize,
-        output: f32,
-        expected_output: f32,
-    ) -> f32 {
-        match self {
-            ModelLossFunction::MeanSquared(lossfn) => lossfn
-                .compute_loss_derivative_with_respect_to_output(
-                    ouputs_amount,
-                    output,
-                    expected_output,
-                ),
-            ModelLossFunction::CategoricalCrossEntropy(lossfn) => lossfn
-                .compute_loss_derivative_with_respect_to_output(
-                    ouputs_amount,
-                    output,
-                    expected_output,
-                ),
-        }
-    }
-}
-
-impl Layer for ModelLayer {
-    fn get_last_inputs(&self) -> &Vec<Vec<f32>> {
-        match self {
-            ModelLayer::Dense(layer) => layer.get_last_inputs(),
-            ModelLayer::TanH(layer) => layer.get_last_inputs(),
-            ModelLayer::Sigmoid(layer) => layer.get_last_inputs(),
-            ModelLayer::SoftMax(layer) => layer.get_last_inputs(),
-            ModelLayer::ReLU(layer) => layer.get_last_inputs(),
-        }
-    }
-
-    fn get_last_outputs(&self) -> &Vec<Vec<f32>> {
-        match self {
-            ModelLayer::Dense(layer) => layer.get_last_outputs(),
-            ModelLayer::TanH(layer) => layer.get_last_outputs(),
-            ModelLayer::Sigmoid(layer) => layer.get_last_outputs(),
-            ModelLayer::SoftMax(layer) => layer.get_last_outputs(),
-            ModelLayer::ReLU(layer) => layer.get_last_outputs(),
-        }
-    }
-
-    fn get_inputs_amount(&self) -> usize {
-        match self {
-            ModelLayer::Dense(layer) => layer.get_inputs_amount(),
-            ModelLayer::TanH(layer) => layer.get_inputs_amount(),
-            ModelLayer::Sigmoid(layer) => layer.get_inputs_amount(),
-            ModelLayer::SoftMax(layer) => layer.get_inputs_amount(),
-            ModelLayer::ReLU(layer) => layer.get_inputs_amount(),
-        }
-    }
-
-    fn get_outputs_amount(&self) -> usize {
-        match self {
-            ModelLayer::Dense(layer) => layer.get_outputs_amount(),
-            ModelLayer::TanH(layer) => layer.get_outputs_amount(),
-            ModelLayer::Sigmoid(layer) => layer.get_outputs_amount(),
-            ModelLayer::SoftMax(layer) => layer.get_outputs_amount(),
-            ModelLayer::ReLU(layer) => layer.get_outputs_amount(),
-        }
-    }
-
-    fn propagate(
-        &mut self,
-        inputs: &Vec<Vec<f32>>,
-    ) -> Vec<Vec<f32>> {
-        match self {
-            ModelLayer::Dense(layer) => layer.propagate(inputs),
-            ModelLayer::TanH(layer) => layer.propagate(inputs),
-            ModelLayer::Sigmoid(layer) => layer.propagate(inputs),
-            ModelLayer::SoftMax(layer) => layer.propagate(inputs),
-            ModelLayer::ReLU(layer) => layer.propagate(inputs),
-        }
-    }
-
-    fn back_propagate(
-        &mut self,
-        should_calculate_input_to_error_derivative: bool,
-        layer_output_to_error_derivative: &Vec<Vec<f32>>,
-        learning_rate: f32,
-    ) -> Option<Vec<Vec<f32>>> {
-        match self {
-            ModelLayer::Dense(layer) => layer.back_propagate(
-                should_calculate_input_to_error_derivative,
-                layer_output_to_error_derivative,
-                learning_rate,
-            ),
-            ModelLayer::TanH(layer) => layer.back_propagate(
-                should_calculate_input_to_error_derivative,
-                layer_output_to_error_derivative,
-                learning_rate,
-            ),
-            ModelLayer::Sigmoid(layer) => layer.back_propagate(
-                should_calculate_input_to_error_derivative,
-                layer_output_to_error_derivative,
-                learning_rate,
-            ),
-            ModelLayer::SoftMax(layer) => layer.back_propagate(
-                should_calculate_input_to_error_derivative,
-                layer_output_to_error_derivative,
-                learning_rate,
-            ),
-            ModelLayer::ReLU(layer) => layer.back_propagate(
-                should_calculate_input_to_error_derivative,
-                layer_output_to_error_derivative,
-                learning_rate,
-            ),
-        }
-    }
-}
-
-pub struct TrainingOptions {
-    pub loss_algorithm: ModelLossFunction,
-    // TODO: implement optimizers
-    pub learning_rate: f32,
-    pub should_print_information: bool,
-    pub epochs: usize,
-}
+use crate::{types::{CompilationOrOpenCLError, ModelLayer, TrainingOptions}, layers::Layer, loss_functions::LossFunction};
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, Savefile)]
-/// An Intricate Model which can be defined as just an ordering
-/// of some layers with their inputs and outputs, the Model receives
+#[derive(Debug, Savefile)]
+/// An Intricate Model can be defined as just an ordering
+/// of some layers with their inputs and outputs, the GPUModel receives
 /// the inputs for the first layer and results in the outputs of the last layer,
+///
+/// the only difference from an ordinary Model is that thourgh its propagation and
+/// backprop process it just moves around GPU buffers instead of Vec's
+///
 /// it also back_propagates returning the new loss for the Model based on the
 /// defined Loss Function and calls the back_propagate method on each layer
 /// going from the last to the first layer
-pub struct Model {
-    pub layers: Vec<ModelLayer>,
+///
+/// once it is instantiated using the `new` method, it will get the first GPU device
+/// it can find and use it for all the computations, in the future Intricate will
+/// support multiple GPU's here as well.
+pub struct Model<'a> {
+    pub layers: Vec<ModelLayer<'a>>,
+
+    #[savefile_ignore]
+    #[savefile_introspect_ignore]
+    pub opencl_state: Option<&'a OpenCLState>,
 }
 
-impl Model {
-    pub fn new(layers: Vec<ModelLayer>) -> Model {
-        Model { layers }
+impl<'a> Model<'a> {
+    pub fn new(layers: Vec<ModelLayer<'a>>) -> Model<'a> {
+        Model {
+            layers,
+            opencl_state: None,
+        }
     }
 
-    pub fn predict(
-        &mut self,
-        input_samples: &Vec<Vec<f32>>,
-    ) -> Vec<Vec<f32>> {
-        let mut current_values = input_samples.to_vec();
+    pub fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), CompilationOrOpenCLError> {
         for layer in self.layers.iter_mut() {
-            current_values = layer.propagate(&current_values);
+            layer.init(&opencl_state.queue, &opencl_state.context)?;
         }
-        current_values
+
+        self.opencl_state = Some(opencl_state);
+
+        Ok(())
+    }
+
+    pub fn get_last_prediction(&self) -> Result<Vec<f32>, ClError> {
+        assert!(self.opencl_state.is_some());
+        let state = self.opencl_state.unwrap();
+
+        let buffer = self.layers.last().unwrap().get_last_outputs().unwrap();
+
+        let size = buffer.size()? / mem::size_of::<cl_float>();
+        let mut resulting_vec = vec![0.0; size];
+        let resulting_slice = resulting_vec.as_mut_slice();
+
+        state
+            .queue
+            .enqueue_read_buffer(buffer, CL_NON_BLOCKING, 0, resulting_slice, &[])?
+            .wait()?;
+
+        Ok(resulting_vec)
+    }
+
+    pub fn predict(&mut self, input_samples: &Vec<Vec<f32>>) -> Result<&Buffer<cl_float>, ClError> {
+        assert!(self.opencl_state.is_some());
+
+        let state = self.opencl_state.unwrap();
+
+        let samples_amount = input_samples.len();
+
+        let mut first_input_samples_buffer = Buffer::<cl_float>::create(
+            &state.context,
+            CL_MEM_READ_WRITE,
+            samples_amount * input_samples[0].len(),
+            ptr::null_mut(),
+        )?;
+
+        state
+            .queue
+            .enqueue_write_buffer(
+                &mut first_input_samples_buffer,
+                CL_NON_BLOCKING,
+                0,
+                input_samples
+                    .par_iter()
+                    .map(|x| x.to_vec())
+                    .flatten()
+                    .collect::<Vec<f32>>()
+                    .as_slice(),
+                &[],
+            )?
+            .wait()?;
+
+        let result = self.predict_with_moved_buffer(first_input_samples_buffer)?;
+
+        Ok(result)
+    }
+
+    pub fn predict_with_moved_buffer(
+        &mut self,
+        input_samples: Buffer<cl_float>,
+    ) -> Result<&Buffer<cl_float>, ClError> {
+        assert!(!self.layers.is_empty());
+
+        let mut current_value: Option<&Buffer<cl_float>> = None;
+
+        for (i, layer) in self.layers.iter_mut().enumerate() {
+            if i == 0 {
+                current_value = Some(layer.propagate(&input_samples)?);
+            } else if current_value.is_some() {
+                current_value = Some(layer.propagate(current_value.unwrap())?);
+            }
+        }
+
+        Ok(current_value.unwrap())
+    }
+
+    pub fn predict_with_buffer<'b>(
+        &'b mut self,
+        input_samples: &'b Buffer<cl_float>,
+    ) -> Result<&'b Buffer<cl_float>, ClError> {
+        assert!(!self.layers.is_empty());
+
+        let mut current_values: &Buffer<cl_float> = input_samples;
+
+        for layer in self.layers.iter_mut() {
+            current_values = layer.propagate(current_values)?;
+        }
+
+        Ok(current_values)
     }
 
     /// fits the Model to best suit the training data
     /// using the back_propagate method of every layer
-    /// and prints the loss if it is computing the loss
-    /// it will return the loss in the last epoch
+    /// and prints the loss, if it is computing the loss
+    /// it will return the loss in the last epoch.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if some compilation error
+    /// happens while compiling the OpenCL programs for the Loss Function
+    /// defined in the training options, or some error happens running the kernels
+    /// at some point in the method calls.
     pub fn fit(
         &mut self,
         training_input_samples: &Vec<Vec<f32>>,
         training_expected_output_samples: &Vec<Vec<f32>>,
-        training_options: TrainingOptions,
-    ) -> Option<f32> {
+        training_options: &mut TrainingOptions<'a>,
+    ) -> Result<Option<f32>, CompilationOrOpenCLError> {
+        assert!(self.opencl_state.is_some());
+        let state = self.opencl_state.unwrap();
+
+        let samples_amount = training_input_samples.len();
+
+        training_options
+            .loss_algorithm
+            .init(&state.context, &state.queue)?;
+
+        let mut input_samples_buffer = Buffer::<cl_float>::create(
+            &state.context,
+            CL_MEM_READ_WRITE,
+            samples_amount * training_input_samples[0].len(),
+            ptr::null_mut(),
+        )?;
+
+        let mut expected_output_samples_buffer = Buffer::<cl_float>::create(
+            &state.context,
+            CL_MEM_READ_WRITE,
+            samples_amount * training_expected_output_samples[0].len(),
+            ptr::null_mut(),
+        )?;
+
+        state
+            .queue
+            .enqueue_write_buffer(
+                &mut input_samples_buffer,
+                CL_NON_BLOCKING,
+                0,
+                training_input_samples
+                    .par_iter()
+                    .map(|x| x.to_vec())
+                    .flatten()
+                    .collect::<Vec<f32>>()
+                    .as_slice(),
+                &[],
+            )?
+            .wait()?;
+        state
+            .queue
+            .enqueue_write_buffer(
+                &mut expected_output_samples_buffer,
+                CL_NON_BLOCKING,
+                0,
+                training_expected_output_samples
+                    .par_iter()
+                    .map(|x| x.to_vec())
+                    .flatten()
+                    .collect::<Vec<f32>>()
+                    .as_slice(),
+                &[],
+            )?
+            .wait()?;
+
         let mut loss = None;
 
         for epoch_index in 0..training_options.epochs {
@@ -223,62 +224,43 @@ impl Model {
             }
 
             loss = self.back_propagate(
-                training_input_samples,
-                training_expected_output_samples,
+                samples_amount,
+                &input_samples_buffer,
+                &expected_output_samples_buffer,
                 &training_options,
-            );
+            )?;
         }
 
-        loss
+        Ok(loss)
     }
 
-    /// Should compute the derivative of the loss with respect to the outputs
-    /// of the Model that come from the training_input_samples and then
-    /// call the backprop function in every layer always passing the derivatives
-    /// from one layer to the other.
-    ///
-    /// Returns the loss of the Model after doing backprop, although it returns
-    /// None when the should_print_information is set to false
     pub fn back_propagate(
         &mut self,
-        training_input_samples: &Vec<Vec<f32>>,
-        training_expected_output_samples: &Vec<Vec<f32>>,
+        samples_amount: usize,
+        training_input_samples: &Buffer<cl_float>,
+        training_expected_output_samples: &Buffer<cl_float>,
         training_options: &TrainingOptions,
-    ) -> Option<f32> {
-        assert_eq!(
-            training_input_samples.len(),
-            training_expected_output_samples.len()
-        );
-
-        assert!(training_input_samples.len() > 0);
+    ) -> Result<Option<f32>, ClError> {
+        // dumb
+        // assert_eq!(
+        //     training_input_samples.size()?,
+        //     training_expected_output_samples.size()?
+        // );
 
         let start_instant = Instant::now();
 
-        let training_actual_outputs = self.predict(training_input_samples);
+        let training_actual_outputs = self.predict_with_buffer(training_input_samples)?;
 
-        let outputs_amount = training_expected_output_samples[0].len();
+        let outputs_amount =
+            training_expected_output_samples.size()? / samples_amount / mem::size_of::<cl_float>();
 
-        // Not sure if this can be implemented on the GPU because of the
-        // computation of the loss bellow being done on dyn LossFunction
-        let mut lost_to_outputs_derivatives = training_expected_output_samples
-            .par_iter()
-            .zip(training_actual_outputs)
-            .map(|(expected_outputs, actual_outputs)| {
-                expected_outputs
-                    .iter()
-                    .zip(actual_outputs)
-                    .map(|(expected_output, actual_output)| {
-                        (&training_options)
-                            .loss_algorithm
-                            .compute_loss_derivative_with_respect_to_output(
-                                outputs_amount,
-                                actual_output,
-                                *expected_output,
-                            )
-                    })
-                    .collect::<Vec<f32>>()
-            })
-            .collect::<Vec<Vec<f32>>>();
+        let mut lost_to_outputs_derivatives = training_options
+            .loss_algorithm
+            .compute_loss_derivative_with_respect_to_output_samples(
+                &training_actual_outputs,
+                &training_expected_output_samples,
+                samples_amount,
+            )?;
 
         for (layer_index, layer) in self.layers.iter_mut().enumerate().rev() {
             if layer_index > 0 {
@@ -288,7 +270,7 @@ impl Model {
                         true,
                         &lost_to_outputs_derivatives,
                         training_options.learning_rate,
-                    )
+                    )?
                     .unwrap();
             } else {
                 layer.back_propagate(
@@ -296,25 +278,26 @@ impl Model {
                     false,
                     &lost_to_outputs_derivatives,
                     training_options.learning_rate,
-                );
+                )?;
             }
         }
 
-        let actual_sample_outputs = &self.predict(training_input_samples);
-
+        let actual_sample_outputs = self.predict_with_buffer(training_input_samples)?;
 
         if training_options.should_print_information {
-            let new_loss = training_options
-                .loss_algorithm
-                .average_loss_for_samples(actual_sample_outputs, training_expected_output_samples);
+            let new_loss = training_options.loss_algorithm.compute_loss(
+                &actual_sample_outputs,
+                &training_expected_output_samples,
+                outputs_amount,
+            )?;
             println!(
                 "{}s elapsed, now has loss of {}",
                 start_instant.elapsed().as_secs_f32(),
                 new_loss
             );
-            Some(new_loss)
+            Ok(Some(new_loss))
         } else {
-            None
+            Ok(None)
         }
     }
 }

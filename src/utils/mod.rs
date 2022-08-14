@@ -1,6 +1,4 @@
 pub mod approx_eq;
-pub mod matrix_operations;
-pub mod vector_operations;
 
 pub mod opencl;
 pub use opencl::OpenCLSummable;
@@ -85,7 +83,7 @@ pub struct OpenCLState {
 
 pub fn setup_opencl() -> Result<OpenCLState, ClError> {
     let device_ids = get_all_devices(CL_DEVICE_TYPE_GPU)?;
-    println!("{:?}", device_ids);
+    // println!("{:?}", device_ids);
     let first_gpu = Device::new(device_ids[0]);
     let context = Context::from_device(&first_gpu)?;
     // here it can be activated to make profiling on kernels

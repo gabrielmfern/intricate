@@ -1,5 +1,3 @@
-use super::vector_operations::VectorOperations;
-
 /// Asserts two matrices are approximately equal using the **assert_approx_equal**
 /// function in every single vector of both matrices.
 ///
@@ -24,13 +22,15 @@ pub fn assert_approx_equal(a: &Vec<f32>, b: &Vec<f32>, decimal_place: u32) -> ()
     assert_eq!(a.len(), b.len());
 
     let power_ten = &10.0_f32.powf(decimal_place as f32);
-    let approximate_a = a.multiply_number(power_ten)
-                         .floor()
-                         .divide_number(power_ten);
-    let approximate_b = b.multiply_number(power_ten)
-                         .floor()
-                         .divide_number(power_ten);
-    
+    let approximate_a: Vec<f32> = a
+        .iter()
+        .map(|x| (x * power_ten).floor() / power_ten)
+        .collect();
+    let approximate_b: Vec<f32> = b
+        .iter()
+        .map(|x| (x * power_ten).floor() / power_ten)
+        .collect();
+
     assert_eq!(approximate_a, approximate_b);
 }
 
@@ -38,7 +38,7 @@ pub fn assert_approx_equal(a: &Vec<f32>, b: &Vec<f32>, decimal_place: u32) -> ()
 /// being at most **max_dist** of a difference.
 ///
 /// # Panics
-/// 
+///
 /// Panics if the length of both vectors are not equal.
 pub fn assert_approx_equal_distance(a: &Vec<f32>, b: &Vec<f32>, max_dist: f32) -> () {
     assert_eq!(a.len(), b.len());
