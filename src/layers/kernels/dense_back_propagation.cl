@@ -35,7 +35,7 @@ kernel void weights_gradient_application(
         float loss_to_output_derivative = (float)flattened_output_to_loss_derivatives[flat_output_i];
         float input = (float)flattened_input_samples[flat_input_i];
 
-        printf("\n%e += %e * %e", weight_gradient_contributions, loss_to_output_derivative, input);
+        // printf("\n%e += %e * %e", weight_gradient_contributions, loss_to_output_derivative, input);
         weight_gradient_contributions += loss_to_output_derivative * input;
     }
 

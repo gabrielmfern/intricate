@@ -69,8 +69,7 @@ impl<'a> Layer<'a> for TanH<'a> {
         queue: &'a CommandQueue,
         context: &'a Context,
     ) -> Result<(), CompilationOrOpenCLError> {
-        let program =
-            Program::create_and_build_from_source(context, PROGRAM_SOURCE, "")?;
+        let program = Program::create_and_build_from_source(context, PROGRAM_SOURCE, "")?;
 
         let propagation_kernel = Kernel::create(&program, PROPAGATE_KERNEL_NAME)?;
         let back_propagation_kernel = Kernel::create(&program, BACK_PROPAGATE_KERNEL_NAME)?;
@@ -221,7 +220,10 @@ mod tanh_tests {
     };
     use rand::{thread_rng, Rng};
 
-    use crate::{types::CompilationOrOpenCLError, utils::approx_eq::assert_approx_equal_distance, layers::Layer};
+    use crate::{
+        layers::Layer, types::CompilationOrOpenCLError,
+        utils::approx_eq::assert_approx_equal_distance,
+    };
 
     use super::TanH;
 
@@ -277,18 +279,14 @@ mod tanh_tests {
             )?
             .wait()?;
 
-        assert_approx_equal_distance(
-            &expected_outputs,
-            &actual_outputs,
-            0.01,
-        );
+        assert_approx_equal_distance(&expected_outputs, &actual_outputs, 0.01);
 
         Ok(())
     }
 
     #[test]
-    fn should_back_propagate_returning_the_correct_derivatives() -> Result<(), CompilationOrOpenCLError>
-    {
+    fn should_back_propagate_returning_the_correct_derivatives(
+    ) -> Result<(), CompilationOrOpenCLError> {
         let device_ids = get_all_devices(CL_DEVICE_TYPE_CPU)?;
         let first_device = Device::new(device_ids[0]);
 
@@ -308,9 +306,7 @@ mod tanh_tests {
             .collect();
         let first_derivatives: Vec<f32> = (0..(samples_amount * numbers_amount))
             .into_iter()
-            .map(|_| {
-                rng.gen_range(-1.0_f32..1.0_f32)
-            })
+            .map(|_| rng.gen_range(-1.0_f32..1.0_f32))
             .collect();
 
         let mut input_samples_buffer = Buffer::<cl_float>::create(
@@ -348,9 +344,21 @@ mod tanh_tests {
 
         tanh.propagate(&input_samples_buffer)?;
 
-        let expected_loss_to_input_derivatives: Vec<f32> = first_derivatives
-            .iter()
-            .map(|x| 1.0 - x.tanh().powf(2.0))
+        let expected_loss_to_input_derivatives: Vec<Vec<f32>> = (0..samples_amount)
+            .into_iter()
+            .map(|i| {
+                (0..numbers_amount) // inputs
+                    .into_iter()
+                    .map(|j| {
+                        let input = input_samples[i * numbers_amount + j];
+                        (1.0 - input.tanh().powf(2.0))
+                            * (0..numbers_amount) // outputs
+                                .into_iter()
+                                .map(|k| first_derivatives[i * numbers_amount + k])
+                                .sum::<f32>()
+                    })
+                    .collect::<Vec<f32>>()
+            })
             .collect();
 
         let actual_loss_to_input_derivatives_buffer = tanh
@@ -369,15 +377,12 @@ mod tanh_tests {
             )?
             .wait()?;
 
-        println!(
-            "derivatives CPU: {:?}",
-            &expected_loss_to_input_derivatives,
-        );
+        println!("derivatives CPU: {:?}", &expected_loss_to_input_derivatives,);
         println!("\nderivatives GPU: {:?}", &actual_loss_to_input_derivatives);
 
         assert_approx_equal_distance(
             &actual_loss_to_input_derivatives,
-            &expected_loss_to_input_derivatives,
+            &expected_loss_to_input_derivatives.iter().map(|v| v.to_vec()).flatten().collect(),
             0.01,
         );
 
