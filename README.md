@@ -103,7 +103,7 @@ things it needs with it as such:
 xor_model.init(&opencl_state).unwrap();
 ```
 
-Be aware that as v0.3.0 of Intricate any method called before `init`
+Beware that as v0.3.0 of Intricate any method called before `init`
 will panic because they do not have the OpenCL state to do calculations.
 
 ### Fitting our model
