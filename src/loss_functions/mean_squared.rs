@@ -13,6 +13,7 @@ use opencl3::{
 
 use crate::loss_functions::LossFunction;
 use crate::types::CompilationOrOpenCLError;
+use crate::types::ModelLossFunction;
 use crate::utils::{opencl::compile_buffer_summation_kernel, OpenCLSummable};
 
 const PROGRAM_SOURCE: &str = include_str!("kernels/mean_squared.cl");
@@ -35,7 +36,7 @@ pub struct MeanSquared<'a> {
 }
 
 impl<'a> MeanSquared<'a> {
-    pub fn new() -> MeanSquared<'a> {
+    pub fn new() -> ModelLossFunction<'a> {
         MeanSquared {
             opencl_context: None,
             oepncl_queue: None,
@@ -47,7 +48,7 @@ impl<'a> MeanSquared<'a> {
             opencl_sum_buffer_kernel: None,
             opencl_sum_buffer_program: None,
             opencl_compute_loss_to_output_derivatives_kernel: None,
-        }
+        }.into()
     }
 }
 

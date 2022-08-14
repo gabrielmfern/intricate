@@ -12,6 +12,8 @@ pub mod loss_functions;
 pub mod model;
 pub mod utils;
 
+pub use model::Model;
+
 pub mod types;
 
 mod tests;

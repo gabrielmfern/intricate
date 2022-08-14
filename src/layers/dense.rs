@@ -13,7 +13,7 @@ use savefile_derive::Savefile;
 use std::mem;
 use std::ptr;
 
-use crate::types::CompilationOrOpenCLError;
+use crate::types::{CompilationOrOpenCLError, ModelLayer};
 
 use super::Layer;
 
@@ -30,9 +30,15 @@ const LOSS_TO_INPUT_DIFFERENTIATION_KERNEL_NAME: &str =
 /// and the weights that connect each input to all outputs,
 /// its propagation results in a dot product between these weights
 /// and the inputs received in the propagation method
+/// added with some biases that are trainable on backprop
 ///
-/// For this layer all the definitions are the same, the only difference
-/// is computation is done in all the devices Intricate is able to find
+/// # Examples
+///
+/// ```
+/// use intricate::layers::Dense;
+///
+/// let my_layer: Dense = Dense::new_raw(5, 5);
+/// ```
 pub struct Dense<'a> {
     pub inputs_amount: usize,
     pub outputs_amount: usize,
@@ -86,8 +92,9 @@ pub struct Dense<'a> {
 }
 
 impl<'a> Dense<'a> {
-    pub fn new(inputs_amount: usize, outputs_amount: usize) -> Dense<'a> {
-        let mut rng = rand::thread_rng();
+    /// Creates a new Dense layer but without being inside of the ModelLayer enum.
+    pub fn new_raw(inputs_amount: usize, outputs_amount: usize) -> Dense<'a> {
+        let mut rng = rand::thread_rng(); //                much more convenient
 
         let weights = (0..inputs_amount)
             .into_iter()
@@ -121,7 +128,12 @@ impl<'a> Dense<'a> {
             last_outputs_buffer: None,
             opencl_queue: None,
             opencl_context: None,
-        }
+        }.into() // because ModelLayer implements From<Dense>
+    }
+
+    /// Creates a new Dense layer with random weights and biases and empty OpenCL values.
+    pub fn new(inputs_amount: usize, outputs_amount: usize) -> ModelLayer<'a> {
+        Self::new_raw(inputs_amount, outputs_amount).into()
     }
 }
 
@@ -574,7 +586,7 @@ mod dense_tests {
         let inputs_amount = 5;
         let outputs_amount = 5;
 
-        let mut gpu_dense = Dense::new(inputs_amount, outputs_amount);
+        let mut gpu_dense: Dense = Dense::new_raw(inputs_amount, outputs_amount);
         gpu_dense.init(&queue, &context)?;
 
         let mut rng = thread_rng();

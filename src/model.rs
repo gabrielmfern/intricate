@@ -14,7 +14,11 @@ use savefile_derive::Savefile;
 use std::mem;
 use std::ptr;
 
-use crate::{types::{CompilationOrOpenCLError, ModelLayer, TrainingOptions}, layers::Layer, loss_functions::LossFunction};
+use crate::{
+    layers::Layer,
+    loss_functions::LossFunction,
+    types::{CompilationOrOpenCLError, ModelLayer, ModelLossFunction, TrainingOptions},
+};
 
 #[allow(dead_code)]
 #[derive(Debug, Savefile)]
@@ -41,6 +45,28 @@ pub struct Model<'a> {
 }
 
 impl<'a> Model<'a> {
+    /// Creates a new Model from a Vec of layers with an empty OpenCLState.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use intricate::{
+    ///     types::ModelLayer,
+    ///     layers::Dense,
+    ///     Model
+    /// }
+    ///
+    /// let my_layers: Vec<ModelLayer> = vec![
+    ///     Dense::new(768, 300), // make sure the outputs are the same as the inputs of the next
+    ///                           // one or Intricate will panic when asserting these are of the
+    ///                           // same shape
+    ///     Dense::new(300, 100),
+    ///     TanH::new(100), // Activations are layers by themselves, this makes all calculations
+    ///                     // much simpler under the hood
+    /// ];
+    ///
+    /// let my_model: Model = Model::new(my_layers);
+    /// ```
     pub fn new(layers: Vec<ModelLayer<'a>>) -> Model<'a> {
         Model {
             layers,
@@ -48,6 +74,15 @@ impl<'a> Model<'a> {
         }
     }
 
+    /// Initializes all of the layers inside of the Model and starts holding the reference to the
+    /// OpenCL state passed in as parameter.
+    ///
+    /// # Errors
+    ///
+    /// Perhaps in one of the layers OpenCL compilation of a program fails, and this will yield a
+    /// CompilationError (just a String with some stacktrace to the error).
+    /// If the programs were compiled successfully don't put your guard down yet because OpenCL may
+    /// yield some error if something it needs to do fails.
     pub fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), CompilationOrOpenCLError> {
         for layer in self.layers.iter_mut() {
             layer.init(&opencl_state.queue, &opencl_state.context)?;
@@ -58,7 +93,26 @@ impl<'a> Model<'a> {
         Ok(())
     }
 
+    /// Will fetch the outputs of the last layer in the Model.
+    ///
+    /// This is useful since prediction in the Model will just yield a Buffer (a memory allocation
+    /// inside of the GPU) which can't really be manipulated by the CPU and is not the data itself.
+    ///
+    /// So if you want to do some manipulation with the data after predicting, just call this
+    /// method.
+    ///
+    /// # Errors
+    ///
+    /// This function will yield an error ClError if something goes wrong while reading the data
+    /// inside of the GPU.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if the 'init' method was not called setting the **opencl_state**, if there 
+    /// is no layers in the model or if there is not outputs in the last layer.
     pub fn get_last_prediction(&self) -> Result<Vec<f32>, ClError> {
+        // TODO: get rid of all these unwraps and make a customized enum for errors in this
+        // function
         assert!(self.opencl_state.is_some());
         let state = self.opencl_state.unwrap();
 
@@ -76,6 +130,19 @@ impl<'a> Model<'a> {
         Ok(resulting_vec)
     }
 
+    /// Plain old `predict` function, will receive the inputs for the model and will give out a
+    /// OpenCL buffer associated with the outputs in the GPU.
+    /// If you need to get the data from the buffer don't worry, just call the `get_last_prediction`
+    /// method after predicting. (also the reference to the output may be annoying to work with)
+    ///
+    /// # Errors
+    ///
+    /// Will yield an error if something goes wrong with OpenCL, perhaps running some kernels, or
+    /// with buffer allocation.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if the `init` was not called on the Model, or if the model has no layers.
     pub fn predict(&mut self, input_samples: &Vec<Vec<f32>>) -> Result<&Buffer<cl_float>, ClError> {
         assert!(self.opencl_state.is_some());
 
@@ -111,7 +178,8 @@ impl<'a> Model<'a> {
         Ok(result)
     }
 
-    pub fn predict_with_moved_buffer(
+    // Just used for calling predict without having trouble with references
+    fn predict_with_moved_buffer(
         &mut self,
         input_samples: Buffer<cl_float>,
     ) -> Result<&Buffer<cl_float>, ClError> {
@@ -227,7 +295,9 @@ impl<'a> Model<'a> {
                 samples_amount,
                 &input_samples_buffer,
                 &expected_output_samples_buffer,
-                &training_options,
+                &training_options.learning_rate,
+                &training_options.loss_algorithm,
+                &training_options.should_print_information,
             )?;
         }
 
@@ -239,14 +309,10 @@ impl<'a> Model<'a> {
         samples_amount: usize,
         training_input_samples: &Buffer<cl_float>,
         training_expected_output_samples: &Buffer<cl_float>,
-        training_options: &TrainingOptions,
+        learning_rate: &f32,
+        loss_function: &ModelLossFunction<'a>,
+        verbose: &bool,
     ) -> Result<Option<f32>, ClError> {
-        // dumb
-        // assert_eq!(
-        //     training_input_samples.size()?,
-        //     training_expected_output_samples.size()?
-        // );
-
         let start_instant = Instant::now();
 
         let training_actual_outputs = self.predict_with_buffer(training_input_samples)?;
@@ -254,8 +320,7 @@ impl<'a> Model<'a> {
         let outputs_amount =
             training_expected_output_samples.size()? / samples_amount / mem::size_of::<cl_float>();
 
-        let mut lost_to_outputs_derivatives = training_options
-            .loss_algorithm
+        let mut lost_to_outputs_derivatives = loss_function
             .compute_loss_derivative_with_respect_to_output_samples(
                 &training_actual_outputs,
                 &training_expected_output_samples,
@@ -266,26 +331,22 @@ impl<'a> Model<'a> {
             if layer_index > 0 {
                 // always Some
                 lost_to_outputs_derivatives = layer
-                    .back_propagate(
-                        true,
-                        &lost_to_outputs_derivatives,
-                        training_options.learning_rate,
-                    )?
+                    .back_propagate(true, &lost_to_outputs_derivatives, *learning_rate)?
                     .unwrap();
             } else {
                 layer.back_propagate(
                     // always None
                     false,
                     &lost_to_outputs_derivatives,
-                    training_options.learning_rate,
+                    *learning_rate,
                 )?;
             }
         }
 
         let actual_sample_outputs = self.predict_with_buffer(training_input_samples)?;
 
-        if training_options.should_print_information {
-            let new_loss = training_options.loss_algorithm.compute_loss(
+        if *verbose {
+            let new_loss = loss_function.compute_loss(
                 &actual_sample_outputs,
                 &training_expected_output_samples,
                 outputs_amount,

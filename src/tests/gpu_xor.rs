@@ -14,16 +14,17 @@ use crate::{
 };
 
 #[test]
-fn should_decrease_error() -> Result<(), CompilationOrOpenCLError> {
-    let mut layers: Vec<ModelLayer> = Vec::new();
-    layers.push(ModelLayer::Dense(Dense::new(2, 3)));
-    layers.push(ModelLayer::TanH(TanH::new(3)));
-    layers.push(ModelLayer::Dense(Dense::new(3, 1)));
-    layers.push(ModelLayer::TanH(TanH::new(1)));
+fn should_decrease_error() -> () {
+    let layers: Vec<ModelLayer> = vec![
+        Dense::new(2, 3),
+        TanH::new (3),
+        Dense::new(3, 1),
+        TanH::new (1),
+    ];
 
     let mut model = Model::new(layers);
-    let opencl_state = setup_opencl()?;
-    model.init(&opencl_state)?;
+    let opencl_state = setup_opencl().unwrap();
+    model.init(&opencl_state).unwrap();
 
     let training_input_samples = Vec::from([
         Vec::from([0.0_f32, 0.0_f32]),
@@ -45,17 +46,15 @@ fn should_decrease_error() -> Result<(), CompilationOrOpenCLError> {
             &training_input_samples,
             &training_output_samples,
             &mut TrainingOptions {
-                loss_algorithm: ModelLossFunction::MeanSquared(MeanSquared::new()),
+                loss_algorithm: MeanSquared::new(), 
                 learning_rate: 0.1,
                 should_print_information: true,
-                epochs: 5000,
+                epochs: 10000,
             },
-        )?
+        ).unwrap()
         .unwrap();
 
     let max_loss = 0.1;
 
     assert!(last_loss <= max_loss);
-
-    Ok(())
 }

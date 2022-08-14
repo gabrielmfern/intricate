@@ -1,3 +1,4 @@
+use crate::types::ModelLayer;
 use crate::{layers::Layer, types::CompilationOrOpenCLError};
 
 use opencl3::memory::ClMem;
@@ -49,7 +50,7 @@ pub struct TanH<'a> {
 }
 
 impl<'a> TanH<'a> {
-    pub fn new(inputs_amount: usize) -> TanH<'a> {
+    pub fn new_raw(inputs_amount: usize) -> TanH<'a> {
         TanH {
             inputs_amount,
             opencl_context: None,
@@ -60,6 +61,10 @@ impl<'a> TanH<'a> {
             last_outputs_buffer: None,
             last_inputs_buffer: None,
         }
+    }
+
+    pub fn new(inputs_amount: usize) -> ModelLayer<'a> {
+        Self::new_raw(inputs_amount).into()
     }
 }
 
@@ -235,8 +240,8 @@ mod tanh_tests {
         let context = Context::from_device(&first_device)?;
         let queue = CommandQueue::create_with_properties(&context, device_ids[0], 0, 0)?;
 
-        let samples_amount = 121;
-        let numbers_amount = 13;
+        let samples_amount = 4123;
+        let numbers_amount = 1341;
 
         let mut tanh = TanH::new(numbers_amount);
         tanh.init(&queue, &context)?;
@@ -293,8 +298,8 @@ mod tanh_tests {
         let context = Context::from_device(&first_device)?;
         let queue = CommandQueue::create_with_properties(&context, device_ids[0], 0, 0)?;
 
-        let samples_amount = 135;
-        let numbers_amount = 19;
+        let samples_amount = 4312;
+        let numbers_amount = 331;
 
         let mut tanh = TanH::new(numbers_amount);
         tanh.init(&queue, &context)?;

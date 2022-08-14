@@ -1,12 +1,12 @@
+//! Just a module with a few utilities that make writing code easier through out Intricate
+
 pub mod approx_eq;
 
 pub mod opencl;
-pub use opencl::OpenCLSummable;
-use opencl3::{
-    command_queue::CommandQueue,
-    context::Context,
-    device::{get_all_devices, Device, CL_DEVICE_TYPE_GPU},
-    error_codes::ClError,
+pub use opencl::{
+    OpenCLSummable,
+    setup_opencl,
+    OpenCLState
 };
 
 /// Finds the gratest common divisor (gcd) of two numbers **n** and **m** independent of their
@@ -73,25 +73,3 @@ fn gcd_should_work_with_very_small_numbers() {
     assert_eq!(gcd(n, m), expected_result);
 }
 
-#[allow(dead_code)]
-#[derive(Debug)]
-pub struct OpenCLState {
-    pub context: Context,
-    pub queue: CommandQueue,
-    pub device: Device,
-}
-
-pub fn setup_opencl() -> Result<OpenCLState, ClError> {
-    let device_ids = get_all_devices(CL_DEVICE_TYPE_GPU)?;
-    // println!("{:?}", device_ids);
-    let first_gpu = Device::new(device_ids[0]);
-    let context = Context::from_device(&first_gpu)?;
-    // here it can be activated to make profiling on kernels
-    let queue = CommandQueue::create_with_properties(&context, first_gpu.id(), 0, 0)?;
-
-    Ok(OpenCLState {
-        context,
-        queue,
-        device: first_gpu,
-    })
-}

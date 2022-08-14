@@ -13,6 +13,7 @@ use opencl3::{
 
 use crate::loss_functions::LossFunction;
 use crate::types::CompilationOrOpenCLError;
+use crate::types::ModelLossFunction;
 use crate::utils::{opencl::compile_buffer_summation_kernel, OpenCLSummable};
 
 const PROGRAM_SOURCE: &str = include_str!("kernels/categorical_cross_entropy.cl");
@@ -34,7 +35,7 @@ pub struct CategoricalCrossEntropy<'a> {
 }
 
 impl<'a> CategoricalCrossEntropy<'a> {
-    pub fn new() -> CategoricalCrossEntropy<'a> {
+    pub fn new() -> ModelLossFunction<'a> {
         CategoricalCrossEntropy {
             opencl_context: None,
             oepncl_queue: None,
@@ -46,7 +47,7 @@ impl<'a> CategoricalCrossEntropy<'a> {
             opencl_sum_buffer_kernel: None,
             opencl_sum_buffer_program: None,
             opencl_compute_loss_to_output_derivatives_kernel: None,
-        }
+        }.into()
     }
 }
 

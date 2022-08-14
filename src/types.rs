@@ -1,16 +1,24 @@
 //! A module containing internal data types for Intricate
 
-use opencl3::{error_codes::ClError, memory::Buffer, device::cl_float, context::Context, command_queue::CommandQueue};
+use opencl3::{
+    command_queue::CommandQueue, context::Context, device::cl_float, error_codes::ClError,
+    memory::Buffer,
+};
 use savefile_derive::Savefile;
 
-use crate::{loss_functions::{MeanSquared, CategoricalCrossEntropy, LossFunction}, layers::{Dense, activations::TanH, Layer}};
+use crate::{
+    layers::{activations::TanH, Dense, Layer},
+    loss_functions::{CategoricalCrossEntropy, LossFunction, MeanSquared},
+    utils::opencl::UnableToSetupOpenCLError,
+};
 
 /// A simple type for initialization errors, since they can be either a straight up ClError
 /// or a compilation error for some kernel which yields a type of stacktrace.
 #[derive(Debug)]
 pub enum CompilationOrOpenCLError {
     CompilationError(String),
-    OpenCLError(ClError)
+    OpenCLError(ClError),
+    UnableToSetupOpenCLError,
 }
 
 impl From<ClError> for CompilationOrOpenCLError {
@@ -25,6 +33,12 @@ impl From<String> for CompilationOrOpenCLError {
     }
 }
 
+impl From<UnableToSetupOpenCLError> for CompilationOrOpenCLError {
+    fn from(_err: UnableToSetupOpenCLError) -> Self {
+        Self::UnableToSetupOpenCLError
+    }
+}
+
 #[derive(Debug, Savefile)]
 pub enum ModelLayer<'a> {
     Dense(Dense<'a>),
@@ -35,6 +49,19 @@ pub enum ModelLayer<'a> {
 pub enum ModelLossFunction<'a> {
     MeanSquared(MeanSquared<'a>),
     CategoricalCrossEntropy(CategoricalCrossEntropy<'a>),
+}
+
+
+impl<'a> From<MeanSquared<'a>> for ModelLossFunction<'a> {
+    fn from(loss: MeanSquared<'a>) -> Self {
+        ModelLossFunction::MeanSquared(loss)
+    }
+}
+
+impl<'a> From<CategoricalCrossEntropy<'a>> for ModelLossFunction<'a> {
+    fn from(loss: CategoricalCrossEntropy<'a>) -> Self {
+        ModelLossFunction::CategoricalCrossEntropy(loss)
+    }
 }
 
 pub struct TrainingOptions<'a> {
@@ -55,14 +82,18 @@ impl<'a> LossFunction<'a> for ModelLossFunction<'a> {
         match self {
             ModelLossFunction::MeanSquared(lossfn) => {
                 lossfn.compute_loss(output_samples, expected_outputs, samples_amount)
-            },
+            }
             ModelLossFunction::CategoricalCrossEntropy(lossfn) => {
                 lossfn.compute_loss(output_samples, expected_outputs, samples_amount)
-            },
+            }
         }
     }
 
-    fn init(&mut self, context: &'a Context, queue: &'a CommandQueue) -> Result<(), CompilationOrOpenCLError> {
+    fn init(
+        &mut self,
+        context: &'a Context,
+        queue: &'a CommandQueue,
+    ) -> Result<(), CompilationOrOpenCLError> {
         match self {
             ModelLossFunction::MeanSquared(lossfn) => lossfn.init(context, queue),
             ModelLossFunction::CategoricalCrossEntropy(lossfn) => lossfn.init(context, queue),
@@ -121,7 +152,11 @@ impl<'a> Layer<'a> for ModelLayer<'a> {
         }
     }
 
-    fn init(&mut self, queue: &'a CommandQueue, context: &'a Context) -> Result<(), CompilationOrOpenCLError> {
+    fn init(
+        &mut self,
+        queue: &'a CommandQueue,
+        context: &'a Context,
+    ) -> Result<(), CompilationOrOpenCLError> {
         match self {
             ModelLayer::Dense(layer) => layer.init(queue, context),
             ModelLayer::TanH(layer) => layer.init(queue, context),

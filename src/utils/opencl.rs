@@ -3,7 +3,7 @@ use std::{mem, ptr};
 use opencl3::{
     command_queue::{CommandQueue, CL_NON_BLOCKING},
     context::Context,
-    device::Device,
+    device::{get_all_devices, Device, CL_DEVICE_TYPE_GPU},
     error_codes::{ClError, cl_int},
     kernel::{Kernel, ExecuteKernel},
     memory::{Buffer, ClMem, CL_MEM_READ_WRITE},
@@ -144,5 +144,49 @@ impl OpenCLSummable for Buffer<cl_float> {
             .wait()?;
 
         Ok(current_reduced_buffer)
+    }
+}
+
+#[derive(Debug)]
+pub struct OpenCLState {
+    pub context: Context,
+    pub queue: CommandQueue,
+    pub device: Device,
+}
+
+#[derive(Debug)]
+pub enum UnableToSetupOpenCLError {
+    OpenCL(ClError),
+    NoDeviceFound,
+}
+
+impl From<ClError> for UnableToSetupOpenCLError {
+    fn from(err: ClError) -> Self {
+        UnableToSetupOpenCLError::OpenCL(err)
+    }
+}
+
+/// Gets the first device of a certain type it can find, starts the Context and the Command Queue
+/// and then returns them all on a OpenCLState struct.
+///
+/// # Errors
+///
+/// Will return an error if OpenCL is unable to do something with the first device it finds,
+/// or will return another type of error in case there is no available device.
+pub fn setup_opencl() -> Result<OpenCLState, UnableToSetupOpenCLError> {
+    let device_ids = get_all_devices(CL_DEVICE_TYPE_GPU)?;
+    if device_ids.len() > 0 {
+        let first_gpu = Device::new(device_ids[0]);
+        let context = Context::from_device(&first_gpu)?;
+        // here it can be activated to make profiling on kernels
+        let queue = CommandQueue::create_with_properties(&context, first_gpu.id(), 0, 0)?;
+
+        Ok(OpenCLState {
+            context,
+            queue,
+            device: first_gpu,
+        })
+    } else {
+        Err(UnableToSetupOpenCLError::NoDeviceFound)
     }
 }
