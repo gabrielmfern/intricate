@@ -151,7 +151,7 @@ dependencies = [
 name = "intricate"
 version = "0.3.0"
 dependencies = [
- "intricate-macros 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "intricate-macros 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "opencl3",
  "rand",
  "rayon",
@@ -161,7 +161,7 @@ dependencies = [
 
 [[package]]
 name = "intricate-macros"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "intricate",
  "opencl3",
@@ -174,9 +174,9 @@ dependencies = [
 
 [[package]]
 name = "intricate-macros"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d642a54678ed0a618bf681b81b5c1cb60d9beaf14ba2b85436182273d0befbf"
+checksum = "41f0b2d0403edb16e88faac228b94643d587edfa5dc4eca7f259bae8ffa13a57"
 dependencies = [
  "quote 1.0.20",
  "syn 1.0.98",

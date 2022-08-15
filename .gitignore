@@ -7,4 +7,5 @@
 **/target
 **/target/*
 **/target/**
+Cargo.lock
 xor-model.bin
