@@ -196,12 +196,6 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
             }
         }
 
-        impl<'a> From<#activation_name<'a>> for crate::types::ModelLayer<'a> {
-            fn from(func: #activation_name) -> Self {
-                crate::types::ModelLayer::#activation_name(func)
-            }
-        }
-
         use opencl3::memory::ClMem;
 
         impl<'a> crate::layers::Layer<'a> for #activation_name<'a> {

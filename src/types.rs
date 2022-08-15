@@ -9,7 +9,7 @@ use savefile_derive::Savefile;
 use intricate_macros::EnumLayer;
 
 use crate::{
-    layers::{activations::TanH, Dense, Layer},
+    layers::{activations::TanH, Dense},
     loss_functions::{CategoricalCrossEntropy, LossFunction, MeanSquared},
     utils::opencl::UnableToSetupOpenCLError,
 };
@@ -41,11 +41,6 @@ impl From<UnableToSetupOpenCLError> for CompilationOrOpenCLError {
     }
 }
 
-#[derive(Debug, Savefile, EnumLayer)]
-pub enum ModelLayer<'a> {
-    Dense(Dense<'a>),
-    TanH(TanH<'a>),
-}
 
 #[derive(Debug)]
 pub enum ModelLossFunction<'a> {
@@ -125,96 +120,8 @@ impl<'a> LossFunction<'a> for ModelLossFunction<'a> {
     }
 }
 
-impl<'a> Layer<'a> for ModelLayer<'a> {
-    fn get_last_inputs(&self) -> Option<&Buffer<cl_float>> {
-        match self {
-            ModelLayer::Dense(layer) => layer.get_last_inputs(),
-            ModelLayer::TanH(layer) => layer.get_last_inputs(),
-        }
-    }
-
-    fn get_last_outputs(&self) -> Option<&Buffer<cl_float>> {
-        match self {
-            ModelLayer::Dense(layer) => layer.get_last_outputs(),
-            ModelLayer::TanH(layer) => layer.get_last_outputs(),
-        }
-    }
-
-    fn get_inputs_amount(&self) -> usize {
-        match self {
-            ModelLayer::Dense(layer) => layer.get_inputs_amount(),
-            ModelLayer::TanH(layer) => layer.get_inputs_amount(),
-        }
-    }
-
-    fn get_outputs_amount(&self) -> usize {
-        match self {
-            ModelLayer::Dense(layer) => layer.get_outputs_amount(),
-            ModelLayer::TanH(layer) => layer.get_outputs_amount(),
-        }
-    }
-
-    fn init(
-        &mut self,
-        queue: &'a CommandQueue,
-        context: &'a Context,
-    ) -> Result<(), CompilationOrOpenCLError> {
-        match self {
-            ModelLayer::Dense(layer) => layer.init(queue, context),
-            ModelLayer::TanH(layer) => layer.init(queue, context),
-        }
-    }
-
-    fn clean_up_gpu_state(&mut self) -> () {
-        match self {
-            ModelLayer::Dense(layer) => layer.clean_up_gpu_state(),
-            ModelLayer::TanH(layer) => layer.clean_up_gpu_state(),
-        }
-    }
-
-    fn sync_data_from_gpu_with_cpu(&mut self) -> Result<(), ClError> {
-        match self {
-            ModelLayer::Dense(layer) => layer.sync_data_from_gpu_with_cpu(),
-            ModelLayer::TanH(layer) => layer.sync_data_from_gpu_with_cpu(),
-        }
-    }
-
-    fn propagate(&mut self, inputs: &Buffer<cl_float>) -> Result<&Buffer<cl_float>, ClError> {
-        match self {
-            ModelLayer::Dense(layer) => layer.propagate(inputs),
-            ModelLayer::TanH(layer) => layer.propagate(inputs),
-        }
-    }
-
-    fn back_propagate(
-        &mut self,
-        should_calculate_input_to_error_derivative: bool,
-        layer_output_to_error_derivative: &Buffer<cl_float>,
-        learning_rate: cl_float,
-    ) -> Result<Option<Buffer<cl_float>>, ClError> {
-        match self {
-            ModelLayer::Dense(layer) => layer.back_propagate(
-                should_calculate_input_to_error_derivative,
-                layer_output_to_error_derivative,
-                learning_rate,
-            ),
-            ModelLayer::TanH(layer) => layer.back_propagate(
-                should_calculate_input_to_error_derivative,
-                layer_output_to_error_derivative,
-                learning_rate,
-            ),
-        }
-    }
-}
-
-impl<'a> From<Dense<'a>> for ModelLayer<'a> {
-    fn from(layer: Dense<'a>) -> Self {
-        ModelLayer::Dense(layer)
-    }
-}
-
-impl<'a> From<TanH<'a>> for ModelLayer<'a> {
-    fn from(layer: TanH<'a>) -> Self {
-        ModelLayer::TanH(layer)
-    }
+#[derive(Debug, Savefile, EnumLayer)]
+pub enum ModelLayer<'a> {
+    Dense(Dense<'a>),
+    TanH(TanH<'a>),
 }
