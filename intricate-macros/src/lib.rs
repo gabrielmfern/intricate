@@ -56,7 +56,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             }
         })*
 
-        impl<'a> intricate::layers::Layer<'a> for #enum_name<'a> {
+        impl<'a> crate::layers::Layer<'a> for #enum_name<'a> {
             fn get_last_inputs(&self) -> Option<&opencl3::memory::Buffer<opencl3::device::cl_float>> {
                 match self {
                     #(
@@ -93,7 +93,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
                 &mut self,
                 queue: &'a opencl3::command_queue::CommandQueue,
                 context: &'a opencl3::context::Context,
-            ) -> Result<(), intricate::types::CompilationOrOpenCLError> {
+            ) -> Result<(), crate::types::CompilationOrOpenCLError> {
                 match self {
                     #(
                         #enum_name::#layer_names_6(layer) => layer.init(queue, context),
@@ -191,25 +191,25 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                 }
             }
 
-            pub fn new(inputs_amount: usize) -> intricate::types::ModelLayer<'a> {
+            pub fn new(inputs_amount: usize) -> crate::types::ModelLayer<'a> {
                 Self::new_raw(inputs_amount).into()
             }
         }
 
-        impl<'a> From<#activation_name<'a>> for intricate::types::ModelLayer<'a> {
+        impl<'a> From<#activation_name<'a>> for crate::types::ModelLayer<'a> {
             fn from(func: #activation_name) -> Self {
-                intricate::types::ModelLayer::#activation_name(func)
+                crate::types::ModelLayer::#activation_name(func)
             }
         }
 
         use opencl3::memory::ClMem;
 
-        impl<'a> intricate::layers::Layer<'a> for #activation_name<'a> {
+        impl<'a> crate::layers::Layer<'a> for #activation_name<'a> {
             fn init(
                 &mut self,
                 queue: &'a opencl3::command_queue::CommandQueue,
                 context: &'a opencl3::context::Context,
-            ) -> Result<(), intricate::types::CompilationOrOpenCLError> {
+            ) -> Result<(), crate::types::CompilationOrOpenCLError> {
                 let program = opencl3::program::Program::create_and_build_from_source(context, PROGRAM_SOURCE, "")?;
 
                 let propagation_kernel = opencl3::kernel::Kernel::create(&program, PROPAGATE_KERNEL_NAME)?;

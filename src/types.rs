@@ -6,6 +6,8 @@ use opencl3::{
 };
 use savefile_derive::Savefile;
 
+use intricate_macros::EnumLayer;
+
 use crate::{
     layers::{activations::TanH, Dense, Layer},
     loss_functions::{CategoricalCrossEntropy, LossFunction, MeanSquared},
@@ -39,7 +41,7 @@ impl From<UnableToSetupOpenCLError> for CompilationOrOpenCLError {
     }
 }
 
-#[derive(Debug, Savefile)]
+#[derive(Debug, Savefile, EnumLayer)]
 pub enum ModelLayer<'a> {
     Dense(Dense<'a>),
     TanH(TanH<'a>),
