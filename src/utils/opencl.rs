@@ -132,6 +132,16 @@ impl OpenCLSummable for Buffer<cl_float> {
             local_size = current_count;
         }
 
+        if local_size == 1 {
+            let middle = (current_count as f32).sqrt() as usize;
+            for m in (middle..=current_count.min(max_local_size)).rev() {
+                if current_count % m == 0 {
+                    local_size = m;
+                    break;
+                }
+            }
+        }
+
         let current_reduced_buffer = Buffer::<cl_float>::create(
             context,
             CL_MEM_READ_WRITE,
@@ -228,7 +238,7 @@ mod test_gpu_summable {
         let (_program, kernel) = compile_buffer_summation_kernel(&opencl_state.context).unwrap();
 
         let mut rng = thread_rng();
-        let numbers_amount = 271;
+        let numbers_amount = 276;
         let test_vec = (0..numbers_amount)
             .map(|_| -> f32 { rng.gen_range(-41.34_f32..93_f32) })
             .collect::<Vec<f32>>();

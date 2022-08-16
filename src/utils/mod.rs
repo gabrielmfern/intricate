@@ -17,7 +17,7 @@ pub use opencl::{
 pub fn gcd(n: usize, m: usize) -> usize {
     let mut largest_divisor: usize = 1;
     let max_point: usize = n.max(m);
-    let middle: usize = max_point / 2;
+    let middle: usize = (max_point as f32).sqrt() as usize;
 
     let mut common_divisors_on_other_half: Vec<usize> = Vec::with_capacity(middle);
 
@@ -72,4 +72,3 @@ fn gcd_should_work_with_very_small_numbers() {
     let expected_result = 1;
     assert_eq!(gcd(n, m), expected_result);
 }
-
