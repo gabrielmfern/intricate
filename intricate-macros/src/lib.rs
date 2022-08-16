@@ -178,6 +178,8 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
 
     TokenStream::from(quote! {
         impl<'a> #activation_name<'a> {
+            /// Creates a raw version of the #activation_name activation function, this is good for
+            /// being used when you don't want to use the layer in a Model.
             pub fn new_raw(inputs_amount: usize) -> #activation_name<'a> {
                 #activation_name {
                     inputs_amount,
@@ -191,6 +193,8 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                 }
             }
 
+            /// Creates a ModelLayer version of the #activation_name activation function, to be
+            /// used with a Model.
             pub fn new(inputs_amount: usize) -> crate::types::ModelLayer<'a> {
                 Self::new_raw(inputs_amount).into()
             }

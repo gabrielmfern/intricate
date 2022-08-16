@@ -99,16 +99,15 @@ use intricate::utils::{
 let opencl_state = setup_opencl(DeviceType::CPU).unwrap();
 ```
 
-After setting it up we need to initialize the Model using this state
-for it to save the reference to the state so that it can do the
-things it needs with it as such:
+For our Model to be able actually do computations, we need to pass the OpenCL state into an `init`
+function inside of the model as follows:
 
 ```rust
 xor_model.init(&opencl_state).unwrap();
 ```
 
-Beware that as v0.3.0 of Intricate any method called before `init`
-will panic because they do not have the OpenCL state to do calculations.
+Beware that as v0.3.0 of Intricate, any method called before `init`
+will panic because they do not have the necessary OpenCL state.
 
 ### Fitting our model
 
@@ -140,28 +139,27 @@ To load and save data, as an example, say for the XoR model
 we trained above, we can just call the `save_file` function as such:
 
 ```rust
-xor_model.sync_gpu_data_with_cpu().unwrap();
+xor_model.sync_gpu_data_with_cpu().unwrap(); // sends the weights and biases from the GPU to the CPU
 save_file("xor-model.bin", 0, &xor_model).unwrap();
 ```
 
-Which will save all of the configuration of the XoR Model including its
-activation functions and Dense layer's weights and biases and of the other types of layers
-information.
+Which will save all of the configuration of the XoR Model including what types of layers 
+it has inside and the trained parameters of each layer.
 
 ### Loading the model
 
-As for the loading of the data we must create some dummy dense layers and tell
-them to load their data from the paths created above
+As for loading our XoR model, we just need to call the counterpart of save_file: `load_file`.
 
 ```rust
 let mut loaded_xor_model: Model = load_file("xor-model.bin", 0).unwrap();
 ```
 
 Now of curse, **savefile** cannot load in the GPU state so if you want
-to use the loaded Model you **must** call the `setup_opencl` again
-and initialize the Model with it.
+to use the Model after loading it, you **must** call the `setup_opencl` again
+and initialize the Model with the resulting OpenCLState.
 
 ## Things to be done still
 
 - separate Intricate into more than one crate as to make development more lightweight with rust-analyzer
 - implement convolutional layers and perhaps even solve some image classification problems in a example
+- have some feature of Intricate, that should be optional, that would contain preloaded datasets, such as MNIST and others
