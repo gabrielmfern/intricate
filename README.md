@@ -1,7 +1,7 @@
 # Intricate
 
 [![Crates.io](https://img.shields.io/crates/v/intricate.svg?label=intricate)](https://crates.io/crates/intricate)
-[![Crates.io](https://img.shields.io/crates/dv/intricate)](https://cretes.io/crates/intricate)
+[![Crates.io](https://img.shields.io/crates/dv/intricate)](https://crates.io/crates/intricate)
 ![github.com](https://img.shields.io/github/license/gabrielmfern/intricate)
 ![github.com](https://img.shields.io/github/commit-activity/m/gabrielmfern/intricate)
 
@@ -118,7 +118,7 @@ method and pass in some parameters as follows:
 xor_model.fit(
     &training_inputs, 
     &expected_outputs, 
-    TrainingOptionsF64 {
+    TrainingOptions {
         learning_rate: 0.1,
         loss_algorithm: MeanSquared::new(), // The Mean Squared loss function
         should_print_information: true, // Should or not be verbose
@@ -129,21 +129,14 @@ xor_model.fit(
 
 As you can see it is extremely easy creating these models, and blazingly fast as well.
 
-Although if you wish to do (just like in the actual XoR example) you 
-could write this using the F32 version of numbers which is 30% faster 
-overall and uses half the RAM but at the price of less precision.
-
 ## How to save and load models
 
-Intricate implements a few functions for each layer that saves and loads the necessary
-layer information to some file using the [savefile](https://github.com/avl/savefile) crate.
-
-But a layer can save and load the data anyway it sees fit, as long as it does what the trait Layer requires. 
+For saving and loading models Intricate uses the [savefile](https://github.com/avl/savefile) crate which makes it very simple and fast to save models.
 
 ### Saving the model
 
 To load and save data, as an example, say for the XoR model
-we trained above,  we can just call the `save` function as such:
+we trained above, we can just call the `save_file` function as such:
 
 ```rust
 xor_model.sync_gpu_data_with_cpu().unwrap(); // sends the weights and biases from the GPU to the CPU
