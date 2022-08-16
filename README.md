@@ -163,3 +163,6 @@ and initialize the Model with the resulting OpenCLState.
 - separate Intricate into more than one crate as to make development more lightweight with rust-analyzer
 - implement convolutional layers and perhaps even solve some image classification problems in a example
 - have some feature of Intricate, that should be optional, that would contain preloaded datasets, such as MNIST and others
+- write many more unit tests to make code safer, like a test for the backprop of every activation layer
+- perhaps write some kind of utility functions to help with writing repetitive tests for the backprop of activation functions
+- improve documentation of Intricate overall, like adding at least a general description for every mod

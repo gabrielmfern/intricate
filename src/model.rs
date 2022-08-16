@@ -36,6 +36,30 @@ use crate::{
 /// once it is instantiated using the `new` method, it will get the first GPU device
 /// it can find and use it for all the computations, in the future Intricate will
 /// support multiple GPU's here as well.
+///
+/// # Example
+///
+/// ```rust
+/// use intricate::{
+///     types::ModelLayer,
+///     layers::{
+///         Dense,
+///         activations::TanH,
+///     },
+///     Model,
+/// };
+///
+/// let my_layers: Vec<ModelLayer> = vec![
+///     Dense::new(768, 300), // make sure the outputs are the same as the inputs of the next
+///                           // one or Intricate will panic when asserting these are of the
+///                           // same shape
+///     Dense::new(300, 100),
+///     TanH::new(100), // Activations are layers by themselves, this makes all calculations
+///                     // much simpler under the hood
+/// ];
+///
+/// let my_model: Model = Model::new(my_layers);
+/// ```
 pub struct Model<'a> {
     pub layers: Vec<ModelLayer<'a>>,
 

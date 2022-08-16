@@ -7,6 +7,8 @@
 //! at least for the calculation of gradients and the definition of
 //! activation functions as layers.
 
+#[deny(missing_docs)]
+
 pub mod layers;
 pub mod loss_functions;
 pub mod model;

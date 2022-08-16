@@ -1,3 +1,5 @@
+//! The module that contains the TanH activation function.
+
 use opencl3::{
     command_queue::CommandQueue,
     context::Context,
@@ -16,31 +18,44 @@ const PROPAGATE_KERNEL_NAME: &str = "propagate";
 const BACK_PROPAGATE_KERNEL_NAME: &str = "back_propagate";
 
 #[derive(Debug, Savefile, ActivationLayer)]
+/// The `Hyperbolic Tangent` activation function, similar to the Sigmoid but different,
+/// also squashed its inputs between -1 and 1.
 pub struct TanH<'a> {
+    /// The amount of inputs this instance of TanH expects.
     pub inputs_amount: usize,
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The cloned inputs last forward passed into this TaNH.
     pub last_inputs_buffer: Option<Buffer<cl_float>>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The outputs that came out from the last forward pass into this TanH.
     pub last_outputs_buffer: Option<Buffer<cl_float>>,
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The OpenCL context used for managing OpenCL devices and queues.
     pub opencl_context: Option<&'a Context>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The OpenCL queue, there exists one queue for each device,
+    /// so currently Intricate does not have support for multiple devices
+    /// doing computations on the data
     pub opencl_queue: Option<&'a CommandQueue>,
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The OpenCL program for the TanH, this contains the kernsl (OpenCL GPU shaders)
+    /// that will be needed for doing calculations with OpenCL
     pub opencl_program: Option<Program>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The OpenCL propagation kernel for the TanH.
     pub opencl_propagate_kernel: Option<Kernel>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The OpenCL back propagation kernel for the TanH.
     pub opencl_back_propagate_kernel: Option<Kernel>,
 }
 

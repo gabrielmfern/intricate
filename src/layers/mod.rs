@@ -1,3 +1,7 @@
+//! The module that contains all layers that Intricate currently implements.
+//! As of v0.3.0, Intricate has only the Dense type of layer, but has the activation functions
+//! which are used as layers in Intricate.
+
 use opencl3::{
     command_queue::CommandQueue, context::Context, device::cl_float, error_codes::ClError,
     memory::Buffer,

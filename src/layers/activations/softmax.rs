@@ -1,3 +1,5 @@
+//! The module that contains the SoftMax activation function.
+
 use opencl3::{
     command_queue::CommandQueue,
     context::Context,
@@ -20,44 +22,65 @@ const CALCULATE_MAX_INPUT_PER_SAMPLE: &str = "calculate_max_input_per_sample";
 const BACK_PROPAGATE_KERNEL_NAME: &str = "back_propagate";
 
 #[derive(Debug, Savefile)]
+/// The SoftMax activation function, this function will squash its inputs in such a way that only
+/// the numbers that are very close to the largest number be more "considered" than others.
+/// It is good for classification problems because it is very rigid.
 pub struct SoftMax<'a> {
+    /// The amount of inputs this instance of TanH expects.
     pub inputs_amount: usize,
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The cloned inputs last forward passed into this TaNH.
     pub last_inputs_buffer: Option<Buffer<cl_float>>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The outputs that came out from the last forward pass into this TanH.
     pub last_outputs_buffer: Option<Buffer<cl_float>>,
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The OpenCL context used for managing OpenCL devices and queues.
     pub opencl_context: Option<&'a Context>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The OpenCL queue, there exists one queue for each device,
+    /// so currently Intricate does not have support for multiple devices
+    /// doing computations on the data
     pub opencl_queue: Option<&'a CommandQueue>,
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The OpenCL program for the SoftMax, this contains the kernsl (OpenCL GPU shaders)
+    /// that will be needed for doing calculations with OpenCL
     pub opencl_program: Option<Program>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The OpenCL kernel that will take the `exp` for each of the inputs.
     pub opencl_calculate_exponentials_kernel: Option<Kernel>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The OpenCL kernel that will sum all of the exponentials calculated for each sample.
     pub opencl_sum_exponentials_per_sample_kernel: Option<Kernel>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The OpenCL kernel that will find the largest input per sample.
     pub opencl_calculate_max_input_per_sample_kernel: Option<Kernel>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The OpenCL kernel that will actually propagate through with the calculated data from other
+    /// kernels and give the output of a forward pass into the SoftMax activation function.
     pub opencl_propagate_kernel: Option<Kernel>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The OpenCL kernel that will calculate the differentials of the loss with respect to each of
+    /// the inputs given in a forward pass to this SoftMax.
     pub opencl_back_propagate_kernel: Option<Kernel>,
 }
 
 impl<'a> SoftMax<'a> {
+    /// Creates a raw version of the SoftMax activation function, this is good for
+    /// being used when you don't want to use the layer in a Model.
     pub fn new_raw(inputs_amount: usize) -> SoftMax<'a> {
         SoftMax {
             inputs_amount,
@@ -74,6 +97,8 @@ impl<'a> SoftMax<'a> {
         }
     }
 
+    /// Creates a ModelLayer version of the SotMax activation function, to be
+    /// used with a Model.
     pub fn new(inputs_amount: usize) -> crate::types::ModelLayer<'a> {
         Self::new_raw(inputs_amount).into()
     }
@@ -317,96 +342,96 @@ mod softmax_tests {
 
     use super::SoftMax;
 
-    #[test]
-    fn should_calculate_loss_to_input_derivatives_correctly() {
-        let samples_amount = 123;
-        let numbers_amount = 19;
+    // #[test]
+    // fn should_calculate_loss_to_input_derivatives_correctly() {
+    //     let samples_amount = 123;
+    //     let numbers_amount = 19;
 
-        let mut rng = thread_rng();
+    //     let mut rng = thread_rng();
 
-        let inputs: Vec<Vec<f32>> = (0..samples_amount)
-            .map(|_| {
-                (0..numbers_amount)
-                    .map(|_| rng.gen_range(0.0_f32..10.93_f32))
-                    .collect()
-            })
-            .collect();
+    //     let inputs: Vec<Vec<f32>> = (0..samples_amount)
+    //         .map(|_| {
+    //             (0..numbers_amount)
+    //                 .map(|_| rng.gen_range(0.0_f32..10.93_f32))
+    //                 .collect()
+    //         })
+    //         .collect();
 
-        let expected_outputs: Vec<Vec<f32>> = inputs
-            .iter()
-            .map(|inputs| {
-                let max = inputs.iter().copied().fold(f32::NAN, f32::max);
-                let exponentials: Vec<f32> = inputs.iter().map(|x| E.powf(x - max)).collect();
-                let exponential_sum: f32 = exponentials.iter().sum::<f32>();
-                exponentials
-                    .iter()
-                    .map(|exponential| exponential / exponential_sum)
-                    .collect()
-            })
-            .collect();
+    //     let expected_outputs: Vec<Vec<f32>> = inputs
+    //         .iter()
+    //         .map(|inputs| {
+    //             let max = inputs.iter().copied().fold(f32::NAN, f32::max);
+    //             let exponentials: Vec<f32> = inputs.iter().map(|x| E.powf(x - max)).collect();
+    //             let exponential_sum: f32 = exponentials.iter().sum::<f32>();
+    //             exponentials
+    //                 .iter()
+    //                 .map(|exponential| exponential / exponential_sum)
+    //                 .collect()
+    //         })
+    //         .collect();
 
-        let opencl_state = setup_opencl(DeviceType::CPU).unwrap();
+    //     let opencl_state = setup_opencl(DeviceType::CPU).unwrap();
 
-        let mut softmax = SoftMax::new(numbers_amount);
-        softmax
-            .init(&opencl_state.queue, &opencl_state.context)
-            .unwrap();
+    //     let mut softmax = SoftMax::new(numbers_amount);
+    //     softmax
+    //         .init(&opencl_state.queue, &opencl_state.context)
+    //         .unwrap();
 
-        let mut inputs_buffer = Buffer::<cl_float>::create(
-            &opencl_state.context,
-            CL_MEM_READ_ONLY,
-            samples_amount * numbers_amount,
-            std::ptr::null_mut(),
-        )
-        .unwrap();
+    //     let mut inputs_buffer = Buffer::<cl_float>::create(
+    //         &opencl_state.context,
+    //         CL_MEM_READ_ONLY,
+    //         samples_amount * numbers_amount,
+    //         std::ptr::null_mut(),
+    //     )
+    //     .unwrap();
 
-        opencl_state
-            .queue
-            .enqueue_write_buffer(
-                &mut inputs_buffer,
-                CL_BLOCKING,
-                0,
-                inputs
-                    .iter()
-                    .map(|v| v.to_vec())
-                    .flatten()
-                    .collect::<Vec<f32>>()
-                    .as_slice(),
-                &[],
-            )
-            .unwrap()
-            .wait()
-            .unwrap();
+    //     opencl_state
+    //         .queue
+    //         .enqueue_write_buffer(
+    //             &mut inputs_buffer,
+    //             CL_BLOCKING,
+    //             0,
+    //             inputs
+    //                 .iter()
+    //                 .map(|v| v.to_vec())
+    //                 .flatten()
+    //                 .collect::<Vec<f32>>()
+    //                 .as_slice(),
+    //             &[],
+    //         )
+    //         .unwrap()
+    //         .wait()
+    //         .unwrap();
 
-        let outputs_buffer = softmax.propagate(&inputs_buffer).unwrap();
+    //     let outputs_buffer = softmax.propagate(&inputs_buffer).unwrap();
 
-        let mut actual_outputs = vec![0.0; samples_amount * numbers_amount];
+    //     let mut actual_outputs = vec![0.0; samples_amount * numbers_amount];
 
-        opencl_state
-            .queue
-            .enqueue_read_buffer(
-                &outputs_buffer,
-                CL_BLOCKING,
-                0,
-                actual_outputs.as_mut_slice(),
-                &[],
-            )
-            .unwrap()
-            .wait()
-            .unwrap();
+    //     opencl_state
+    //         .queue
+    //         .enqueue_read_buffer(
+    //             &outputs_buffer,
+    //             CL_BLOCKING,
+    //             0,
+    //             actual_outputs.as_mut_slice(),
+    //             &[],
+    //         )
+    //         .unwrap()
+    //         .wait()
+    //         .unwrap();
 
-        dbg!(&actual_outputs);
+    //     dbg!(&actual_outputs);
 
-        assert_approx_equal_distance(
-            &actual_outputs,
-            &expected_outputs
-                .iter()
-                .map(|v| v.to_vec())
-                .flatten()
-                .collect(),
-            0.05,
-        );
-    }
+    //     assert_approx_equal_distance(
+    //         &actual_outputs,
+    //         &expected_outputs
+    //             .iter()
+    //             .map(|v| v.to_vec())
+    //             .flatten()
+    //             .collect(),
+    //         0.05,
+    //     );
+    // }
 
     #[test]
     fn should_propagate_to_correct_values() {
@@ -485,8 +510,6 @@ mod softmax_tests {
             .unwrap()
             .wait()
             .unwrap();
-
-        dbg!(&actual_outputs);
 
         assert_approx_equal_distance(
             &actual_outputs,

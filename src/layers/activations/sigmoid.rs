@@ -1,3 +1,5 @@
+//! The module that contains the Sigmoid activation function.
+
 use opencl3::{
     command_queue::CommandQueue, context::Context, device::cl_float, kernel::Kernel,
     memory::Buffer, program::Program,
@@ -12,31 +14,57 @@ const PROPAGATE_KERNEL_NAME: &str = "propagate";
 const BACK_PROPAGATE_KERNEL_NAME: &str = "back_propagate";
 
 #[derive(Debug, Savefile, ActivationLayer)]
+/// The classical Sigmoid activation function, somewhat similar to the `TanH` activation function
+/// but still different. Will squash the outputs of the last layer between -1 and 1.
+///
+/// # Example
+///
+/// ```rust
+/// use intricate::layers::{
+///     activations::Sigmoid,
+///     Layer,
+/// };
+///
+/// let my_sigmoid = Sigmoid::new_raw(10);
+/// ```
 pub struct Sigmoid<'a> {
+    /// The amount of inputs expected for this instance of the Sigmoid activation function.
     pub inputs_amount: usize,
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The cloned last inputs forward passed into this instance of the Sigmoid activation
+    /// function.
     pub last_inputs_buffer: Option<Buffer<cl_float>>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The last outputs that came from the last forward pass to this instance of the Sigmoid
+    /// activation function.
     pub last_outputs_buffer: Option<Buffer<cl_float>>,
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The OpenCL context used for managing OpenCL devices and queues.
     pub opencl_context: Option<&'a Context>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The OpenCL queue, there exists one queue for each device,
+    /// so currently Intricate does not have support for multiple devices
+    /// doing computations on the data
     pub opencl_queue: Option<&'a CommandQueue>,
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The OpenCL program for the Sigmoid, this contains the kernsl (OpenCL GPU shaders)
+    /// that will be needed for doing calculations with OpenCL
     pub opencl_program: Option<Program>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The OpenCL propagation kernel for the Sigmoid.
     pub opencl_propagate_kernel: Option<Kernel>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The OpenCL back propagation kernel for the Sigmoid.
     pub opencl_back_propagate_kernel: Option<Kernel>,
 }
 

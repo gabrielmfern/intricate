@@ -1,3 +1,5 @@
+//! The module that defines the Dense layer.
+
 use opencl3::{
     command_queue::{CommandQueue, CL_NON_BLOCKING},
     context::Context,
@@ -40,17 +42,23 @@ const LOSS_TO_INPUT_DIFFERENTIATION_KERNEL_NAME: &str =
 /// let my_layer: Dense = Dense::new_raw(5, 5);
 /// ```
 pub struct Dense<'a> {
+    /// The expected inputs to this Dense layer.
     pub inputs_amount: usize,
+    /// The expected outputs to this Dense layer.
     pub outputs_amount: usize,
 
+    /// The weights of this Dense layer, but stored in the CPU instead of in a OpenCL buffer.
     pub weights: Vec<Vec<f32>>,
-    pub biases: Vec<f32>,
+    /// The biases of this Dense layer, but stored in the CPU instead of in a OpenCL buffer.
+    pub biases: Vec<f32>, // TODO: make biases optional
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The allocated buffer with OpenCL that contains the flattened weights of this Dense layer.
     pub weights_buffer: Option<Buffer<cl_float>>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The allocated buffer with OpenCL that contains the biases of this Dense layer.
     pub biases_buffer: Option<Buffer<cl_float>>,
 
     // Had to take a choice with this, not having a reference here
@@ -59,9 +67,13 @@ pub struct Dense<'a> {
     // some memory errors that would be extremely hard to debug
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The buffer that contains the flattened inputs per sample that were last forwad passed into
+    /// this Dense layer.
     pub last_inputs_buffer: Option<Buffer<cl_float>>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// The buffer that contains the flattened outputs per sample that last came out of a forward
+    /// pass into this Dense layer.
     pub last_outputs_buffer: Option<Buffer<cl_float>>,
 
     #[savefile_ignore]
