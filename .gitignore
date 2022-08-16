@@ -1,4 +1,14 @@
 /target
-/intricate-macros
-xor-model-first-dense.bin
-xor-model-second-dense.bin
+/target/*
+/target/**
+*/target
+*/target/*
+*/target/**
+**/target
+**/target/*
+**/target/**
+Cargo.lock
+*/Cargo.lock
+**/Cargo.lock
+xor-model.bin
+intricate-macros/Cargo.lock

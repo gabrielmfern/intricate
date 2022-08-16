@@ -4,9 +4,8 @@
 [![Crates.io](https://img.shields.io/crates/dv/intricate)](https://cretes.io/crates/intricate)
 ![github.com](https://img.shields.io/github/license/gabrielmfern/intricate)
 ![github.com](https://img.shields.io/github/commit-activity/m/gabrielmfern/intricate)
-![github.com](https://img.shields.io/github/workflow/status/gabrielmfern/intricate/Rust)
 
-A GPU accelerated library that creates/trains/runs neural networks in pure safe Rust code.
+A GPU accelerated library that creates/trains/runs neural networks in safe Rust code.
 
 ## Architechture overview
 
@@ -43,56 +42,89 @@ The following is basically just that example with some separate explanation.
 
 ### Setting up the training data
 
-```rs
-let training_inputs = Vec::from([
-    Vec::from([0.0, 0.0]),
-    Vec::from([0.0, 1.0]),
-    Vec::from([1.0, 0.0]),
-    Vec::from([1.0, 1.0]),
-]);
+```rust
+let training_inputs = vec![
+    vec![0.0, 0.0],
+    vec![0.0, 1.0],
+    vec![1.0, 0.0],
+    vec![1.0, 1.0],
+];
 
-let expected_outputs = Vec::from([
-    Vec::from([0.0]),
-    Vec::from([1.0]),
-    Vec::from([1.0]),
-    Vec::from([0.0]),
-]);
+let expected_outputs = vec![
+    vec![0.0],
+    vec![1.0],
+    vec![1.0],
+    vec![0.0],
+];
 ```
 
 ### Setting up the layers
 
-```rs
-let mut layers: Vec<Box<dyn Layer<f64>>> = Vec::new();
-
-//                      inputs_amount|outputs_amount
-layers.push(Box::new(DenseF64::new(2, 3)));
-layers.push(Box::new(TanHF64::new())); // activation functions are layers
-layers.push(Box::new(DenseF64::new(3, 1)));
-layers.push(Box::new(TanHF64::new()));
+```rust
+use intricate::layers::{
+    activations::TanH,
+    Dense
+};
+let mut layers: Vec<ModelLayer> = vec![
+    Dense::new(2, 3), // inputs amount, outputs amount
+    TanH::new (3),
+    Dense::new(3, 1),
+    TanH::new (1),
+];
 ```
 
 ### Creating the model with the layers
 
-```rs
+```rust
+use intricate::Model;
 // Instantiate our model using the layers
-let mut xor_model = ModelF64::new(layers);
-// mutable because the 'fit' method lets the layers tweak themselves
+let mut xor_model = Model::new(layers);
 ```
+
+We make the model `mut` because we will call `fit` for training our model
+which will tune each of the layers when necessary.
+
+### Setting up OpenCL's state
+
+Since Intricate does use OpenCL under the hood for doing calculations,
+we do need to initialize a `OpenCLState` which is just a struct
+containing some necessary OpenCL stuff:
+
+```rust
+use intricate::utils::{
+    setup_opencl,
+    DeviceType
+}
+//              you can change this device type to GPU if you want
+let opencl_state = setup_opencl(DeviceType::CPU).unwrap();
+```
+
+For our Model to be able actually do computations, we need to pass the OpenCL state into an `init`
+function inside of the model as follows:
+
+```rust
+xor_model.init(&opencl_state).unwrap();
+```
+
+Beware that as v0.3.0 of Intricate, any method called before `init`
+will panic because they do not have the necessary OpenCL state.
 
 ### Fitting our model
 
-```rs
+For training our Model we just need to call the `fit`
+method and pass in some parameters as follows:
+
+```rust
 xor_model.fit(
     &training_inputs, 
     &expected_outputs, 
     TrainingOptionsF64 {
         learning_rate: 0.1,
-        loss_algorithm: Box::new(MeanSquared), // The Mean Squared loss function
-        should_print_information: true, // Should be verbose
-        instantiate_gpu: false, // Should initialize WGPU Device and Queue for GPU layers
+        loss_algorithm: MeanSquared::new(), // The Mean Squared loss function
+        should_print_information: true, // Should or not be verbose
         epochs: 10000,
     },
-).await;
+).unwrap(); // Will return an Option containing the last loss after training
 ```
 
 As you can see it is extremely easy creating these models, and blazingly fast as well.
@@ -113,39 +145,31 @@ But a layer can save and load the data anyway it sees fit, as long as it does wh
 To load and save data, as an example, say for the XoR model
 we trained above,  we can just call the `save` function as such:
 
-```rs
-xor_model.layers[0].save("xor-model-first-dense.bin", 0).unwrap();
-xor_model.layers[2].save("xor-model-second-dense.bin", 0).unwrap();
+```rust
+xor_model.sync_gpu_data_with_cpu().unwrap(); // sends the weights and biases from the GPU to the CPU
+save_file("xor-model.bin", 0, &xor_model).unwrap();
 ```
 
-And we save only the Dense layers here because the Activation layers don't really
-hold any valuable information, only the Dense layers do.
+Which will save all of the configuration of the XoR Model including what types of layers 
+it has inside and the trained parameters of each layer.
 
 ### Loading the model
 
-As for the loading of the data we must create some dummy dense layers and tell
-them to load their data from the paths created above
+As for loading our XoR model, we just need to call the counterpart of save_file: `load_file`.
 
-```rs
-let mut first_dense: Box<DenseF32> = Box::new(DenseF32::dummy());
-first_dense.load("xor-model-first-dense.bin", 0).unwrap();
-let mut second_dense: Box<DenseF32> = Box::new(DenseF32::dummy()); 
-second_dense.load("xor-model-second-dense.bin", 0).unwrap();
-
-let mut new_layers: Vec<Box<dyn Layer<f32>>> = Vec::new();
-new_layers.push(first_dense);
-new_layers.push(Box::new(TanHF32::new()));
-new_layers.push(second_dense);
-new_layers.push(Box::new(TanHF32::new()));
-
-let loaded_xor_model = ModelF32::new(new_layers);
+```rust
+let mut loaded_xor_model: Model = load_file("xor-model.bin", 0).unwrap();
 ```
+
+Now of curse, **savefile** cannot load in the GPU state so if you want
+to use the Model after loading it, you **must** call the `setup_opencl` again
+and initialize the Model with the resulting OpenCLState.
 
 ## Things to be done still
 
-- writing some kind of macro to generate the code for f32 and f64 versions of certain structs and traits to not have duplicated code.
-- improve the GPU shaders, perhaps finding a way to send the full unflattened matrices to the GPU instead of sending just a flattened array.
-- create GPU accelerated activations and loss functions as to make everything GPU accelerated.
-- perhaps write some shader to calculate the Model **loss** to **output** gradient (derivatives).
+- separate Intricate into more than one crate as to make development more lightweight with rust-analyzer
 - implement convolutional layers and perhaps even solve some image classification problems in a example
-- add a example that uses GPU acceleration
+- have some feature of Intricate, that should be optional, that would contain preloaded datasets, such as MNIST and others
+- write many more unit tests to make code safer, like a test for the backprop of every activation layer
+- perhaps write some kind of utility functions to help with writing repetitive tests for the backprop of activation functions
+- improve documentation of Intricate overall, like adding at least a general description for every mod

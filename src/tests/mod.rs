@@ -1,1 +1,1 @@
-mod gpu_xor;
+mod xor;

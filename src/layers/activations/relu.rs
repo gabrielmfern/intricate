@@ -1,222 +1,130 @@
-use async_trait::async_trait;
-use savefile::SavefileError;
+//! The module that will implement the Rectified Linear Unit activatoin function.
+
+use opencl3::{
+    command_queue::CommandQueue,
+    context::Context,
+    device::cl_float,
+    kernel::Kernel,
+    memory::Buffer,
+    program::Program,
+};
+
+use intricate_macros::ActivationLayer;
+
 use savefile_derive::Savefile;
 
-use crate::layers::activations::activation::{ActivationLayerF64, ActivationLayerF32};
-use crate::layers::layer::Layer;
+const PROGRAM_SOURCE: &str = include_str!("kernels/relu.cl");
+const PROPAGATE_KERNEL_NAME: &str = "propagate";
+const BACK_PROPAGATE_KERNEL_NAME: &str = "back_propagate";
 
-#[derive(Debug, Clone, Savefile)]
-pub struct ReLUF64 {
-    last_inputs: Vec<Vec<f64>>,
-    last_outputs: Vec<Vec<f64>>,
+#[derive(Debug, Savefile, ActivationLayer)]
+/// The Rectified Linear Unit activation function, 
+/// can be just defined as `f(x)=max(0, x)` where x is the input to it and f
+/// is the function.
+///
+/// # Example
+///
+/// ```rust
+/// use intricate::layers::{
+///     activations::ReLU,
+///     Layer,
+/// };
+///
+/// let my_relu: ReLU = ReLU::new_raw(10);
+/// ```
+pub struct ReLU<'a> {
+    /// The amount of inputs that this instance of the ReLU function expects.
+    pub inputs_amount: usize,
+
+    #[savefile_ignore]
+    #[savefile_introspect_ignore]
+    /// The cloned last inputs of this instance of ReLU.
+    pub last_inputs_buffer: Option<Buffer<cl_float>>,
+    #[savefile_ignore]
+    #[savefile_introspect_ignore]
+    /// The last outputs of this instance of ReLU.
+    pub last_outputs_buffer: Option<Buffer<cl_float>>,
+
+    #[savefile_ignore]
+    #[savefile_introspect_ignore]
+    /// The OpenCL context used for managing OpenCL devices and queues.
+    pub opencl_context: Option<&'a Context>,
+    #[savefile_ignore]
+    #[savefile_introspect_ignore]
+    /// The OpenCL queue, there exists one queue for each device,
+    /// so currently Intricate does not have support for multiple devices
+    /// doing computations on the data
+    pub opencl_queue: Option<&'a CommandQueue>,
+
+    #[savefile_ignore]
+    #[savefile_introspect_ignore]
+    /// The OpenCL program for the ReLU, this contains the kernsl (OpenCL GPU shaders)
+    /// that will be needed for doing calculations with OpenCL
+    pub opencl_program: Option<Program>,
+    #[savefile_ignore]
+    #[savefile_introspect_ignore]
+    /// The OpenCL propagation kernel for the ReLU.
+    pub opencl_propagate_kernel: Option<Kernel>,
+    #[savefile_ignore]
+    #[savefile_introspect_ignore]
+    /// The OpenCL back propagation kernel for the ReLU.
+    pub opencl_back_propagate_kernel: Option<Kernel>,
 }
 
-#[derive(Debug, Clone, Savefile)]
-pub struct ReLUF32 {
-    last_inputs: Vec<Vec<f32>>,
-    last_outputs: Vec<Vec<f32>>,
-}
+#[cfg(test)]
+mod relu_tests {
+    use opencl3::{memory::{Buffer, CL_MEM_READ_ONLY}, device::cl_float, command_queue::CL_BLOCKING};
+    use rand::{thread_rng, Rng};
 
-impl ReLUF64 {
-    #[allow(dead_code)]
+    use crate::{utils::{setup_opencl, opencl::DeviceType, approx_eq::assert_approx_equal_distance}, layers::Layer};
 
-    pub fn new() -> ReLUF64 {
-        ReLUF64 {
-            last_outputs: Vec::new(),
-            last_inputs: Vec::new(),
-        }
-    }
-}
+    use super::ReLU;
 
-impl ReLUF32 {
-    #[allow(dead_code)]
+    #[test]
+    fn should_propagate_to_correct_values() {
+        let samples_amount = 30;
+        let numbers_amount = 20;
 
-    pub fn new() -> ReLUF32 {
-        ReLUF32 {
-            last_outputs: Vec::new(),
-            last_inputs: Vec::new(),
-        }
-    }
-}
+        let mut rng = thread_rng();
 
-impl ActivationLayerF64 for ReLUF64 {
-    fn function(inputs: &Vec<f64>) -> Vec<f64> {
-        inputs
-            .iter()
-            .map(|input| input.max(0.0))
-            .collect::<Vec<f64>>()
-    }
+        let inputs: Vec<f32> = (0..(samples_amount * numbers_amount)).map(|_| {
+            rng.gen_range(-1234.41_f32..51312.93_f32)
+        }).collect();
 
-    fn differential_of_output_with_respect_to_input(
-        &self,
-        sample_index: usize,
-        input_index: usize,
-        _: usize,
-    ) -> f64 {
-        let activated_value = self.last_outputs[sample_index][input_index];
+        let expected_outputs: Vec<f32> = inputs.iter().map(|input| input.max(0.0)).collect();
 
-        if activated_value == 0.0_f64 {
-            0.0
-        } else {
-            1.0
-        }
-    }
+        let opencl_state = setup_opencl(DeviceType::CPU).unwrap();
 
-    fn set_last_inputs(&mut self, input_samples: &Vec<Vec<f64>>) {
-        self.last_inputs = input_samples.to_vec();
-    }
+        let mut relu = ReLU::new(numbers_amount);
+        relu.init(&opencl_state.queue, &opencl_state.context).unwrap();
 
-    fn set_last_outputs(&mut self, output_samples: &Vec<Vec<f64>>) {
-        self.last_outputs = output_samples.to_vec();
-    }
-}
+        let mut inputs_buffer = Buffer::<cl_float>::create(
+            &opencl_state.context,
+            CL_MEM_READ_ONLY,
+            samples_amount * numbers_amount,
+            std::ptr::null_mut(),
+        ).unwrap();
 
-impl ActivationLayerF32 for ReLUF32 {
-    fn function(inputs: &Vec<f32>) -> Vec<f32> {
-        inputs
-            .iter()
-            .map(|input| input.max(0.0))
-            .collect::<Vec<f32>>()
-    }
+        opencl_state.queue.enqueue_write_buffer(
+            &mut inputs_buffer,
+            CL_BLOCKING,
+            0,
+            inputs.as_slice(),
+            &[],
+        ).unwrap().wait().unwrap();
 
-    fn differential_of_output_with_respect_to_input(
-        &self,
-        sample_index: usize,
-        input_index: usize,
-        _: usize,
-    ) -> f32 {
-        let activated_value = self.last_outputs[sample_index][input_index];
+        let outputs_buffer = relu.propagate(&inputs_buffer).unwrap();
 
-        if activated_value == 0.0_f32 {
-            0.0
-        } else {
-            1.0
-        }
-    }
+        let mut actual_outputs = vec![0.0; samples_amount * numbers_amount];
+        
+        opencl_state.queue.enqueue_read_buffer(
+            &outputs_buffer,
+            CL_BLOCKING,
+            0,
+            actual_outputs.as_mut_slice(),
+            &[]
+        ).unwrap().wait().unwrap();
 
-    fn set_last_inputs(&mut self, input_samples: &Vec<Vec<f32>>) {
-        self.last_inputs = input_samples.to_vec();
-    }
-
-    fn set_last_outputs(&mut self, output_samples: &Vec<Vec<f32>>) {
-        self.last_outputs = output_samples.to_vec();
-    }
-}
-
-#[async_trait]
-impl Layer<f64> for ReLUF64 {
-    fn get_last_inputs(&self) -> &Vec<Vec<f64>> {
-        &self.last_inputs
-    }
-
-    fn get_last_outputs(&self) -> &Vec<Vec<f64>> {
-        &self.last_outputs
-    }
-
-    fn save(&self, _: &str, _: u32) -> Result<(), SavefileError> {
-        Ok(())
-    }
-
-    fn load(&mut self, _: &str, _: u32) -> Result<(), SavefileError> {
-        Ok(())
-    }
-    
-    async fn back_propagate(
-        &mut self,
-        should_calculate_input_to_error_derivative: bool,
-        layer_output_to_error_derivative: &Vec<Vec<f64>>,
-        learning_rate: f64,
-        _: &Option<wgpu::Device>,
-        _: &Option<wgpu::Queue>,
-    ) -> Option<Vec<Vec<f64>>> {
-        self.base_back_propagate(
-            should_calculate_input_to_error_derivative,
-            layer_output_to_error_derivative,
-            learning_rate,
-        )
-    }
-
-    async fn propagate(
-        &mut self, 
-        inputs: &Vec<Vec<f64>>, 
-        _: &Option<wgpu::Device>,
-        _: &Option<wgpu::Queue>,
-    ) -> Vec<Vec<f64>> {
-        self.base_propagate(inputs)
-    }
-
-    fn get_inputs_amount(&self) -> usize {
-        if self.last_inputs.is_empty() {
-            0
-        } else {
-            self.last_inputs[0].len()
-        }
-    }
-
-    fn get_outputs_amount(&self) -> usize {
-        if self.last_outputs.is_empty() {
-            0
-        } else {
-            self.last_outputs[0].len()
-        }
-    }
-}
-
-#[async_trait]
-impl Layer<f32> for ReLUF32 {
-    fn get_last_inputs(&self) -> &Vec<Vec<f32>> {
-        &self.last_inputs
-    }
-
-    fn get_last_outputs(&self) -> &Vec<Vec<f32>> {
-        &self.last_outputs
-    }
-
-    fn save(&self, _: &str, _: u32) -> Result<(), SavefileError> {
-        Ok(())
-    }
-
-    fn load(&mut self, _: &str, _: u32) -> Result<(), SavefileError> {
-        Ok(())
-    }
-
-    async fn back_propagate(
-        &mut self,
-        should_calculate_input_to_error_derivative: bool,
-        layer_output_to_error_derivative: &Vec<Vec<f32>>,
-        learning_rate: f64,
-        _: &Option<wgpu::Device>,
-        _: &Option<wgpu::Queue>,
-    ) -> Option<Vec<Vec<f32>>> {
-        self.base_back_propagate(
-            should_calculate_input_to_error_derivative,
-            layer_output_to_error_derivative,
-            learning_rate,
-        )
-    }
-
-    async fn propagate(
-        &mut self, 
-        inputs: &Vec<Vec<f32>>, 
-        _: &Option<wgpu::Device>,
-        _: &Option<wgpu::Queue>,
-    ) -> Vec<Vec<f32>> {
-        self.base_propagate(inputs)
-    }
-
-    fn get_inputs_amount(&self) -> usize {
-        if self.last_inputs.is_empty() {
-            0
-        } else {
-            self.last_inputs[0].len()
-        }
-    }
-
-    fn get_outputs_amount(&self) -> usize {
-        if self.last_outputs.is_empty() {
-            0
-        } else {
-            self.last_outputs[0].len()
-        }
+        assert_approx_equal_distance(&actual_outputs, &expected_outputs, 0.05);
     }
 }

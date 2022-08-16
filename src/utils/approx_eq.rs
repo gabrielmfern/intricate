@@ -1,25 +1,50 @@
-use super::vector_operations::VectorOperations;
-
-/// same things as the other method but for matrices
-pub fn assert_approx_equal_matrix(a: &Vec<Vec<f64>>, b: &Vec<Vec<f64>>, decimal_place: u32) -> () {
+/// Asserts two matrices are approximately equal using the **assert_approx_equal**
+/// function in every single vector of both matrices.
+///
+/// # Panics
+///
+/// Panics if the length of both matrices are not euqal, or
+/// the length of vectors being compared are not equal.
+pub fn assert_approx_equal_matrix(a: &Vec<Vec<f32>>, b: &Vec<Vec<f32>>, decimal_place: u32) -> () {
     assert_eq!(a.len(), b.len());
     for (arr1, arr2) in a.iter().zip(b) {
         assert_approx_equal(arr1, arr2, decimal_place);
     }
 }
 
-/// just used for comparing floating point numbers in tests
-/// so that you don't need to compare up to the last precision
-/// and sometimes fail in tests that should have passed
-pub fn assert_approx_equal(a: &Vec<f64>, b: &Vec<f64>, decimal_place: u32) -> () {
+/// Asserts that two vectors are approximately equal comparing all of their numbers
+/// up to a certain **decimal_place**.
+///
+/// # Panics
+///
+/// Panics if the length of both vectors are not equal.
+pub fn assert_approx_equal(a: &Vec<f32>, b: &Vec<f32>, decimal_place: u32) -> () {
     assert_eq!(a.len(), b.len());
-    let power_ten = &10.0_f64.powf(decimal_place as f64);
-    let approximate_a = a.multiply_number(power_ten)
-                         .floor()
-                         .divide_number(power_ten);
-    let approximate_b = b.multiply_number(power_ten)
-                         .floor()
-                         .divide_number(power_ten);
-    
+
+    let power_ten = &10.0_f32.powf(decimal_place as f32);
+    let approximate_a: Vec<f32> = a
+        .iter()
+        .map(|x| (x * power_ten).floor() / power_ten)
+        .collect();
+    let approximate_b: Vec<f32> = b
+        .iter()
+        .map(|x| (x * power_ten).floor() / power_ten)
+        .collect();
+
     assert_eq!(approximate_a, approximate_b);
+}
+
+/// Asserts if the vectors **a** and **b** are approximately equal
+/// being at most **max_dist** of a difference.
+///
+/// # Panics
+///
+/// Panics if the length of both vectors are not equal.
+pub fn assert_approx_equal_distance(a: &Vec<f32>, b: &Vec<f32>, max_dist: f32) -> () {
+    assert_eq!(a.len(), b.len());
+
+    a.iter().zip(b).for_each(|(x, y)| {
+        println!("x:{}\ny:{}", x, y);
+        assert!((x - y).abs() <= max_dist);
+    });
 }
