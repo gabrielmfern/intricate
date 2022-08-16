@@ -30,9 +30,10 @@ const SUM_PROGRAM_SOURCE: &str = include_str!("sum.cl");
 ///
 /// This function will return an error if the kernel of summation
 /// cannot be found inside th program.
-pub fn compile_buffer_summation_kernel(context: &Context) -> Result<(Program, Kernel), CompilationOrOpenCLError> {
-    let program =
-        Program::create_and_build_from_source(context, SUM_PROGRAM_SOURCE, "")?;
+pub fn compile_buffer_summation_kernel(
+    context: &Context,
+) -> Result<(Program, Kernel), CompilationOrOpenCLError> {
+    let program = Program::create_and_build_from_source(context, SUM_PROGRAM_SOURCE, "")?;
 
     let kernel = Kernel::create(&program, "sum_all_values_in_workgroups")?;
 
@@ -101,7 +102,7 @@ impl OpenCLSummable for Buffer<cl_float> {
             let mut current_buf = self.reduce(context, queue, max_local_size, &kernel)?;
             current_count = current_buf.size()? / mem::size_of::<cl_float>();
 
-            while current_count > 1 {
+            while dbg!(current_count) > 1 {
                 current_buf = current_buf.reduce(context, queue, max_local_size, &kernel)?;
                 current_count = current_buf.size()? / mem::size_of::<cl_float>();
             }
@@ -126,7 +127,10 @@ impl OpenCLSummable for Buffer<cl_float> {
         let current_count = self.size()? / mem::size_of::<cl_float>();
         assert!(current_count >= 1);
 
-        let local_size = gcd(current_count, max_local_size);
+        let mut local_size = dbg!(gcd(current_count, max_local_size));
+        if local_size == 1 && current_count < max_local_size {
+            local_size = current_count;
+        }
 
         let current_reduced_buffer = Buffer::<cl_float>::create(
             context,
@@ -204,5 +208,51 @@ pub fn setup_opencl(device_type: DeviceType) -> Result<OpenCLState, UnableToSetu
         })
     } else {
         Err(UnableToSetupOpenCLError::NoDeviceFound)
+    }
+}
+
+#[cfg(test)]
+mod test_gpu_summable {
+    use opencl3::{
+        command_queue::CL_NON_BLOCKING,
+        device::cl_float,
+        memory::{Buffer, CL_MEM_READ_WRITE},
+    };
+    use rand::{thread_rng, Rng};
+
+    use super::{compile_buffer_summation_kernel, setup_opencl, DeviceType, OpenCLSummable};
+
+    #[test]
+    fn should_sum_buffer_to_correct_value() {
+        let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
+        let (_program, kernel) = compile_buffer_summation_kernel(&opencl_state.context).unwrap();
+
+        let mut rng = thread_rng();
+        let numbers_amount = 271;
+        let test_vec = (0..numbers_amount)
+            .map(|_| -> f32 { rng.gen_range(-41.34_f32..93_f32) })
+            .collect::<Vec<f32>>();
+        let expected_sum = test_vec.iter().sum::<f32>();
+
+        let mut buff = Buffer::<cl_float>::create(
+            &opencl_state.context,
+            CL_MEM_READ_WRITE,
+            numbers_amount,
+            std::ptr::null_mut(),
+        )
+        .unwrap();
+
+        opencl_state
+            .queue
+            .enqueue_write_buffer(&mut buff, CL_NON_BLOCKING, 0, test_vec.as_slice(), &[])
+            .unwrap()
+            .wait()
+            .unwrap();
+
+        let actual_result = buff
+            .sum(&opencl_state.context, &opencl_state.queue, &kernel)
+            .unwrap();
+
+        assert!(dbg!((actual_result - expected_sum).abs()) <= 0.1);
     }
 }
