@@ -356,7 +356,7 @@ impl<'a> Model<'a> {
     ) -> Result<Option<f32>, ClError> {
         let start_instant = Instant::now();
 
-        let training_actual_outputs = self.predict_with_buffer(training_input_samples, &device, &queue).await?;
+        let training_actual_outputs = self.predict_with_buffer(training_input_samples)?;
 
         let outputs_amount =
             training_expected_output_samples.size()? / samples_amount / mem::size_of::<cl_float>();
@@ -375,16 +375,12 @@ impl<'a> Model<'a> {
                     .back_propagate(true, &lost_to_outputs_derivatives, *learning_rate)?
                     .unwrap();
             } else {
-                layer
-                    .back_propagate(
-                        // always None
-                        false,
-                        &lost_to_outputs_derivatives,
-                        *learning_rate,
-                        &device,
-                        &queue,
-                    )
-                    .await?;
+                layer.back_propagate(
+                    // always None
+                    false,
+                    &lost_to_outputs_derivatives,
+                    *learning_rate,
+                )?;
             }
         }
 

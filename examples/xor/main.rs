@@ -50,55 +50,6 @@ fn main() -> () {
                 epochs: 5000,
             },
         )
-        .await
-        .unwrap();
-
-    // for saving Intricate uses the 'savefile' crate
-    // that simply needs to call the 'save_file' function to the path you want
-    // for the layers in the model and then load the layers and instiate the model again
-    // the reason we do this is because the model can't really be easily Sized by the compiler
-    // because the model can have any type of layer
-    // just call the function bellow
-    xor_model.layers[0]
-        .save("xor-model-first-dense.bin", 0)
-        .unwrap();
-    xor_model.layers[2]
-        .save("xor-model-second-dense.bin", 0)
-        .unwrap();
-
-    // as for loading we can just call the 'load_file' function
-    // on each of the layers like this:
-    let mut first_dense: Box<DenseF32> = Box::new(DenseF32::dummy());
-    first_dense.load("xor-model-first-dense.bin", 0).unwrap();
-    let mut second_dense: Box<DenseF32> = Box::new(DenseF32::dummy());
-    second_dense.load("xor-model-second-dense.bin", 0).unwrap();
-
-    let mut new_layers: Vec<Box<dyn Layer<f32>>> = Vec::new();
-    new_layers.push(first_dense);
-    new_layers.push(Box::new(TanHF32::new()));
-    new_layers.push(second_dense);
-    new_layers.push(Box::new(TanHF32::new()));
-
-    let mut loaded_xor_model = ModelF32::new(new_layers);
-
-    let loaded_model_prediction = loaded_xor_model.predict(&training_inputs, &None, &None).await;
-    let model_prediction = xor_model.predict(&training_inputs, &None, &None).await;
-
-    assert_eq!(loaded_model_prediction, model_prediction);
-}
-
-fn main() {
-    // just wait for the everything to run before stopping
-    pollster::block_on(run());
-}
-=======
-            &mut TrainingOptions {
-                learning_rate: 0.1,
-                loss_algorithm: MeanSquared::new(), // The Mean Squared loss function
-                should_print_information: true,     // Should be verbose
-                epochs: 5000,
-            },
-        )
         .unwrap();
 
     // for saving Intricate uses the 'savefile' crate
