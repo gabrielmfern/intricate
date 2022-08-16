@@ -328,8 +328,8 @@ mod mean_squared_tests {
 
         let actual_loss = loss.compute_loss(&outputs_buf, &expected_outputs_buf, samples_amount)?;
 
-        println!("|{} - {}| <= 0.5", expected_loss, actual_loss);
-        assert!((expected_loss - actual_loss).abs() <= 0.5);
+        println!("|({} - {}) / {}| <= 0.1%", expected_loss, actual_loss, expected_loss.max(actual_loss));
+        assert!((expected_loss - actual_loss).abs() / expected_loss.max(actual_loss) <= 0.001);
 
         Ok(())
     }

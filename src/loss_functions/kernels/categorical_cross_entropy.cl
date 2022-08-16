@@ -14,13 +14,14 @@ kernel void compute_loss(
         return;
     }
 
-    float sample_loss = 0.0;
+    float sample_loss = (float)0.0;
 
+    int row_part = sample_index * outputs_amount;
     for (int output_index = 0; output_index < outputs_amount; output_index++) {
-        int flat_i = sample_index * outputs_amount + output_index;
+        int flat_i = row_part + output_index;
         float output = (float) output_samples[flat_i];
         float expected_output = (float) expected_output_samples[flat_i];
-        sample_loss -= expected_output * log(output);
+        sample_loss -= (float)expected_output * log(output);
     }
 
     sample_losses[sample_index] = sample_loss;

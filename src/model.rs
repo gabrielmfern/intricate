@@ -52,9 +52,12 @@ impl<'a> Model<'a> {
     /// ```rust
     /// use intricate::{
     ///     types::ModelLayer,
-    ///     layers::Dense,
-    ///     Model
-    /// }
+    ///     layers::{
+    ///         Dense,
+    ///         activations::TanH,
+    ///     },
+    ///     Model,
+    /// };
     ///
     /// let my_layers: Vec<ModelLayer> = vec![
     ///     Dense::new(768, 300), // make sure the outputs are the same as the inputs of the next

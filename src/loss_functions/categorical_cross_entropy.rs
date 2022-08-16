@@ -181,7 +181,7 @@ mod categorical_cross_entropy_tests {
     #[test]
     fn should_compute_derivatives_up_to_a_certain_precision() -> Result<(), CompilationOrOpenCLError>
     {
-        let opencl_state: OpenCLState = setup_opencl(DeviceType::CPU)?;
+        let opencl_state: OpenCLState = setup_opencl(DeviceType::GPU)?;
 
         let mut gpu_loss = CategoricalCrossEntropy::new();
         gpu_loss.init(&opencl_state.context, &opencl_state.queue)?;
@@ -259,7 +259,7 @@ mod categorical_cross_entropy_tests {
 
     #[test]
     fn should_compute_loss_up_to_a_certain_precision() -> Result<(), CompilationOrOpenCLError> {
-        let opencl_state: OpenCLState = setup_opencl(DeviceType::CPU)?;
+        let opencl_state: OpenCLState = setup_opencl(DeviceType::GPU)?;
 
         let mut loss = CategoricalCrossEntropy::new();
         loss.init(&opencl_state.context, &opencl_state.queue)?;
@@ -279,7 +279,7 @@ mod categorical_cross_entropy_tests {
         let expected_loss: f32 = expected_outputs
             .iter()
             .zip(&outputs)
-            .map(|(output, expected_output)| -expected_output * output.ln())
+            .map(|(expected_output, output)| -expected_output * output.ln())
             .sum::<f32>()
             / samples_amount as f32;
         let mut outputs_buf = Buffer::<cl_float>::create(
@@ -318,8 +318,9 @@ mod categorical_cross_entropy_tests {
 
         let actual_loss = loss.compute_loss(&outputs_buf, &expected_outputs_buf, samples_amount)?;
 
-        println!("|{} - {}| <= 0.5", expected_loss, actual_loss);
-        assert!((expected_loss - actual_loss).abs() <= 0.1);
+        let largest_loss = expected_loss.max(actual_loss);
+        println!("|({} - {}) / {}| <= 0.1%", expected_loss, actual_loss, largest_loss);
+        assert!((expected_loss - actual_loss).abs() / largest_loss <= 0.001);
 
         Ok(())
     }

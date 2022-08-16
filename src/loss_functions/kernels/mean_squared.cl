@@ -16,8 +16,9 @@ kernel void compute_loss(
 
     float sample_loss = 0.0;
 
+    int row_part = sample_index * outputs_amount;
     for (int output_index = 0; output_index < outputs_amount; output_index++) {
-        int flat_i = sample_index * outputs_amount + output_index;
+        int flat_i = row_part + output_index;
         float output_dist = (float) (output_samples[flat_i] - expected_output_samples[flat_i]);
         sample_loss += output_dist * output_dist;
     }

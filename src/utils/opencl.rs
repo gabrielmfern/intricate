@@ -59,6 +59,52 @@ where
     ) -> Result<Buffer<cl_float>, ClError>;
 }
 
+/// Tries to find the optimal local and global work size as to use as much
+/// of the device's computational power.
+///
+/// - **data_size**: The size of the data that will be computed in the end
+/// - **max_Local_size**: The max local work size of the device that the sizes are going to be used
+/// in
+///
+/// Be aware that in some cases like data_sizes that are prime numbers there will be a need to have
+/// larger global sizes than the data_size to make it divide or be divisble by the max_local_size
+pub fn find_optimal_local_and_global_work_sizes(
+    data_size: usize,
+    max_local_size: usize,
+) -> (usize, usize) {
+    let mut local_size = gcd(data_size, max_local_size);
+    if local_size == 1 && data_size < max_local_size {
+        local_size = data_size;
+    }
+
+    if local_size == 1 {
+        let middle = (data_size as f32).sqrt() as usize;
+        for m in (middle..=data_size.min(max_local_size)).rev() {
+            if data_size % m == 0 {
+                local_size = m;
+                break;
+            }
+        }
+    }
+
+    let global_size: usize;
+
+    if local_size == 1 {
+        let mut temp_size = data_size + 1;
+        let mut temp_local_size = gcd(temp_size, max_local_size);
+        while temp_local_size == 1 {
+            temp_size += 1;
+            temp_local_size = gcd(temp_size, max_local_size);
+        }
+        global_size = temp_size;
+        local_size = temp_local_size;
+    } else {
+        global_size = data_size;
+    }
+
+    (local_size, global_size)
+}
+
 impl OpenCLSummable for Buffer<cl_float> {
     /// Sums all of the numbers inside of a buffer and returns an Result enum
     /// containing either the resulting number or an OpenCL error.
@@ -102,7 +148,7 @@ impl OpenCLSummable for Buffer<cl_float> {
             let mut current_buf = self.reduce(context, queue, max_local_size, &kernel)?;
             current_count = current_buf.size()? / mem::size_of::<cl_float>();
 
-            while dbg!(current_count) > 1 {
+            while current_count > 1 {
                 current_buf = current_buf.reduce(context, queue, max_local_size, &kernel)?;
                 current_count = current_buf.size()? / mem::size_of::<cl_float>();
             }
@@ -127,25 +173,17 @@ impl OpenCLSummable for Buffer<cl_float> {
         let current_count = self.size()? / mem::size_of::<cl_float>();
         assert!(current_count >= 1);
 
-        let mut local_size = dbg!(gcd(current_count, max_local_size));
-        if local_size == 1 && current_count < max_local_size {
-            local_size = current_count;
-        }
-
-        if local_size == 1 {
-            let middle = (current_count as f32).sqrt() as usize;
-            for m in (middle..=current_count.min(max_local_size)).rev() {
-                if current_count % m == 0 {
-                    local_size = m;
-                    break;
-                }
-            }
-        }
+        let (local_size, global_size) = find_optimal_local_and_global_work_sizes(
+            current_count,
+            max_local_size
+        );
+        dbg!(local_size);
+        dbg!(global_size);
 
         let current_reduced_buffer = Buffer::<cl_float>::create(
             context,
             CL_MEM_READ_WRITE,
-            current_count / local_size,
+            global_size / local_size,
             ptr::null_mut(),
         )?;
 
@@ -155,7 +193,7 @@ impl OpenCLSummable for Buffer<cl_float> {
             .set_arg_local_buffer(local_size)
             .set_arg(&(current_count as cl_int))
             .set_local_work_size(local_size)
-            .set_global_work_size(current_count)
+            .set_global_work_size(global_size)
             .enqueue_nd_range(queue)?
             .wait()?;
 
@@ -229,6 +267,7 @@ mod test_gpu_summable {
         memory::{Buffer, CL_MEM_READ_WRITE},
     };
     use rand::{thread_rng, Rng};
+    use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
     use super::{compile_buffer_summation_kernel, setup_opencl, DeviceType, OpenCLSummable};
 
@@ -238,11 +277,11 @@ mod test_gpu_summable {
         let (_program, kernel) = compile_buffer_summation_kernel(&opencl_state.context).unwrap();
 
         let mut rng = thread_rng();
-        let numbers_amount = 276;
-        let test_vec = (0..numbers_amount)
-            .map(|_| -> f32 { rng.gen_range(-41.34_f32..93_f32) })
-            .collect::<Vec<f32>>();
-        let expected_sum = test_vec.iter().sum::<f32>();
+        let numbers_amount = 1234;
+        let test_vec: Vec<f32> = (0..numbers_amount)
+            .map(|_| -> f32 { rng.gen_range(-123.31_f32..3193.31_f32) })
+            .collect();
+        let expected_sum: f32 = test_vec.par_iter().sum();
 
         let mut buff = Buffer::<cl_float>::create(
             &opencl_state.context,
@@ -263,6 +302,8 @@ mod test_gpu_summable {
             .sum(&opencl_state.context, &opencl_state.queue, &kernel)
             .unwrap();
 
-        assert!(dbg!((actual_result - expected_sum).abs()) <= 0.1);
+        assert!(
+            ((actual_result - expected_sum) / (actual_result.max(expected_sum))).abs() <= 0.0001
+        );
     }
 }
