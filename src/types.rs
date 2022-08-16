@@ -9,7 +9,7 @@ use savefile_derive::Savefile;
 use intricate_macros::EnumLayer;
 
 use crate::{
-    layers::{activations::TanH, Dense},
+    layers::{activations::{TanH, SoftMax, ReLU}, Dense},
     loss_functions::{CategoricalCrossEntropy, LossFunction, MeanSquared},
     utils::opencl::UnableToSetupOpenCLError,
 };
@@ -124,4 +124,6 @@ impl<'a> LossFunction<'a> for ModelLossFunction<'a> {
 pub enum ModelLayer<'a> {
     Dense(Dense<'a>),
     TanH(TanH<'a>),
+    SoftMax(SoftMax<'a>),
+    ReLU(ReLU<'a>),
 }

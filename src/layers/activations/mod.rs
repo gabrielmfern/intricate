@@ -1,8 +1,10 @@
-// pub mod softmax;
-// pub mod relu;
+pub mod relu;
 // pub mod sigmoid;
 pub mod tanh;
+pub mod softmax;
 
 pub use tanh::TanH;
+pub use softmax::SoftMax;
+pub use relu::ReLU;
 
 // mod tests;
