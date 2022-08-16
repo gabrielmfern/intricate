@@ -5,7 +5,7 @@
 ![github.com](https://img.shields.io/github/license/gabrielmfern/intricate)
 ![github.com](https://img.shields.io/github/commit-activity/m/gabrielmfern/intricate)
 
-A GPU accelerated library that creates/trains/runs neural networks in pure safe Rust code.
+A GPU accelerated library that creates/trains/runs neural networks in safe Rust code.
 
 ## Architechture overview
 

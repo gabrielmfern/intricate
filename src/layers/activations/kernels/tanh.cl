@@ -49,8 +49,9 @@ kernel void back_propagate(
     float output = (float)flattened_output_samples[flat_input_i];
     float output_to_input_derivative = (float)1.0 - output * output;
 
+    int row_part = sample_index * outputs_amount;
     for (int output_index = 0; output_index < outputs_amount; output_index++) {
-        int flat_output_i = sample_index * outputs_amount + output_index;
+        int flat_output_i = row_part + output_index;
 
         float loss_to_output_derivative = (float)flattened_loss_to_output_derivatives[flat_output_i];
 

@@ -64,14 +64,14 @@ mod tanh_tests {
     use super::TanH;
 
     #[test]
-    fn should_return_same_value_as_normal_tanh_function() -> Result<(), CompilationOrOpenCLError> {
+    fn should_propagate_returning_correct_values() -> Result<(), CompilationOrOpenCLError> {
         let device_ids = get_all_devices(CL_DEVICE_TYPE_CPU)?;
         let first_device = Device::new(device_ids[0]);
 
         let context = Context::from_device(&first_device)?;
         let queue = CommandQueue::create_with_properties(&context, device_ids[0], 0, 0)?;
 
-        let samples_amount = 4123;
+        let samples_amount = 423;
         let numbers_amount = 1341;
 
         let mut tanh = TanH::new(numbers_amount);
@@ -129,7 +129,7 @@ mod tanh_tests {
         let context = Context::from_device(&first_device)?;
         let queue = CommandQueue::create_with_properties(&context, device_ids[0], 0, 0)?;
 
-        let samples_amount = 4312;
+        let samples_amount = 432;
         let numbers_amount = 331;
 
         let mut tanh = TanH::new(numbers_amount);

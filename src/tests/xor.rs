@@ -17,6 +17,9 @@ use crate::{
     utils::{setup_opencl, OpenCLState},
 };
 
+// Seems to fail every time I try to run this with DeviceType::CPU
+// ending up with a bunch of NaN, no idea why, perhaps something with my drivers
+// are wrong
 #[test]
 fn should_decrease_error() -> () {
     let layers: Vec<ModelLayer> = vec![
@@ -53,7 +56,7 @@ fn should_decrease_error() -> () {
                 loss_algorithm: MeanSquared::new(), 
                 learning_rate: 0.1,
                 should_print_information: true,
-                epochs: 5000,
+                epochs: 10000,
             },
         ).unwrap()
         .unwrap();

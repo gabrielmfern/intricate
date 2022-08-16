@@ -278,11 +278,11 @@ mod mean_squared_tests {
         let outputs_amount = 29;
         let outputs: Vec<f32> = (0..(samples_amount * outputs_amount))
             .into_iter()
-            .map(|_| rng.gen_range(-1241_f32..5192_f32))
+            .map(|_| rng.gen_range(-1241_f32..2192_f32))
             .collect();
         let expected_outputs: Vec<f32> = (0..(samples_amount * outputs_amount))
             .into_iter()
-            .map(|_| rng.gen_range(-1241_f32..5192_f32))
+            .map(|_| rng.gen_range(-1241_f32..2192_f32))
             .collect();
 
         let expected_loss: f32 = expected_outputs
@@ -326,10 +326,10 @@ mod mean_squared_tests {
             )?
             .wait()?;
 
-        let actual_loss = loss.compute_loss(&outputs_buf, &expected_outputs_buf, 1)?;
+        let actual_loss = loss.compute_loss(&outputs_buf, &expected_outputs_buf, samples_amount)?;
 
-        println!("|{} - {}| <= 0.1", expected_loss, actual_loss);
-        assert!((expected_loss - actual_loss).abs() <= 0.1);
+        println!("|{} - {}| <= 0.5", expected_loss, actual_loss);
+        assert!((expected_loss - actual_loss).abs() <= 0.5);
 
         Ok(())
     }

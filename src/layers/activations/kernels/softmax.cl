@@ -45,8 +45,9 @@ kernel void sum_exponentials_per_sample(
     }
 
     float exponential_sum = (float)0.0;
+    int row_part = sample_index * numbers_amount;
     for (int input_index = 0; input_index < numbers_amount; input_index++) {
-        int flat_i = sample_index * numbers_amount + input_index;
+        int flat_i = row_part + input_index;
         // printf("input_index: %d\nsample_index: %d\nnumbers_amount: %d\n", input_index, sample_index, numbers_amount);
         // printf("%e + %e\n", exponential_sum, exponentials[flat_i]);
         exponential_sum += exponentials[flat_i];

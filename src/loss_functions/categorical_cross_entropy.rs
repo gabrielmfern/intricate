@@ -121,8 +121,7 @@ impl<'a> LossFunction<'a> for CategoricalCrossEntropy<'a> {
             context,
             queue,
             self.opencl_sum_buffer_kernel.as_ref().unwrap(),
-        )? / outputs_amount as f32
-            / samples_amount as f32)
+        )? / samples_amount as f32)
     }
 
     fn compute_loss_derivative_with_respect_to_output_samples(
@@ -266,7 +265,7 @@ mod categorical_cross_entropy_tests {
         loss.init(&opencl_state.context, &opencl_state.queue)?;
 
         let mut rng = thread_rng();
-        let samples_amount = 27;
+        let samples_amount = 1;
         let outputs_amount = 29;
         let outputs: Vec<f32> = (0..(samples_amount * outputs_amount))
             .into_iter()
@@ -280,7 +279,7 @@ mod categorical_cross_entropy_tests {
         let expected_loss: f32 = expected_outputs
             .iter()
             .zip(&outputs)
-            .map(|(output, expected_output)| expected_output * output.ln())
+            .map(|(output, expected_output)| -expected_output * output.ln())
             .sum::<f32>()
             / samples_amount as f32;
         let mut outputs_buf = Buffer::<cl_float>::create(
@@ -317,8 +316,9 @@ mod categorical_cross_entropy_tests {
             )?
             .wait()?;
 
-        let actual_loss = loss.compute_loss(&outputs_buf, &expected_outputs_buf, 1)?;
+        let actual_loss = loss.compute_loss(&outputs_buf, &expected_outputs_buf, samples_amount)?;
 
+        println!("|{} - {}| <= 0.5", expected_loss, actual_loss);
         assert!((expected_loss - actual_loss).abs() <= 0.1);
 
         Ok(())

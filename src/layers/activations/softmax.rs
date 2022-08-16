@@ -364,7 +364,7 @@ mod softmax_tests {
 
         dbg!(&expected_outputs);
 
-        let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
+        let opencl_state = setup_opencl(DeviceType::CPU).unwrap();
 
         let mut softmax = SoftMax::new(numbers_amount);
         softmax

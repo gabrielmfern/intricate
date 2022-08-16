@@ -95,9 +95,11 @@ kernel void compute_loss_derivative_with_respect_to_inputs(
 
     float loss_to_input_derivative = (float)0.0;
 
+    int weight_row_part = input_index * outputs_amount;
+    int output_row_part = sample_index * outputs_amount;
     for (int output_index = 0; output_index < outputs_amount; output_index++) {
-        int flat_weight_i = input_index * outputs_amount + output_index;
-        int flat_output_i = sample_index * outputs_amount + output_index;
+        int flat_weight_i = weight_row_part + output_index;
+        int flat_output_i = output_row_part + output_index;
         float weight = (float)flattened_weights[flat_weight_i];
         float derivative = (float)flattened_loss_to_output_derivatives[flat_output_i];
         loss_to_input_derivative += weight * derivative;
