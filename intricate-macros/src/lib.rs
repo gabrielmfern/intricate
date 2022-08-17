@@ -279,15 +279,14 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                         0,
                         inputs_size,
                         &[],
-                    )?
-                    .wait()?;
+                    )?;
 
                 self.last_inputs_buffer = Some(copied_last_inputs_buffer);
 
                 let outputs_total_count = inputs.size()? / std::mem::size_of::<opencl3::device::cl_float>();
 
                 let outputs_buffer = opencl3::memory::Buffer::<opencl3::device::cl_float>::create(
-                    self.opencl_context.unwrap(),
+                    context,
                     opencl3::memory::CL_MEM_READ_WRITE,
                     outputs_total_count,
                     std::ptr::null_mut(),
@@ -298,8 +297,9 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                     .set_arg(&outputs_buffer)
                     .set_arg(&(outputs_total_count as opencl3::error_codes::cl_int))
                     .set_global_work_size(outputs_total_count)
-                    .enqueue_nd_range(self.opencl_queue.unwrap())?
-                    .wait()?;
+                    .enqueue_nd_range(queue)?;
+
+                queue.finish();
 
                 self.last_outputs_buffer = Some(outputs_buffer);
 
@@ -322,8 +322,11 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
 
                     assert_eq!(samples_amount % 1, 0);
 
+                    let context = self.opencl_context.unwrap();
+                    let queue = self.opencl_queue.unwrap();
+
                     let loss_to_input_derivatives_buffer = opencl3::memory::Buffer::<opencl3::device::cl_float>::create(
-                        self.opencl_context.unwrap(),
+                        context,
                         opencl3::memory::CL_MEM_READ_WRITE,
                         self.inputs_amount * samples_amount,
                         std::ptr::null_mut(),
@@ -337,8 +340,9 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                         .set_arg(&(samples_amount as opencl3::error_codes::cl_int))
                         .set_arg(&(self.inputs_amount as opencl3::error_codes::cl_int))
                         .set_global_work_sizes(&[samples_amount, self.inputs_amount])
-                        .enqueue_nd_range(self.opencl_queue.unwrap())?
-                        .wait()?;
+                        .enqueue_nd_range(queue)?;
+
+                    queue.finish()?;
 
                     Ok(Some(loss_to_input_derivatives_buffer))
                 } else {
