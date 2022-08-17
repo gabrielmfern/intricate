@@ -123,9 +123,8 @@ mod sigmoid_tests {
                 0,
                 input_samples.as_slice(),
                 &[],
-            )?;
-
-        queue.finish()?;
+            )?
+            .wait()?;
 
         let actual_outputs_buffer = sigmoid.propagate(&input_samples_buffer)?;
 
@@ -138,9 +137,8 @@ mod sigmoid_tests {
                 0,
                 actual_outputs_slice,
                 &[],
-            )?;
-
-        queue.finish()?;
+            )?
+            .wait()?;
 
         assert_approx_equal_distance(&expected_outputs, &actual_outputs, 0.01);
 
@@ -192,7 +190,8 @@ mod sigmoid_tests {
                 0,
                 first_derivatives.as_slice(),
                 &[],
-            )?;
+            )?
+            .wait()?;
 
         queue
             .enqueue_write_buffer(
@@ -201,9 +200,8 @@ mod sigmoid_tests {
                 0,
                 input_samples.as_slice(),
                 &[],
-            )?;
-
-        queue.finish()?;
+            )?
+            .wait()?;
 
         tanh.propagate(&input_samples_buffer)?;
 
@@ -239,9 +237,8 @@ mod sigmoid_tests {
                 0,
                 actual_loss_to_input_derivatives_slice,
                 &[],
-            )?;
-
-        queue.finish()?;
+            )?
+            .wait()?;
 
         println!("derivatives CPU: {:?}", &expected_loss_to_input_derivatives,);
         println!("\nderivatives GPU: {:?}", &actual_loss_to_input_derivatives);

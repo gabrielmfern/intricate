@@ -193,9 +193,8 @@ impl<'a> Layer<'a> for SoftMax<'a> {
                 0,
                 inputs_size,
                 &[],
-            )?;
-
-        queue.finish()?;
+            )?
+            .wait()?;
 
         self.last_inputs_buffer = Some(copied_last_inputs_buffer);
 
@@ -216,9 +215,8 @@ impl<'a> Layer<'a> for SoftMax<'a> {
         .set_arg(&(samples_amount as cl_int))
         .set_arg(&(self.inputs_amount as cl_int))
         .set_global_work_size(samples_amount)
-        .enqueue_nd_range(self.opencl_queue.unwrap())?;
-
-        queue.finish()?;
+        .enqueue_nd_range(self.opencl_queue.unwrap())?
+        .wait()?;
 
         let exponentials_buffer = Buffer::<cl_float>::create(
             self.opencl_context.unwrap(),
@@ -234,9 +232,8 @@ impl<'a> Layer<'a> for SoftMax<'a> {
             .set_arg(&(samples_amount as cl_int))
             .set_arg(&(self.inputs_amount as cl_int))
             .set_global_work_sizes(&[samples_amount, self.inputs_amount])
-            .enqueue_nd_range(self.opencl_queue.unwrap())?;
-
-        queue.finish()?;
+            .enqueue_nd_range(self.opencl_queue.unwrap())?
+            .wait()?;
 
         let exponentials_sum_per_sample = Buffer::<cl_float>::create(
             self.opencl_context.unwrap(),
@@ -255,9 +252,8 @@ impl<'a> Layer<'a> for SoftMax<'a> {
         .set_arg(&(samples_amount as cl_int))
         .set_arg(&(self.inputs_amount as cl_int))
         .set_global_work_size(samples_amount)
-        .enqueue_nd_range(self.opencl_queue.unwrap())?;
-
-        queue.finish()?;
+        .enqueue_nd_range(self.opencl_queue.unwrap())?
+        .wait()?;
 
         let outputs_buffer = Buffer::<cl_float>::create(
             self.opencl_context.unwrap(),
@@ -273,9 +269,8 @@ impl<'a> Layer<'a> for SoftMax<'a> {
             .set_arg(&(self.inputs_amount as cl_int))
             .set_arg(&(samples_amount as cl_int))
             .set_global_work_sizes(&[samples_amount, self.inputs_amount])
-            .enqueue_nd_range(self.opencl_queue.as_ref().unwrap())?;
-
-        queue.finish()?;
+            .enqueue_nd_range(self.opencl_queue.as_ref().unwrap())?
+            .wait()?;
 
         self.last_outputs_buffer = Some(outputs_buffer);
 
@@ -301,12 +296,9 @@ impl<'a> Layer<'a> for SoftMax<'a> {
 
             assert_eq!(samples_amount % 1, 0);
 
-            let context = self.opencl_context.unwrap();
-            let queue = self.opencl_queue.unwrap();
-
             let loss_to_input_derivatives_buffer =
                 opencl3::memory::Buffer::<opencl3::device::cl_float>::create(
-                    context,
+                    self.opencl_context.unwrap(),
                     opencl3::memory::CL_MEM_READ_WRITE,
                     self.inputs_amount * samples_amount,
                     std::ptr::null_mut(),
@@ -322,9 +314,8 @@ impl<'a> Layer<'a> for SoftMax<'a> {
             .set_arg(&(samples_amount as opencl3::error_codes::cl_int))
             .set_arg(&(self.inputs_amount as opencl3::error_codes::cl_int))
             .set_global_work_sizes(&[samples_amount, self.inputs_amount])
-            .enqueue_nd_range(queue)?;
-
-            queue.finish()?;
+            .enqueue_nd_range(self.opencl_queue.unwrap())?
+            .wait()?;
 
             Ok(Some(loss_to_input_derivatives_buffer))
         } else {
@@ -350,6 +341,97 @@ mod softmax_tests {
     };
 
     use super::SoftMax;
+
+    // #[test]
+    // fn should_calculate_loss_to_input_derivatives_correctly() {
+    //     let samples_amount = 123;
+    //     let numbers_amount = 19;
+
+    //     let mut rng = thread_rng();
+
+    //     let inputs: Vec<Vec<f32>> = (0..samples_amount)
+    //         .map(|_| {
+    //             (0..numbers_amount)
+    //                 .map(|_| rng.gen_range(0.0_f32..10.93_f32))
+    //                 .collect()
+    //         })
+    //         .collect();
+
+    //     let expected_outputs: Vec<Vec<f32>> = inputs
+    //         .iter()
+    //         .map(|inputs| {
+    //             let max = inputs.iter().copied().fold(f32::NAN, f32::max);
+    //             let exponentials: Vec<f32> = inputs.iter().map(|x| E.powf(x - max)).collect();
+    //             let exponential_sum: f32 = exponentials.iter().sum::<f32>();
+    //             exponentials
+    //                 .iter()
+    //                 .map(|exponential| exponential / exponential_sum)
+    //                 .collect()
+    //         })
+    //         .collect();
+
+    //     let opencl_state = setup_opencl(DeviceType::CPU).unwrap();
+
+    //     let mut softmax = SoftMax::new(numbers_amount);
+    //     softmax
+    //         .init(&opencl_state.queue, &opencl_state.context)
+    //         .unwrap();
+
+    //     let mut inputs_buffer = Buffer::<cl_float>::create(
+    //         &opencl_state.context,
+    //         CL_MEM_READ_ONLY,
+    //         samples_amount * numbers_amount,
+    //         std::ptr::null_mut(),
+    //     )
+    //     .unwrap();
+
+    //     opencl_state
+    //         .queue
+    //         .enqueue_write_buffer(
+    //             &mut inputs_buffer,
+    //             CL_BLOCKING,
+    //             0,
+    //             inputs
+    //                 .iter()
+    //                 .map(|v| v.to_vec())
+    //                 .flatten()
+    //                 .collect::<Vec<f32>>()
+    //                 .as_slice(),
+    //             &[],
+    //         )
+    //         .unwrap()
+    //         .wait()
+    //         .unwrap();
+
+    //     let outputs_buffer = softmax.propagate(&inputs_buffer).unwrap();
+
+    //     let mut actual_outputs = vec![0.0; samples_amount * numbers_amount];
+
+    //     opencl_state
+    //         .queue
+    //         .enqueue_read_buffer(
+    //             &outputs_buffer,
+    //             CL_BLOCKING,
+    //             0,
+    //             actual_outputs.as_mut_slice(),
+    //             &[],
+    //         )
+    //         .unwrap()
+    //         .wait()
+    //         .unwrap();
+
+    //     dbg!(&actual_outputs);
+
+    //     assert_approx_equal_distance(
+    //         &actual_outputs,
+    //         &expected_outputs
+    //             .iter()
+    //             .map(|v| v.to_vec())
+    //             .flatten()
+    //             .collect(),
+    //         0.05,
+    //     );
+    // }
 
     #[test]
     fn should_propagate_to_correct_values() {
@@ -408,9 +490,9 @@ mod softmax_tests {
                     .as_slice(),
                 &[],
             )
+            .unwrap()
+            .wait()
             .unwrap();
-
-        opencl_state.queue.finish().unwrap();
 
         let outputs_buffer = softmax.propagate(&inputs_buffer).unwrap();
 
@@ -425,9 +507,9 @@ mod softmax_tests {
                 actual_outputs.as_mut_slice(),
                 &[],
             )
+            .unwrap()
+            .wait()
             .unwrap();
-
-        opencl_state.queue.finish().unwrap();
 
         assert_approx_equal_distance(
             &actual_outputs,

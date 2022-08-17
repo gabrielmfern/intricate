@@ -111,9 +111,7 @@ mod relu_tests {
             0,
             inputs.as_slice(),
             &[],
-        ).unwrap();
-        
-        opencl_state.queue.finish().unwrap();
+        ).unwrap().wait().unwrap();
 
         let outputs_buffer = relu.propagate(&inputs_buffer).unwrap();
 
@@ -125,9 +123,7 @@ mod relu_tests {
             0,
             actual_outputs.as_mut_slice(),
             &[]
-        ).unwrap();
-
-        opencl_state.queue.finish().unwrap();
+        ).unwrap().wait().unwrap();
 
         assert_approx_equal_distance(&actual_outputs, &expected_outputs, 0.05);
     }
