@@ -115,8 +115,9 @@ impl<'a> LossFunction<'a> for MeanSquared<'a> {
             .set_arg(&(outputs_amount as cl_int))
             .set_arg(&(samples_amount as cl_int))
             .set_global_work_size(samples_amount)
-            .enqueue_nd_range(queue)?
-            .wait()?;
+            .enqueue_nd_range(queue)?;
+
+        queue.finish()?;
 
         // Ok(0.0)
         Ok(sample_losses_buffer.sum(
@@ -141,9 +142,12 @@ impl<'a> LossFunction<'a> for MeanSquared<'a> {
             .opencl_compute_loss_to_output_derivatives_kernel
             .is_some());
 
+        let context = self.opencl_context.unwrap();
+        let queue = self.oepncl_queue.unwrap();
+
         let outputs_amount = output_samples.size()? / samples_amount / mem::size_of::<cl_float>();
         let derivatives_buffer = Buffer::<cl_float>::create(
-            self.opencl_context.as_ref().unwrap(),
+            context,
             CL_MEM_READ_WRITE,
             output_samples.size()? / mem::size_of::<cl_float>(),
             ptr::null_mut(),
@@ -160,8 +164,9 @@ impl<'a> LossFunction<'a> for MeanSquared<'a> {
         .set_arg(&(samples_amount as cl_int))
         .set_arg(&(outputs_amount as cl_int))
         .set_global_work_sizes(&[samples_amount, outputs_amount])
-        .enqueue_nd_range(self.oepncl_queue.unwrap())?
-        .wait()?;
+        .enqueue_nd_range(queue)?;
+
+        queue.finish()?;
 
         Ok(derivatives_buffer)
     }
@@ -235,8 +240,7 @@ mod mean_squared_tests {
                 0,
                 output_samples.as_slice(),
                 &[],
-            )?
-            .wait()?;
+            )?;
         opencl_state
             .queue
             .enqueue_write_buffer(
@@ -245,8 +249,9 @@ mod mean_squared_tests {
                 0,
                 expected_outputs.as_slice(),
                 &[],
-            )?
-            .wait()?;
+            )?;
+
+        opencl_state.queue.finish()?;
 
         let buf = gpu_loss.compute_loss_derivative_with_respect_to_output_samples(
             &outputs_buf,
@@ -258,8 +263,9 @@ mod mean_squared_tests {
 
         opencl_state
             .queue
-            .enqueue_read_buffer(&buf, CL_NON_BLOCKING, 0, derivatives_slice, &[])?
-            .wait()?;
+            .enqueue_read_buffer(&buf, CL_NON_BLOCKING, 0, derivatives_slice, &[])?;
+
+        opencl_state.queue.finish()?;
 
         assert_approx_equal_distance(&expected_derivatives, &derivatives_vec, 0.01);
 
@@ -313,8 +319,7 @@ mod mean_squared_tests {
                 0,
                 outputs.as_slice(),
                 &[],
-            )?
-            .wait()?;
+            )?;
         opencl_state
             .queue
             .enqueue_write_buffer(
@@ -323,8 +328,9 @@ mod mean_squared_tests {
                 0,
                 expected_outputs.as_slice(),
                 &[],
-            )?
-            .wait()?;
+            )?;
+
+        opencl_state.queue.finish()?;
 
         let actual_loss = loss.compute_loss(&outputs_buf, &expected_outputs_buf, samples_amount)?;
 

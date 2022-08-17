@@ -138,8 +138,9 @@ impl OpenCLSummable for Buffer<cl_float> {
             let mut buf_slice: [f32; 1] = [0.0];
 
             queue
-                .enqueue_read_buffer(self, CL_NON_BLOCKING, 0, &mut buf_slice, &[])?
-                .wait()?;
+                .enqueue_read_buffer(self, CL_NON_BLOCKING, 0, &mut buf_slice, &[])?;
+
+            queue.finish()?;
 
             Ok(buf_slice[0])
         } else if current_count == 0 {
@@ -156,8 +157,9 @@ impl OpenCLSummable for Buffer<cl_float> {
             let mut buf_slice: [f32; 1] = [0.0];
 
             queue
-                .enqueue_read_buffer(&current_buf, CL_NON_BLOCKING, 0, &mut buf_slice, &[])?
-                .wait()?;
+                .enqueue_read_buffer(&current_buf, CL_NON_BLOCKING, 0, &mut buf_slice, &[])?;
+
+            queue.finish()?;
 
             Ok(buf_slice[0])
         }
@@ -194,8 +196,9 @@ impl OpenCLSummable for Buffer<cl_float> {
             .set_arg(&(current_count as cl_int))
             .set_local_work_size(local_size)
             .set_global_work_size(global_size)
-            .enqueue_nd_range(queue)?
-            .wait()?;
+            .enqueue_nd_range(queue)?;
+
+        queue.finish()?;
 
         Ok(current_reduced_buffer)
     }
@@ -294,9 +297,9 @@ mod test_gpu_summable {
         opencl_state
             .queue
             .enqueue_write_buffer(&mut buff, CL_NON_BLOCKING, 0, test_vec.as_slice(), &[])
-            .unwrap()
-            .wait()
             .unwrap();
+
+        opencl_state.queue.finish().unwrap();
 
         let actual_result = buff
             .sum(&opencl_state.context, &opencl_state.queue, &kernel)

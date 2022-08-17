@@ -165,8 +165,9 @@ impl<'a> Model<'a> {
 
         state
             .queue
-            .enqueue_read_buffer(buffer, CL_NON_BLOCKING, 0, resulting_slice, &[])?
-            .wait()?;
+            .enqueue_read_buffer(buffer, CL_NON_BLOCKING, 0, resulting_slice, &[])?;
+
+        state.queue.finish()?;
 
         Ok(resulting_vec)
     }
@@ -211,8 +212,9 @@ impl<'a> Model<'a> {
                     .collect::<Vec<f32>>()
                     .as_slice(),
                 &[],
-            )?
-            .wait()?;
+            )?;
+
+        state.queue.finish()?;
 
         let result = self.predict_with_moved_buffer(first_input_samples_buffer)?;
 
@@ -307,8 +309,7 @@ impl<'a> Model<'a> {
                     .collect::<Vec<f32>>()
                     .as_slice(),
                 &[],
-            )?
-            .wait()?;
+            )?;
         state
             .queue
             .enqueue_write_buffer(
@@ -322,8 +323,9 @@ impl<'a> Model<'a> {
                     .collect::<Vec<f32>>()
                     .as_slice(),
                 &[],
-            )?
-            .wait()?;
+            )?;
+
+        state.queue.finish()?;
 
         let mut loss = None;
 
