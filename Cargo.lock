@@ -149,9 +149,9 @@ dependencies = [
 
 [[package]]
 name = "intricate-macros"
-version = "0.3.5"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41f8b77c692fabe04a0f0a37d246501d4cabd38ef2b41239ad3f4d77997ab23e"
+checksum = "930e2bd3934e2ab1b02594221ae3fa3cad3db67e5219a2c0b684876f7952d227"
 dependencies = [
  "quote 1.0.21",
  "syn 1.0.99",
