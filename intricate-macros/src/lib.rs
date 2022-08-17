@@ -299,7 +299,7 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                     .set_global_work_size(outputs_total_count)
                     .enqueue_nd_range(queue)?;
 
-                queue.finish();
+                queue.finish()?;
 
                 self.last_outputs_buffer = Some(outputs_buffer);
 
