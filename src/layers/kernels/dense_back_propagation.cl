@@ -27,6 +27,8 @@ kernel void weights_gradient_application(
 
     float weight_gradient_contributions = (float)0.0;
     float f_samples_amount = (float)samples_amount;
+    // printf("%d\n", f_samples_amount);
+    // printf("%d\n", samples_amount);
 
     for (int sample_index = 0; sample_index < samples_amount; sample_index++) {
         int flat_output_i = sample_index * outputs_amount + output_index;

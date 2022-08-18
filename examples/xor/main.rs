@@ -35,7 +35,7 @@ fn main() -> () {
     // Actually instantiate the Model with the layers
     let mut xor_model = Model::new(layers);
     //            you can change this to DeviceType::GPU if you want
-    let opencl_state = setup_opencl(DeviceType::CPU).unwrap();
+    let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
     xor_model.init(&opencl_state).unwrap();
 
     // Fit the model however many times we want

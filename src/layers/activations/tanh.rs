@@ -66,7 +66,7 @@ mod tanh_tests {
     use opencl3::{
         command_queue::{CommandQueue, CL_BLOCKING, CL_NON_BLOCKING},
         context::Context,
-        device::{cl_float, get_all_devices, Device, CL_DEVICE_TYPE_CPU},
+        device::{cl_float, get_all_devices, Device, CL_DEVICE_TYPE_GPU},
         memory::{Buffer, CL_MEM_READ_ONLY},
     };
     use rand::{thread_rng, Rng};
@@ -80,7 +80,7 @@ mod tanh_tests {
 
     #[test]
     fn should_propagate_returning_correct_values() -> Result<(), CompilationOrOpenCLError> {
-        let device_ids = get_all_devices(CL_DEVICE_TYPE_CPU)?;
+        let device_ids = get_all_devices(CL_DEVICE_TYPE_GPU)?;
         let first_device = Device::new(device_ids[0]);
 
         let context = Context::from_device(&first_device)?;
@@ -138,7 +138,7 @@ mod tanh_tests {
     #[test]
     fn should_back_propagate_returning_the_correct_derivatives(
     ) -> Result<(), CompilationOrOpenCLError> {
-        let device_ids = get_all_devices(CL_DEVICE_TYPE_CPU)?;
+        let device_ids = get_all_devices(CL_DEVICE_TYPE_GPU)?;
         let first_device = Device::new(device_ids[0]);
 
         let context = Context::from_device(&first_device)?;

@@ -93,7 +93,7 @@ mod relu_tests {
 
         let expected_outputs: Vec<f32> = inputs.iter().map(|input| input.max(0.0)).collect();
 
-        let opencl_state = setup_opencl(DeviceType::CPU).unwrap();
+        let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
 
         let mut relu = ReLU::new(numbers_amount);
         relu.init(&opencl_state.queue, &opencl_state.context).unwrap();

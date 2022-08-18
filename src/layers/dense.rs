@@ -140,7 +140,8 @@ impl<'a> Dense<'a> {
             last_outputs_buffer: None,
             opencl_queue: None,
             opencl_context: None,
-        }.into() // because ModelLayer implements From<Dense>
+        }
+        .into() // because ModelLayer implements From<Dense>
     }
 
     /// Creates a new Dense layer with random weights and biases and empty OpenCL values.
@@ -217,7 +218,11 @@ impl<'a> Layer<'a> for Dense<'a> {
         Ok(())
     }
 
-    fn init(&mut self, queue: &'a CommandQueue, context: &'a Context) -> Result<(), CompilationOrOpenCLError> {
+    fn init(
+        &mut self,
+        queue: &'a CommandQueue,
+        context: &'a Context,
+    ) -> Result<(), CompilationOrOpenCLError> {
         assert!(!self.weights.is_empty());
         assert!(!self.biases.is_empty());
 
@@ -234,25 +239,29 @@ impl<'a> Layer<'a> for Dense<'a> {
             ptr::null_mut(),
         )?;
 
-        queue.enqueue_write_buffer(
-            &mut weights_buffer,
-            CL_NON_BLOCKING,
-            0,
-            self.weights
-                .par_iter()
-                .map(|x| x.to_vec())
-                .flatten()
-                .collect::<Vec<f32>>()
-                .as_slice(),
-            &[],
-        )?.wait()?;
-        queue.enqueue_write_buffer(
-            &mut biases_buffer,
-            CL_NON_BLOCKING,
-            0,
-            self.biases.as_slice(),
-            &[],
-        )?.wait()?;
+        queue
+            .enqueue_write_buffer(
+                &mut weights_buffer,
+                CL_NON_BLOCKING,
+                0,
+                self.weights
+                    .par_iter()
+                    .map(|x| x.to_vec())
+                    .flatten()
+                    .collect::<Vec<f32>>()
+                    .as_slice(),
+                &[],
+            )?
+            .wait()?;
+        queue
+            .enqueue_write_buffer(
+                &mut biases_buffer,
+                CL_NON_BLOCKING,
+                0,
+                self.biases.as_slice(),
+                &[],
+            )?
+            .wait()?;
 
         self.weights_buffer = Some(weights_buffer);
         self.biases_buffer = Some(biases_buffer);
@@ -328,16 +337,14 @@ impl<'a> Layer<'a> for Dense<'a> {
 
         // TODO: make copying this into the last inputs optional since this is only needed
         // for fitting a model as to make everything more optimized both in RAM usage and computation
-        queue
-            .enqueue_copy_buffer(
-                input_samples,
-                &mut copied_last_inputs_buffer,
-                0,
-                0,
-                inputs_size,
-                &[],
-            )?
-            .wait()?;
+        queue.enqueue_copy_buffer(
+            input_samples,
+            &mut copied_last_inputs_buffer,
+            0,
+            0,
+            inputs_size,
+            &[],
+        )?;
 
         self.last_inputs_buffer = Some(copied_last_inputs_buffer);
 
@@ -360,9 +367,9 @@ impl<'a> Layer<'a> for Dense<'a> {
             .set_arg(&(samples_amount as cl_int))
             .set_arg(&(self.outputs_amount as cl_int))
             .set_global_work_sizes(&[samples_amount, self.outputs_amount])
-            .enqueue_nd_range(queue)?
-            .wait()?;
+            .enqueue_nd_range(queue)?;
 
+        queue.finish()?;
 
         self.last_outputs_buffer = Some(outputs_buffer);
         Ok(self.last_outputs_buffer.as_ref().unwrap())
@@ -378,8 +385,9 @@ impl<'a> Layer<'a> for Dense<'a> {
         assert!(self.opencl_context.is_some());
         assert!(self.opencl_queue.is_some());
 
-        let samples_amount = layer_output_to_error_derivative.size()? / self.outputs_amount
-            * mem::size_of::<cl_float>();
+        let samples_amount = layer_output_to_error_derivative.size()?
+            / self.outputs_amount
+            / mem::size_of::<cl_float>();
         let queue = self.opencl_queue.unwrap();
         let mut layer_input_to_error_derivatives_buffer = None;
 
@@ -392,15 +400,16 @@ impl<'a> Layer<'a> for Dense<'a> {
             )?);
 
             ExecuteKernel::new(self.loss_to_input_differentiation_kernel.as_ref().unwrap())
-                    .set_arg(self.weights_buffer.as_ref().unwrap())
-                    .set_arg(layer_output_to_error_derivative)
-                    .set_arg(layer_input_to_error_derivatives_buffer.as_ref().unwrap())
-                    .set_arg(&(self.outputs_amount as cl_int))
-                    .set_arg(&(samples_amount as cl_int))
-                    .set_arg(&(self.inputs_amount as cl_int))
-                    .set_global_work_sizes(&[samples_amount, self.inputs_amount])
-                    .enqueue_nd_range(queue)?
-                    .wait()?;
+                .set_arg(self.weights_buffer.as_ref().unwrap())
+                .set_arg(layer_output_to_error_derivative)
+                .set_arg(layer_input_to_error_derivatives_buffer.as_ref().unwrap())
+                .set_arg(&(self.outputs_amount as cl_int))
+                .set_arg(&(samples_amount as cl_int))
+                .set_arg(&(self.inputs_amount as cl_int))
+                .set_global_work_sizes(&[samples_amount, self.inputs_amount])
+                .enqueue_nd_range(queue)?;
+
+            queue.finish()?
         }
 
         let new_weights_buffer = Buffer::<cl_float>::create(
@@ -410,18 +419,18 @@ impl<'a> Layer<'a> for Dense<'a> {
             ptr::null_mut(),
         )?;
 
-        ExecuteKernel::new(self.weights_gradient_application_kernel.as_ref().unwrap())
-            .set_arg(layer_output_to_error_derivative)
-            .set_arg(self.last_inputs_buffer.as_ref().unwrap())
-            .set_arg(self.weights_buffer.as_ref().unwrap())
-            .set_arg(&new_weights_buffer)
-            .set_arg(&(samples_amount as cl_int))
-            .set_arg(&(self.outputs_amount as cl_int))
-            .set_arg(&(self.inputs_amount as cl_int))
-            .set_arg(&(learning_rate as cl_float))
-            .set_global_work_sizes(&[self.inputs_amount, self.outputs_amount])
-            .enqueue_nd_range(queue)?
-            .wait()?;
+        let weight_gradient_event =
+            ExecuteKernel::new(self.weights_gradient_application_kernel.as_ref().unwrap())
+                .set_arg(layer_output_to_error_derivative)
+                .set_arg(self.last_inputs_buffer.as_ref().unwrap())
+                .set_arg(self.weights_buffer.as_ref().unwrap())
+                .set_arg(&new_weights_buffer)
+                .set_arg(&(samples_amount as cl_int))
+                .set_arg(&(self.outputs_amount as cl_int))
+                .set_arg(&(self.inputs_amount as cl_int))
+                .set_arg(&(learning_rate as cl_float))
+                .set_global_work_sizes(&[self.inputs_amount, self.outputs_amount])
+                .enqueue_nd_range(queue)?;
 
         let new_biases_buffer = Buffer::<cl_float>::create(
             self.opencl_context.unwrap(),
@@ -438,8 +447,10 @@ impl<'a> Layer<'a> for Dense<'a> {
             .set_arg(&(self.outputs_amount as cl_int))
             .set_arg(&(learning_rate as cl_float))
             .set_global_work_size(self.outputs_amount)
-            .enqueue_nd_range(queue)?
-            .wait()?;
+            .set_wait_event(&weight_gradient_event)
+            .enqueue_nd_range(queue)?;
+
+        queue.finish()?;
 
         self.weights_buffer = Some(new_weights_buffer);
         self.biases_buffer = Some(new_biases_buffer);
@@ -455,130 +466,191 @@ mod dense_tests {
     use opencl3::{
         command_queue::{CommandQueue, CL_BLOCKING, CL_NON_BLOCKING},
         context::Context,
-        device::{cl_float, get_all_devices, Device, CL_DEVICE_TYPE_CPU},
+        device::{cl_float, get_all_devices, Device, CL_DEVICE_TYPE_GPU},
         memory::{Buffer, CL_MEM_READ_ONLY},
     };
     use rand::{thread_rng, Rng};
 
-    use crate::{layers::{dense::Dense, Layer}, types::CompilationOrOpenCLError};
+    use crate::{
+        layers::{dense::Dense, Layer},
+        types::CompilationOrOpenCLError,
+    };
 
-    // TODO: rewrite this test by calculating backprop manually
-    // fn should_apply_gradients_just_like_normal_dense() -> Result<(), InitializationError> {
-    //     let device_ids = get_all_devices(CL_DEVICE_TYPE_CPU)?;
+    #[test]
+    fn should_apply_gradients_correctly() -> () {
+        let device_ids = get_all_devices(CL_DEVICE_TYPE_GPU).unwrap();
 
-    //     let first_device = Device::new(*device_ids.get(0).expect("There is no GPU device!"));
+        let first_device = Device::new(*device_ids.get(0).expect("There is no GPU device!"));
 
-    //     let context = Context::from_device(&first_device)?;
-    //     let queue = CommandQueue::create_with_properties(&context, first_device.id(), 0, 0)?;
+        let context = Context::from_device(&first_device).unwrap();
+        let queue =
+            CommandQueue::create_with_properties(&context, first_device.id(), 0, 0).unwrap();
 
-    //     let samples_amount = 100;
-    //     let inputs_amount = 5;
-    //     let outputs_amount = 5;
+        let samples_amount = 100;
+        let inputs_amount = 500;
+        let outputs_amount = 500;
 
-    //     let mut gpu_dense = Dense::new(inputs_amount, outputs_amount);
-    //     gpu_dense.init(&queue, &context)?;
+        let mut gpu_dense = Dense::new_raw(inputs_amount, outputs_amount);
+        gpu_dense.init(&queue, &context).unwrap();
 
-    //     let loss_to_output_derivatives = vec![vec![0.5; outputs_amount]; samples_amount];
+        let mut rng = thread_rng();
+        let loss_to_output_derivatives: Vec<Vec<f32>> = (0..samples_amount)
+            .map(|_| {
+                (0..outputs_amount)
+                    .map(|_| rng.gen_range(-134_f32..314_f32))
+                    .collect()
+            })
+            .collect();
 
-    //     let input_samples = vec![vec![0.1; inputs_amount]; samples_amount];
+        let input_samples: Vec<Vec<f32>> = (0..samples_amount)
+            .map(|_| {
+                (0..inputs_amount)
+                    .map(|_| rng.gen_range(-134_f32..314_f32))
+                    .collect()
+            })
+            .collect();
 
-    //     let mut input_samples_buffer = Buffer::<cl_float>::create(
-    //         &context,
-    //         CL_MEM_READ_ONLY,
-    //         samples_amount * inputs_amount,
-    //         ptr::null_mut(),
-    //     )?;
+        println!("inputs: {:?}", input_samples);
+        println!("dE/dO: {:?}", loss_to_output_derivatives);
 
-    //     let input_samples_gpu_write_event = queue.enqueue_write_buffer(
-    //         &mut input_samples_buffer,
-    //         CL_BLOCKING,
-    //         0,
-    //         input_samples
-    //             .iter()
-    //             .map(|x| x.to_vec())
-    //             .flatten()
-    //             .collect::<Vec<f32>>()
-    //             .as_slice(),
-    //         &[],
-    //     )?;
+        let learning_rate = 0.1;
 
-    //     input_samples_gpu_write_event.wait()?;
+        let expected_new_weights: Vec<Vec<f32>> = gpu_dense
+            .weights
+            .iter()
+            .enumerate()
+            .map(|(input_index, input_to_outputs)| {
+                input_to_outputs
+                    .iter()
+                    .enumerate()
+                    .map(|(output_index, weight)| {
+                        weight
+                            - input_samples
+                                .iter()
+                                .zip(&loss_to_output_derivatives)
+                                .map(|(inputs, output_derivatives)| {
+                                    let input = inputs[input_index];
+                                    let loss_to_output_deriv = output_derivatives[output_index];
 
-    //     gpu_dense.last_inputs_buffer = Some(input_samples_buffer);
+                                    loss_to_output_deriv * input
+                                })
+                                .sum::<f32>()
+                                * learning_rate
+                                / samples_amount as f32
+                    })
+                    .collect()
+            })
+            .collect();
 
-    //     let mut loss_to_output_derivatives_buffer = Buffer::<cl_float>::create(
-    //         &context,
-    //         CL_MEM_READ_ONLY,
-    //         samples_amount * outputs_amount,
-    //         ptr::null_mut(),
-    //     )?;
+        let expected_new_biases: Vec<f32> = gpu_dense
+            .biases
+            .iter()
+            .enumerate()
+            .map(|(output_index, bias)| {
+                bias - (0..samples_amount)
+                    .map(|sample_index| loss_to_output_derivatives[sample_index][output_index])
+                    .sum::<f32>()
+                    * learning_rate
+                    / samples_amount as f32
+            })
+            .collect();
 
-    //     let derivatives_write_event = queue.enqueue_write_buffer(
-    //         &mut loss_to_output_derivatives_buffer,
-    //         CL_BLOCKING,
-    //         0,
-    //         loss_to_output_derivatives
-    //             .iter()
-    //             .map(|x| x.to_vec())
-    //             .flatten()
-    //             .collect::<Vec<f32>>()
-    //             .as_slice(),
-    //         &[],
-    //     )?;
+        let mut input_samples_buffer = Buffer::<cl_float>::create(
+            &context,
+            CL_MEM_READ_ONLY,
+            samples_amount * inputs_amount,
+            ptr::null_mut(),
+        )
+        .unwrap();
 
-    //     derivatives_write_event.wait()?;
+        queue
+            .enqueue_write_buffer(
+                &mut input_samples_buffer,
+                CL_BLOCKING,
+                0,
+                input_samples
+                    .iter()
+                    .map(|x| x.to_vec())
+                    .flatten()
+                    .collect::<Vec<f32>>()
+                    .as_slice(),
+                &[],
+            )
+            .unwrap()
+            .wait()
+            .unwrap();
 
-    //     gpu_dense.back_propagate(false, &loss_to_output_derivatives_buffer, 0.3)?;
-    //     normal_dense.back_propagate(false, &loss_to_output_derivatives, 0.3);
+        gpu_dense.last_inputs_buffer = Some(input_samples_buffer);
 
-    //     gpu_dense.sync_data_from_gpu_with_cpu()?;
+        let mut loss_to_output_derivatives_buffer = Buffer::<cl_float>::create(
+            &context,
+            CL_MEM_READ_ONLY,
+            samples_amount * outputs_amount,
+            ptr::null_mut(),
+        )
+        .unwrap();
 
-    //     println!("new weights GPU: {:?}", gpu_dense.weights);
-    //     println!("new weights CPU: {:?}", normal_dense.weights);
+        queue
+            .enqueue_write_buffer(
+                &mut loss_to_output_derivatives_buffer,
+                CL_BLOCKING,
+                0,
+                loss_to_output_derivatives
+                    .iter()
+                    .map(|x| x.to_vec())
+                    .flatten()
+                    .collect::<Vec<f32>>()
+                    .as_slice(),
+                &[],
+            )
+            .unwrap()
+            .wait()
+            .unwrap();
 
-    //     {
-    //         let a: &Vec<f32> = &gpu_dense
-    //             .weights
-    //             .iter()
-    //             .map(|x| x.to_vec())
-    //             .flatten()
-    //             .collect();
-    //         let b: &Vec<f32> = &normal_dense
-    //             .weights
-    //             .iter()
-    //             .map(|x| x.to_vec())
-    //             .flatten()
-    //             .collect();
-    //         let max_dist = 0.1;
-    //         assert_eq!(a.len(), b.len());
+        gpu_dense
+            .back_propagate(false, &loss_to_output_derivatives_buffer, learning_rate)
+            .unwrap();
 
-    //         a.iter().zip(b).for_each(|(x, y)| {
-    //             println!("x:{}\ny:{}", x, y);
-    //             assert!((x - y).abs() <= max_dist);
-    //         });
-    //     };
+        gpu_dense.sync_data_from_gpu_with_cpu().unwrap();
 
-    //     println!("new biases GPU: {:?}", gpu_dense.biases);
-    //     println!("new biases CPU: {:?}", normal_dense.biases);
+        let max_dist = 0.01;
 
-    //     {
-    //         let a = &gpu_dense.biases;
-    //         let b = &normal_dense.biases;
-    //         let max_dist = 0.2;
-    //         assert_eq!(a.len(), b.len());
+        println!("new weights GPU: {:?}", gpu_dense.weights);
+        println!("new weights CPU: {:?}", expected_new_weights);
 
-    //         a.iter().zip(b).for_each(|(x, y)| {
-    //             println!("x:{}\ny:{}", x, y);
-    //             assert!((x - y).abs() <= max_dist);
-    //         });
-    //     };
+        {
+            assert_eq!(gpu_dense.weights.len(), expected_new_weights.len());
 
-    //     Ok(())
-    // }
+            gpu_dense
+                .weights
+                .iter()
+                .flatten()
+                .zip(expected_new_weights.iter().flatten())
+                .for_each(|(weight, expected_weight)| {
+                    assert!((weight - expected_weight).abs() <= max_dist);
+                })
+        };
+
+        println!("new biases GPU: {:?}", gpu_dense.biases);
+        println!("new biases CPU: {:?}", expected_new_biases);
+
+        {
+            assert_eq!(gpu_dense.biases.len(), expected_new_biases.len());
+
+            gpu_dense
+                .biases
+                .iter()
+                .zip(&expected_new_biases)
+                .for_each(|(x, y)| {
+                    println!("x:{}\ny:{}", x, y);
+                    assert!((x - y).abs() <= max_dist);
+                });
+        };
+    }
 
     #[test]
     fn should_propagate_to_correct_value() -> Result<(), CompilationOrOpenCLError> {
-        let device_ids = get_all_devices(CL_DEVICE_TYPE_CPU)?;
+        let device_ids = get_all_devices(CL_DEVICE_TYPE_GPU)?;
 
         let first_device = Device::new(*device_ids.get(0).expect("Couldn't get device associated with the CPU.\nPerhaps you don't have the drivers installed for OpenCL?"));
 
@@ -676,6 +748,643 @@ mod dense_tests {
         Ok(())
     }
 }
+
+// #[test]
+// fn should_apply_gradients_just_like_normal_dense() -> Result<(), ClError> {
+//     let device_ids = get_all_devices(CL_DEVICE_TYPE_GPU)?;
+
+//     let first_device = Device::new(*device_ids.get(0).expect("There is no GPU device!"));
+
+//     let context = Context::from_device(&first_device)?;
+//     let queue = CommandQueue::create_with_properties(&context, first_device.id(), 0, 0)?;
+
+//     let samples_amount = 100;
+//     let inputs_amount = 5;
+//     let outputs_amount = 5;
+
+//     let mut gpu_dense = Dense::new(inputs_amount, outputs_amount);
+//     gpu_dense.init(&queue, &context)?;
+
+//     let mut normal_dense = Dense::new(inputs_amount, outputs_amount);
+//     normal_dense.weights = gpu_dense.weights.to_vec();
+//     normal_dense.biases = gpu_dense.biases.to_vec();
+
+//     let loss_to_output_derivatives = vec![vec![0.5; outputs_amount]; samples_amount];
+
+//     let input_samples = vec![vec![0.1; inputs_amount]; samples_amount];
+//     normal_dense.last_inputs = input_samples.to_vec();
+
+//     let mut input_samples_buffer = Buffer::<cl_float>::create(
+//         &context,
+//         CL_MEM_READ_ONLY,
+//         samples_amount * inputs_amount,
+//         ptr::null_mut(),
+//     )?;
+
+//     let input_samples_gpu_write_event = queue.enqueue_write_buffer(
+//         &mut input_samples_buffer,
+//         CL_BLOCKING,
+//         0,
+//         input_samples
+//             .iter()
+//             .map(|x| x.to_vec())
+//             .flatten()
+//             .collect::<Vec<f32>>()
+//             .as_slice(),
+//         &[],
+//     )?;
+
+//     input_samples_gpu_write_event.wait()?;
+
+//     gpu_dense.last_inputs_buffer = Some(input_samples_buffer);
+
+//     let mut loss_to_output_derivatives_buffer = Buffer::<cl_float>::create(
+//         &context,
+//         CL_MEM_READ_ONLY,
+//         samples_amount * outputs_amount,
+//         ptr::null_mut(),
+//     )?;
+
+//     let derivatives_write_event = queue.enqueue_write_buffer(
+//         &mut loss_to_output_derivatives_buffer,
+//         CL_BLOCKING,
+//         0,
+//         loss_to_output_derivatives
+//             .iter()
+//             .map(|x| x.to_vec())
+//             .flatten()
+//             .collect::<Vec<f32>>()
+//             .as_slice(),
+//         &[],
+//     )?;
+
+//     derivatives_write_event.wait()?;
+
+//     gpu_dense.back_propagate(false, &loss_to_output_derivatives_buffer, 0.3)?;
+//     normal_dense.back_propagate(false, &loss_to_output_derivatives, 0.3);
+
+//     gpu_dense.sync_data_from_gpu_with_cpu()?;
+
+//     println!("new weights GPU: {:?}", gpu_dense.weights);
+//     println!("new weights CPU: {:?}", normal_dense.weights);
+
+//     {
+//         let a: &Vec<f32> = &gpu_dense
+//             .weights
+//             .iter()
+//             .map(|x| x.to_vec())
+//             .flatten()
+//             .collect();
+//         let b: &Vec<f32> = &normal_dense
+//             .weights
+//             .iter()
+//             .map(|x| x.to_vec())
+//             .flatten()
+//             .collect();
+//         let max_dist = 0.1;
+//         assert_eq!(a.len(), b.len());
+
+//         a.iter().zip(b).for_each(|(x, y)| {
+//             println!("x:{}\ny:{}", x, y);
+//             assert!((x - y).abs() <= max_dist);
+//         });
+//     };
+
+//     println!("new biases GPU: {:?}", gpu_dense.biases);
+//     println!("new biases CPU: {:?}", normal_dense.biases);
+
+//     {
+//         let a = &gpu_dense.biases;
+//         let b = &normal_dense.biases;
+//         let max_dist = 0.2;
+//         assert_eq!(a.len(), b.len());
+
+//         a.iter().zip(b).for_each(|(x, y)| {
+//             println!("x:{}\ny:{}", x, y);
+//             assert!((x - y).abs() <= max_dist);
+//         });
+//     };
+
+//     Ok(())
+// }
+
+// #[test]
+// fn should_propagate_to_same_value_as_normal_dense() -> Result<(), ClError> {
+//     let device_ids = get_all_devices(CL_DEVICE_TYPE_GPU)?;
+
+//     let first_device = Device::new(*device_ids.get(0).expect("There is no GPU device!"));
+
+//     let context = Context::from_device(&first_device)?;
+//     let queue = CommandQueue::create_with_properties(&context, first_device.id(), 0, 0)?;
+
+//     let samples_amount = 4;
+//     let inputs_amount = 5;
+//     let outputs_amount = 5;
+
+//     let mut gpu_dense = Dense::new(inputs_amount, outputs_amount);
+//     gpu_dense.init(&queue, &context)?;
+
+//     let mut normal_dense = Dense::new(inputs_amount, outputs_amount);
+//     normal_dense.weights = gpu_dense.weights.to_vec();
+//     normal_dense.biases = gpu_dense.biases.to_vec();
+
+//     let mut rng = thread_rng();
+//     let input_samples = (0..samples_amount)
+//         .into_iter()
+//         .map(|_| {
+//             (0..inputs_amount)
+//                 .into_iter()
+//                 .map(|_| rng.gen_range(-1.0_f32..=1.0_f32))
+//                 .collect()
+//         })
+//         .collect();
+
+//     let expected_outputs = normal_dense.propagate(&input_samples);
+
+//     let mut input_samples_buffer = Buffer::<cl_float>::create(
+//         &context,
+//         CL_MEM_READ_ONLY,
+//         samples_amount * inputs_amount,
+//         ptr::null_mut(),
+//     )?;
+
+//     let input_samples_gpu_write_event = queue.enqueue_write_buffer(
+//         &mut input_samples_buffer,
+//         CL_BLOCKING,
+//         0,
+//         input_samples
+//             .iter()
+//             .map(|x| x.to_vec())
+//             .flatten()
+//             .collect::<Vec<f32>>()
+//             .as_slice(),
+//         &[],
+//     )?;
+
+//     input_samples_gpu_write_event.wait()?;
+
+//     let gpu_outputs_buffer = gpu_dense.propagate(&input_samples_buffer)?;
+
+//     let mut outputs_vec = vec![0.0; samples_amount * outputs_amount];
+//     let gpu_flattend_outputs = outputs_vec.as_mut_slice();
+
+//     let read_flattened_outputs_gpu = queue.enqueue_read_buffer(
+//         &gpu_outputs_buffer,
+//         CL_NON_BLOCKING,
+//         0,
+//         gpu_flattend_outputs,
+//         &[],
+//     )?;
+
+//     read_flattened_outputs_gpu.wait()?;
+
+//     let flattened_expected_outputs: Vec<f32> = expected_outputs
+//         .iter()
+//         .map(|x| x.to_vec())
+//         .flatten()
+//         .collect();
+
+//     println!("CPU prediction: {:?}", flattened_expected_outputs);
+//     println!("\nGPU prediction: {:?}", outputs_vec);
+
+//     {
+//         let a = &outputs_vec;
+//         let b = &flattened_expected_outputs;
+//         let max_dist = 0.01;
+//         assert_eq!(a.len(), b.len());
+
+//         a.iter().zip(b).for_each(|(x, y)| {
+//             println!("x:{}\ny:{}", x, y);
+//             assert!((x - y).abs() <= max_dist);
+//         });
+//     };
+
+//     Ok(())
+// }
+
+// fn should_apply_gradients_just_like_normal_dense() -> Result<(), ClError> {
+//     let device_ids = get_all_devices(CL_DEVICE_TYPE_GPU)?;
+
+//     let first_device = Device::new(*device_ids.get(0).expect("There is no GPU device!"));
+
+//     let context = Context::from_device(&first_device)?;
+//     let queue = CommandQueue::create_with_properties(&context, first_device.id(), 0, 0)?;
+
+//     let samples_amount = 100;
+//     let inputs_amount = 5;
+//     let outputs_amount = 5;
+
+//     let mut gpu_dense = Dense::new(inputs_amount, outputs_amount);
+//     gpu_dense.init(&queue, &context)?;
+
+//     let mut normal_dense = Dense::new(inputs_amount, outputs_amount);
+//     normal_dense.weights = gpu_dense.weights.to_vec();
+//     normal_dense.biases = gpu_dense.biases.to_vec();
+
+//     let loss_to_output_derivatives = vec![vec![0.5; outputs_amount]; samples_amount];
+
+//     let input_samples = vec![vec![0.1; inputs_amount]; samples_amount];
+//     normal_dense.last_inputs = input_samples.to_vec();
+
+//     let mut input_samples_buffer = Buffer::<cl_float>::create(
+//         &context,
+//         CL_MEM_READ_ONLY,
+//         samples_amount * inputs_amount,
+//         ptr::null_mut(),
+//     )?;
+
+//     let input_samples_gpu_write_event = queue.enqueue_write_buffer(
+//         &mut input_samples_buffer,
+//         CL_BLOCKING,
+//         0,
+//         input_samples
+//             .iter()
+//             .map(|x| x.to_vec())
+//             .flatten()
+//             .collect::<Vec<f32>>()
+//             .as_slice(),
+//         &[],
+//     )?;
+
+//     input_samples_gpu_write_event.wait()?;
+
+//     gpu_dense.last_inputs_buffer = Some(input_samples_buffer);
+
+//     let mut loss_to_output_derivatives_buffer = Buffer::<cl_float>::create(
+//         &context,
+//         CL_MEM_READ_ONLY,
+//         samples_amount * outputs_amount,
+//         ptr::null_mut(),
+//     )?;
+
+//     let derivatives_write_event = queue.enqueue_write_buffer(
+//         &mut loss_to_output_derivatives_buffer,
+//         CL_BLOCKING,
+//         0,
+//         loss_to_output_derivatives
+//             .iter()
+//             .map(|x| x.to_vec())
+//             .flatten()
+//             .collect::<Vec<f32>>()
+//             .as_slice(),
+//         &[],
+//     )?;
+
+//     derivatives_write_event.wait()?;
+
+//     gpu_dense.back_propagate(false, &loss_to_output_derivatives_buffer, 0.3)?;
+//     normal_dense.back_propagate(false, &loss_to_output_derivatives, 0.3);
+
+//     gpu_dense.sync_data_from_gpu_with_cpu()?;
+
+//     println!("new weights GPU: {:?}", gpu_dense.weights);
+//     println!("new weights CPU: {:?}", normal_dense.weights);
+
+//     {
+//         let a: &Vec<f32> = &gpu_dense
+//             .weights
+//             .iter()
+//             .map(|x| x.to_vec())
+//             .flatten()
+//             .collect();
+//         let b: &Vec<f32> = &normal_dense
+//             .weights
+//             .iter()
+//             .map(|x| x.to_vec())
+//             .flatten()
+//             .collect();
+//         let max_dist = 0.1;
+//         assert_eq!(a.len(), b.len());
+
+//         a.iter().zip(b).for_each(|(x, y)| {
+//             println!("x:{}\ny:{}", x, y);
+//             assert!((x - y).abs() <= max_dist);
+//         });
+//     };
+
+//     println!("new biases GPU: {:?}", gpu_dense.biases);
+//     println!("new biases CPU: {:?}", normal_dense.biases);
+
+//     {
+//         let a = &gpu_dense.biases;
+//         let b = &normal_dense.biases;
+//         let max_dist = 0.2;
+//         assert_eq!(a.len(), b.len());
+
+//         a.iter().zip(b).for_each(|(x, y)| {
+//             println!("x:{}\ny:{}", x, y);
+//             assert!((x - y).abs() <= max_dist);
+//         });
+//     };
+
+//     Ok(())
+// }
+
+// #[test]
+// fn should_propagate_to_same_value_as_normal_dense() -> Result<(), ClError> {
+//     let device_ids = get_all_devices(CL_DEVICE_TYPE_GPU)?;
+
+//     let first_device = Device::new(*device_ids.get(0).expect("There is no GPU device!"));
+
+//     let context = Context::from_device(&first_device)?;
+//     let queue = CommandQueue::create_with_properties(&context, first_device.id(), 0, 0)?;
+
+//     let samples_amount = 4;
+//     let inputs_amount = 5;
+//     let outputs_amount = 5;
+
+//     let mut gpu_dense = Dense::new(inputs_amount, outputs_amount);
+//     gpu_dense.init(&queue, &context)?;
+
+//     let mut normal_dense = Dense::new(inputs_amount, outputs_amount);
+//     normal_dense.weights = gpu_dense.weights.to_vec();
+//     normal_dense.biases = gpu_dense.biases.to_vec();
+
+//     let mut rng = thread_rng();
+//     let input_samples = (0..samples_amount)
+//         .into_iter()
+//         .map(|_| {
+//             (0..inputs_amount)
+//                 .into_iter()
+//                 .map(|_| rng.gen_range(-1.0_f32..=1.0_f32))
+//                 .collect()
+//         })
+//         .collect();
+
+//     let expected_outputs = normal_dense.propagate(&input_samples);
+
+//     let mut input_samples_buffer = Buffer::<cl_float>::create(
+//         &context,
+//         CL_MEM_READ_ONLY,
+//         samples_amount * inputs_amount,
+//         ptr::null_mut(),
+//     )?;
+
+//     let input_samples_gpu_write_event = queue.enqueue_write_buffer(
+//         &mut input_samples_buffer,
+//         CL_BLOCKING,
+//         0,
+//         input_samples
+//             .iter()
+//             .map(|x| x.to_vec())
+//             .flatten()
+//             .collect::<Vec<f32>>()
+//             .as_slice(),
+//         &[],
+//     )?;
+
+//     input_samples_gpu_write_event.wait()?;
+
+//     let gpu_outputs_buffer = gpu_dense.propagate(&input_samples_buffer)?;
+
+//     let mut outputs_vec = vec![0.0; samples_amount * outputs_amount];
+//     let gpu_flattend_outputs = outputs_vec.as_mut_slice();
+
+//     let read_flattened_outputs_gpu = queue.enqueue_read_buffer(
+//         &gpu_outputs_buffer,
+//         CL_NON_BLOCKING,
+//         0,
+//         gpu_flattend_outputs,
+//         &[],
+//     )?;
+
+//     read_flattened_outputs_gpu.wait()?;
+
+//     let flattened_expected_outputs: Vec<f32> = expected_outputs
+//         .iter()
+//         .map(|x| x.to_vec())
+//         .flatten()
+//         .collect();
+
+//     println!("CPU prediction: {:?}", flattened_expected_outputs);
+//     println!("\nGPU prediction: {:?}", outputs_vec);
+
+//     {
+//         let a = &outputs_vec;
+//         let b = &flattened_expected_outputs;
+//         let max_dist = 0.01;
+//         assert_eq!(a.len(), b.len());
+
+//         a.iter().zip(b).for_each(|(x, y)| {
+//             println!("x:{}\ny:{}", x, y);
+//             assert!((x - y).abs() <= max_dist);
+//         });
+//     };
+
+//     Ok(())
+// }
+
+// fn should_apply_gradients_just_like_normal_dense() -> Result<(), ClError> {
+//     let device_ids = get_all_devices(CL_DEVICE_TYPE_GPU)?;
+
+//     let first_device = Device::new(*device_ids.get(0).expect("There is no GPU device!"));
+
+//     let context = Context::from_device(&first_device)?;
+//     let queue = CommandQueue::create_with_properties(&context, first_device.id(), 0, 0)?;
+
+//     let samples_amount = 100;
+//     let inputs_amount = 5;
+//     let outputs_amount = 5;
+
+//     let mut gpu_dense = Dense::new(inputs_amount, outputs_amount);
+//     gpu_dense.init(&queue, &context)?;
+
+//     let mut normal_dense = Dense::new(inputs_amount, outputs_amount);
+//     normal_dense.weights = gpu_dense.weights.to_vec();
+//     normal_dense.biases = gpu_dense.biases.to_vec();
+
+//     let loss_to_output_derivatives = vec![vec![0.5; outputs_amount]; samples_amount];
+
+//     let input_samples = vec![vec![0.1; inputs_amount]; samples_amount];
+//     normal_dense.last_inputs = input_samples.to_vec();
+
+//     let mut input_samples_buffer = Buffer::<cl_float>::create(
+//         &context,
+//         CL_MEM_READ_ONLY,
+//         samples_amount * inputs_amount,
+//         ptr::null_mut(),
+//     )?;
+
+//     let input_samples_gpu_write_event = queue.enqueue_write_buffer(
+//         &mut input_samples_buffer,
+//         CL_BLOCKING,
+//         0,
+//         input_samples
+//             .iter()
+//             .map(|x| x.to_vec())
+//             .flatten()
+//             .collect::<Vec<f32>>()
+//             .as_slice(),
+//         &[],
+//     )?;
+
+//     input_samples_gpu_write_event.wait()?;
+
+//     gpu_dense.last_inputs_buffer = Some(input_samples_buffer);
+
+//     let mut loss_to_output_derivatives_buffer = Buffer::<cl_float>::create(
+//         &context,
+//         CL_MEM_READ_ONLY,
+//         samples_amount * outputs_amount,
+//         ptr::null_mut(),
+//     )?;
+
+//     let derivatives_write_event = queue.enqueue_write_buffer(
+//         &mut loss_to_output_derivatives_buffer,
+//         CL_BLOCKING,
+//         0,
+//         loss_to_output_derivatives
+//             .iter()
+//             .map(|x| x.to_vec())
+//             .flatten()
+//             .collect::<Vec<f32>>()
+//             .as_slice(),
+//         &[],
+//     )?;
+
+//     derivatives_write_event.wait()?;
+
+//     gpu_dense.back_propagate(false, &loss_to_output_derivatives_buffer, 0.3)?;
+//     normal_dense.back_propagate(false, &loss_to_output_derivatives, 0.3);
+
+//     gpu_dense.sync_data_from_gpu_with_cpu()?;
+
+//     println!("new weights GPU: {:?}", gpu_dense.weights);
+//     println!("new weights CPU: {:?}", normal_dense.weights);
+
+//     {
+//         let a: &Vec<f32> = &gpu_dense
+//             .weights
+//             .iter()
+//             .map(|x| x.to_vec())
+//             .flatten()
+//             .collect();
+//         let b: &Vec<f32> = &normal_dense
+//             .weights
+//             .iter()
+//             .map(|x| x.to_vec())
+//             .flatten()
+//             .collect();
+//         let max_dist = 0.1;
+//         assert_eq!(a.len(), b.len());
+
+//         a.iter().zip(b).for_each(|(x, y)| {
+//             println!("x:{}\ny:{}", x, y);
+//             assert!((x - y).abs() <= max_dist);
+//         });
+//     };
+
+//     println!("new biases GPU: {:?}", gpu_dense.biases);
+//     println!("new biases CPU: {:?}", normal_dense.biases);
+
+//     {
+//         let a = &gpu_dense.biases;
+//         let b = &normal_dense.biases;
+//         let max_dist = 0.2;
+//         assert_eq!(a.len(), b.len());
+
+//         a.iter().zip(b).for_each(|(x, y)| {
+//             println!("x:{}\ny:{}", x, y);
+//             assert!((x - y).abs() <= max_dist);
+//         });
+//     };
+
+//     Ok(())
+// }
+
+// #[test]
+// fn should_propagate_to_same_value_as_normal_dense() -> Result<(), ClError> {
+//     let device_ids = get_all_devices(CL_DEVICE_TYPE_GPU)?;
+
+//     let first_device = Device::new(*device_ids.get(0).expect("There is no GPU device!"));
+
+//     let context = Context::from_device(&first_device)?;
+//     let queue = CommandQueue::create_with_properties(&context, first_device.id(), 0, 0)?;
+
+//     let samples_amount = 4;
+//     let inputs_amount = 5;
+//     let outputs_amount = 5;
+
+//     let mut gpu_dense = Dense::new(inputs_amount, outputs_amount);
+//     gpu_dense.init(&queue, &context)?;
+
+//     let mut normal_dense = Dense::new(inputs_amount, outputs_amount);
+//     normal_dense.weights = gpu_dense.weights.to_vec();
+//     normal_dense.biases = gpu_dense.biases.to_vec();
+
+//     let mut rng = thread_rng();
+//     let input_samples = (0..samples_amount)
+//         .into_iter()
+//         .map(|_| {
+//             (0..inputs_amount)
+//                 .into_iter()
+//                 .map(|_| rng.gen_range(-1.0_f32..=1.0_f32))
+//                 .collect()
+//         })
+//         .collect();
+
+//     let expected_outputs = normal_dense.propagate(&input_samples);
+
+//     let mut input_samples_buffer = Buffer::<cl_float>::create(
+//         &context,
+//         CL_MEM_READ_ONLY,
+//         samples_amount * inputs_amount,
+//         ptr::null_mut(),
+//     )?;
+
+//     let input_samples_gpu_write_event = queue.enqueue_write_buffer(
+//         &mut input_samples_buffer,
+//         CL_BLOCKING,
+//         0,
+//         input_samples
+//             .iter()
+//             .map(|x| x.to_vec())
+//             .flatten()
+//             .collect::<Vec<f32>>()
+//             .as_slice(),
+//         &[],
+//     )?;
+
+//     input_samples_gpu_write_event.wait()?;
+
+//     let gpu_outputs_buffer = gpu_dense.propagate(&input_samples_buffer)?;
+
+//     let mut outputs_vec = vec![0.0; samples_amount * outputs_amount];
+//     let gpu_flattend_outputs = outputs_vec.as_mut_slice();
+
+//     let read_flattened_outputs_gpu = queue.enqueue_read_buffer(
+//         &gpu_outputs_buffer,
+//         CL_NON_BLOCKING,
+//         0,
+//         gpu_flattend_outputs,
+//         &[],
+//     )?;
+
+//     read_flattened_outputs_gpu.wait()?;
+
+//     let flattened_expected_outputs: Vec<f32> = expected_outputs
+//         .iter()
+//         .map(|x| x.to_vec())
+//         .flatten()
+//         .collect();
+
+//     println!("CPU prediction: {:?}", flattened_expected_outputs);
+//     println!("\nGPU prediction: {:?}", outputs_vec);
+
+//     {
+//         let a = &outputs_vec;
+//         let b = &flattened_expected_outputs;
+//         let max_dist = 0.01;
+//         assert_eq!(a.len(), b.len());
+
+//         a.iter().zip(b).for_each(|(x, y)| {
+//             println!("x:{}\ny:{}", x, y);
+//             assert!((x - y).abs() <= max_dist);
+//         });
+//     };
+
+//     Ok(())
+// }
 
 // #[test]
 // fn should_apply_gradients_just_like_normal_dense() -> Result<(), ClError> {

@@ -370,7 +370,7 @@ mod softmax_tests {
     //         })
     //         .collect();
 
-    //     let opencl_state = setup_opencl(DeviceType::CPU).unwrap();
+    //     let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
 
     //     let mut softmax = SoftMax::new(numbers_amount);
     //     softmax
@@ -461,7 +461,7 @@ mod softmax_tests {
             })
             .collect();
 
-        let opencl_state = setup_opencl(DeviceType::CPU).unwrap();
+        let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
 
         let mut softmax = SoftMax::new(numbers_amount);
         softmax

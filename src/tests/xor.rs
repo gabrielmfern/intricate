@@ -56,7 +56,7 @@ fn should_decrease_error() -> () {
                 loss_algorithm: MeanSquared::new(), 
                 learning_rate: 0.1,
                 should_print_information: true,
-                epochs: 10000,
+                epochs: 1000,
             },
         ).unwrap()
         .unwrap();

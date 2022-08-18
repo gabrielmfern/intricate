@@ -183,7 +183,7 @@ mod mean_squared_tests {
 
     #[test]
     fn should_compute_derivatives_up_to_a_certain_precision() -> Result<(), CompilationOrOpenCLError> {
-        let opencl_state: OpenCLState = setup_opencl(DeviceType::CPU)?;
+        let opencl_state: OpenCLState = setup_opencl(DeviceType::GPU)?;
 
         let mut gpu_loss = MeanSquared::new();
         gpu_loss.init(&opencl_state.context, &opencl_state.queue)?;
@@ -268,7 +268,7 @@ mod mean_squared_tests {
 
     #[test]
     fn should_compute_loss_up_to_a_certain_precision() -> Result<(), CompilationOrOpenCLError> {
-        let opencl_state: OpenCLState = setup_opencl(DeviceType::CPU)?;
+        let opencl_state: OpenCLState = setup_opencl(DeviceType::GPU)?;
 
         let mut loss = MeanSquared::new();
         loss.init(&opencl_state.context, &opencl_state.queue)?;
