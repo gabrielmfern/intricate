@@ -627,7 +627,7 @@ mod dense_tests {
                 .flatten()
                 .zip(expected_new_weights.iter().flatten())
                 .for_each(|(weight, expected_weight)| {
-                    assert!((weight - expected_weight).abs() <= max_dist);
+                    assert!((weight - expected_weight).abs() / weight.max(*expected_weight) <= max_dist);
                 })
         };
 
@@ -643,7 +643,7 @@ mod dense_tests {
                 .zip(&expected_new_biases)
                 .for_each(|(x, y)| {
                     println!("x:{}\ny:{}", x, y);
-                    assert!((x - y).abs() <= max_dist);
+                    assert!((x - y).abs() / x.max(*y) <= max_dist);
                 });
         };
     }
@@ -741,7 +741,7 @@ mod dense_tests {
 
             a.iter().zip(b).for_each(|(x, y)| {
                 println!("x:{}\ny:{}", x, y);
-                assert!((x - y).abs() <= max_dist);
+                assert!((x - y).abs() / x.max(*y) <= max_dist);
             });
         };
 

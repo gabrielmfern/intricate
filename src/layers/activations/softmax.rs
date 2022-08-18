@@ -172,15 +172,14 @@ impl<'a> Layer<'a> for SoftMax<'a> {
 
         // TODO: make copying this into the last inputs optional since this is only needed
         // for fitting a model as to make everything more optimized both in RAM usage and computation
-        queue
-            .enqueue_copy_buffer(
-                inputs,
-                &mut copied_last_inputs_buffer,
-                0,
-                0,
-                inputs_size,
-                &[],
-            )?;
+        queue.enqueue_copy_buffer(
+            inputs,
+            &mut copied_last_inputs_buffer,
+            0,
+            0,
+            inputs_size,
+            &[],
+        )?;
 
         self.last_inputs_buffer = Some(copied_last_inputs_buffer);
 
@@ -210,15 +209,16 @@ impl<'a> Layer<'a> for SoftMax<'a> {
             std::ptr::null_mut(),
         )?;
 
-        let calculate_exponentials_event = ExecuteKernel::new(self.opencl_calculate_exponentials_kernel.as_ref().unwrap())
-            .set_arg(inputs)
-            .set_arg(&exponentials_buffer)
-            .set_arg(&max_input_per_sample_buffer)
-            .set_arg(&(samples_amount as cl_int))
-            .set_arg(&(self.inputs_amount as cl_int))
-            .set_global_work_sizes(&[samples_amount, self.inputs_amount])
-            .set_wait_event(&find_max_input_event)
-            .enqueue_nd_range(queue)?;
+        let calculate_exponentials_event =
+            ExecuteKernel::new(self.opencl_calculate_exponentials_kernel.as_ref().unwrap())
+                .set_arg(inputs)
+                .set_arg(&exponentials_buffer)
+                .set_arg(&max_input_per_sample_buffer)
+                .set_arg(&(samples_amount as cl_int))
+                .set_arg(&(self.inputs_amount as cl_int))
+                .set_global_work_sizes(&[samples_amount, self.inputs_amount])
+                .set_wait_event(&find_max_input_event)
+                .enqueue_nd_range(queue)?;
 
         let exponentials_sum_per_sample = Buffer::<cl_float>::create(
             context,
@@ -254,7 +254,7 @@ impl<'a> Layer<'a> for SoftMax<'a> {
             .set_arg(&(self.inputs_amount as cl_int))
             .set_arg(&(samples_amount as cl_int))
             .set_global_work_sizes(&[samples_amount, self.inputs_amount])
-            .set_wait_event(&sum_exponentials_event )
+            .set_wait_event(&sum_exponentials_event)
             .enqueue_nd_range(queue)?;
 
         queue.finish()?;
@@ -333,96 +333,131 @@ mod softmax_tests {
 
     use super::SoftMax;
 
-    // #[test]
-    // fn should_calculate_loss_to_input_derivatives_correctly() {
-    //     let samples_amount = 123;
-    //     let numbers_amount = 19;
+    #[test]
+    fn should_calculate_loss_to_input_derivatives_correctly() {
+        let samples_amount = 1;
+        let numbers_amount = 19;
 
-    //     let mut rng = thread_rng();
+        let mut rng = thread_rng();
+        let loss_to_output_derivatives: Vec<Vec<f32>> = (0..samples_amount)
+            .map(|_| {
+                (0..numbers_amount)
+                    .map(|_| rng.gen_range(-1.0_f32..1.0_f32))
+                    .collect()
+            })
+            .collect();
+        let last_outputs: Vec<Vec<f32>> = (0..samples_amount)
+            .map(|_| {
+                (0..numbers_amount)
+                    .map(|_| rng.gen_range(-1.0_f32..1.0_f32))
+                    .collect()
+            })
+            .collect();
 
-    //     let inputs: Vec<Vec<f32>> = (0..samples_amount)
-    //         .map(|_| {
-    //             (0..numbers_amount)
-    //                 .map(|_| rng.gen_range(0.0_f32..10.93_f32))
-    //                 .collect()
-    //         })
-    //         .collect();
+        let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
 
-    //     let expected_outputs: Vec<Vec<f32>> = inputs
-    //         .iter()
-    //         .map(|inputs| {
-    //             let max = inputs.iter().copied().fold(f32::NAN, f32::max);
-    //             let exponentials: Vec<f32> = inputs.iter().map(|x| E.powf(x - max)).collect();
-    //             let exponential_sum: f32 = exponentials.iter().sum::<f32>();
-    //             exponentials
-    //                 .iter()
-    //                 .map(|exponential| exponential / exponential_sum)
-    //                 .collect()
-    //         })
-    //         .collect();
+        let mut softmax = SoftMax::new_raw(numbers_amount);
+        softmax
+            .init(&opencl_state.queue, &opencl_state.context)
+            .unwrap();
 
-    //     let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
+        let mut loss_to_output_derivatives_buffer = Buffer::<cl_float>::create(
+            &opencl_state.context,
+            CL_MEM_READ_ONLY,
+            samples_amount * numbers_amount,
+            std::ptr::null_mut(),
+        )
+        .unwrap();
 
-    //     let mut softmax = SoftMax::new(numbers_amount);
-    //     softmax
-    //         .init(&opencl_state.queue, &opencl_state.context)
-    //         .unwrap();
+        let mut last_outputs_buffer = Buffer::<cl_float>::create(
+            &opencl_state.context,
+            CL_MEM_READ_ONLY,
+            samples_amount * numbers_amount,
+            std::ptr::null_mut(),
+        )
+        .unwrap();
 
-    //     let mut inputs_buffer = Buffer::<cl_float>::create(
-    //         &opencl_state.context,
-    //         CL_MEM_READ_ONLY,
-    //         samples_amount * numbers_amount,
-    //         std::ptr::null_mut(),
-    //     )
-    //     .unwrap();
+        opencl_state
+            .queue
+            .enqueue_write_buffer(
+                &mut last_outputs_buffer,
+                CL_BLOCKING,
+                0,
+                last_outputs.iter()
+                    .map(|v| v.to_vec())
+                    .flatten()
+                    .collect::<Vec<f32>>()
+                    .as_slice(),
+                &[],
+            )
+            .unwrap()
+            .wait()
+            .unwrap();
 
-    //     opencl_state
-    //         .queue
-    //         .enqueue_write_buffer(
-    //             &mut inputs_buffer,
-    //             CL_BLOCKING,
-    //             0,
-    //             inputs
-    //                 .iter()
-    //                 .map(|v| v.to_vec())
-    //                 .flatten()
-    //                 .collect::<Vec<f32>>()
-    //                 .as_slice(),
-    //             &[],
-    //         )
-    //         .unwrap()
-    //         .wait()
-    //         .unwrap();
+        opencl_state
+            .queue
+            .enqueue_write_buffer(
+                &mut loss_to_output_derivatives_buffer,
+                CL_BLOCKING,
+                0,
+                loss_to_output_derivatives
+                    .iter()
+                    .map(|v| v.to_vec())
+                    .flatten()
+                    .collect::<Vec<f32>>()
+                    .as_slice(),
+                &[],
+            )
+            .unwrap()
+            .wait()
+            .unwrap();
 
-    //     let outputs_buffer = softmax.propagate(&inputs_buffer).unwrap();
+        softmax.last_outputs_buffer = Some(last_outputs_buffer);
 
-    //     let mut actual_outputs = vec![0.0; samples_amount * numbers_amount];
+        let expected_loss_to_input_derivatives: Vec<Vec<f32>>  = (0..samples_amount).map(|sample_index| {
+            (0..numbers_amount).map(|input_index| {
+                let input_associated_output = last_outputs[sample_index][input_index];
+                last_outputs[sample_index].iter().enumerate().map(|(output_index, output)| {
+                    let output_to_input_derivative;
+                    if input_index == output_index {
+                        output_to_input_derivative = output * (1.0 - output);
+                    } else {
+                        output_to_input_derivative = -input_associated_output * output;
+                    }
 
-    //     opencl_state
-    //         .queue
-    //         .enqueue_read_buffer(
-    //             &outputs_buffer,
-    //             CL_BLOCKING,
-    //             0,
-    //             actual_outputs.as_mut_slice(),
-    //             &[],
-    //         )
-    //         .unwrap()
-    //         .wait()
-    //         .unwrap();
+                    output_to_input_derivative * loss_to_output_derivatives[sample_index][output_index]
+                }).sum::<f32>()
+            }).collect()
+        }).collect();
+        let loss_to_input_derivatives_buffer = softmax
+            .back_propagate(true, &loss_to_output_derivatives_buffer, 0.0)
+            .unwrap()
+            .unwrap();
 
-    //     dbg!(&actual_outputs);
+        let mut loss_to_input_derivatives = vec![0.0; samples_amount * numbers_amount];
 
-    //     assert_approx_equal_distance(
-    //         &actual_outputs,
-    //         &expected_outputs
-    //             .iter()
-    //             .map(|v| v.to_vec())
-    //             .flatten()
-    //             .collect(),
-    //         0.05,
-    //     );
-    // }
+        opencl_state
+            .queue
+            .enqueue_read_buffer(
+                &loss_to_input_derivatives_buffer,
+                CL_BLOCKING,
+                0,
+                loss_to_input_derivatives.as_mut_slice(),
+                &[],
+            )
+            .unwrap()
+            .wait()
+            .unwrap();
+
+        opencl_state.queue.finish().unwrap();
+
+        println!("GPU's dE/dI: {:?}", loss_to_input_derivatives);
+        println!("\nCPU's dE/dI: {:?}", expected_loss_to_input_derivatives);
+
+        loss_to_input_derivatives.iter().zip(expected_loss_to_input_derivatives.iter().flatten()).for_each(|(x, y)| {
+            assert!(((x - y) / x.max(*y)).abs() <= 0.01);
+        });
+    }
 
     #[test]
     fn should_propagate_to_correct_values() {
