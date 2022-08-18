@@ -40,42 +40,29 @@ pub struct SoftMax<'a> {
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    /// The OpenCL context used for managing OpenCL devices and queues.
-    pub opencl_context: Option<&'a Context>,
+    opencl_context: Option<&'a Context>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    /// The OpenCL queue, there exists one queue for each device,
-    /// so currently Intricate does not have support for multiple devices
-    /// doing computations on the data
-    pub opencl_queue: Option<&'a CommandQueue>,
+    opencl_queue: Option<&'a CommandQueue>,
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    /// The OpenCL program for the SoftMax, this contains the kernsl (OpenCL GPU shaders)
-    /// that will be needed for doing calculations with OpenCL
-    pub opencl_program: Option<Program>,
+    opencl_program: Option<Program>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    /// The OpenCL kernel that will take the `exp` for each of the inputs.
-    pub opencl_calculate_exponentials_kernel: Option<Kernel>,
+    opencl_calculate_exponentials_kernel: Option<Kernel>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    /// The OpenCL kernel that will sum all of the exponentials calculated for each sample.
-    pub opencl_sum_exponentials_per_sample_kernel: Option<Kernel>,
+    opencl_sum_exponentials_per_sample_kernel: Option<Kernel>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    /// The OpenCL kernel that will find the largest input per sample.
-    pub opencl_calculate_max_input_per_sample_kernel: Option<Kernel>,
+    opencl_calculate_max_input_per_sample_kernel: Option<Kernel>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    /// The OpenCL kernel that will actually propagate through with the calculated data from other
-    /// kernels and give the output of a forward pass into the SoftMax activation function.
-    pub opencl_propagate_kernel: Option<Kernel>,
+    opencl_propagate_kernel: Option<Kernel>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    /// The OpenCL kernel that will calculate the differentials of the loss with respect to each of
-    /// the inputs given in a forward pass to this SoftMax.
-    pub opencl_back_propagate_kernel: Option<Kernel>,
+    opencl_back_propagate_kernel: Option<Kernel>,
 }
 
 impl<'a> SoftMax<'a> {
@@ -193,19 +180,18 @@ impl<'a> Layer<'a> for SoftMax<'a> {
                 0,
                 inputs_size,
                 &[],
-            )?
-            .wait()?;
+            )?;
 
         self.last_inputs_buffer = Some(copied_last_inputs_buffer);
 
         let max_input_per_sample_buffer = Buffer::<cl_float>::create(
-            self.opencl_context.unwrap(),
+            context,
             CL_MEM_READ_WRITE,
             samples_amount,
             std::ptr::null_mut(),
         )?;
 
-        ExecuteKernel::new(
+        let find_max_input_event = ExecuteKernel::new(
             self.opencl_calculate_max_input_per_sample_kernel
                 .as_ref()
                 .unwrap(),
@@ -215,34 +201,33 @@ impl<'a> Layer<'a> for SoftMax<'a> {
         .set_arg(&(samples_amount as cl_int))
         .set_arg(&(self.inputs_amount as cl_int))
         .set_global_work_size(samples_amount)
-        .enqueue_nd_range(self.opencl_queue.unwrap())?
-        .wait()?;
+        .enqueue_nd_range(self.opencl_queue.unwrap())?;
 
         let exponentials_buffer = Buffer::<cl_float>::create(
-            self.opencl_context.unwrap(),
+            context,
             CL_MEM_READ_WRITE,
             inputs_total_count,
             std::ptr::null_mut(),
         )?;
 
-        ExecuteKernel::new(self.opencl_calculate_exponentials_kernel.as_ref().unwrap())
+        let calculate_exponentials_event = ExecuteKernel::new(self.opencl_calculate_exponentials_kernel.as_ref().unwrap())
             .set_arg(inputs)
             .set_arg(&exponentials_buffer)
             .set_arg(&max_input_per_sample_buffer)
             .set_arg(&(samples_amount as cl_int))
             .set_arg(&(self.inputs_amount as cl_int))
             .set_global_work_sizes(&[samples_amount, self.inputs_amount])
-            .enqueue_nd_range(self.opencl_queue.unwrap())?
-            .wait()?;
+            .set_wait_event(&find_max_input_event)
+            .enqueue_nd_range(queue)?;
 
         let exponentials_sum_per_sample = Buffer::<cl_float>::create(
-            self.opencl_context.unwrap(),
+            context,
             CL_MEM_READ_WRITE,
             samples_amount,
             std::ptr::null_mut(),
         )?;
 
-        ExecuteKernel::new(
+        let sum_exponentials_event = ExecuteKernel::new(
             self.opencl_sum_exponentials_per_sample_kernel
                 .as_ref()
                 .unwrap(),
@@ -252,8 +237,8 @@ impl<'a> Layer<'a> for SoftMax<'a> {
         .set_arg(&(samples_amount as cl_int))
         .set_arg(&(self.inputs_amount as cl_int))
         .set_global_work_size(samples_amount)
-        .enqueue_nd_range(self.opencl_queue.unwrap())?
-        .wait()?;
+        .set_wait_event(&calculate_exponentials_event)
+        .enqueue_nd_range(self.opencl_queue.unwrap())?;
 
         let outputs_buffer = Buffer::<cl_float>::create(
             self.opencl_context.unwrap(),
@@ -269,8 +254,10 @@ impl<'a> Layer<'a> for SoftMax<'a> {
             .set_arg(&(self.inputs_amount as cl_int))
             .set_arg(&(samples_amount as cl_int))
             .set_global_work_sizes(&[samples_amount, self.inputs_amount])
-            .enqueue_nd_range(self.opencl_queue.as_ref().unwrap())?
-            .wait()?;
+            .set_wait_event(&sum_exponentials_event )
+            .enqueue_nd_range(queue)?;
+
+        queue.finish()?;
 
         self.last_outputs_buffer = Some(outputs_buffer);
 
@@ -290,6 +277,9 @@ impl<'a> Layer<'a> for SoftMax<'a> {
             assert!(self.opencl_context.is_some());
             assert!(self.opencl_queue.is_some());
 
+            let context = self.opencl_context.unwrap();
+            let queue = self.opencl_queue.unwrap();
+
             let samples_amount = self.last_outputs_buffer.as_ref().unwrap().size()?
                 / self.inputs_amount
                 / std::mem::size_of::<opencl3::device::cl_float>();
@@ -298,7 +288,7 @@ impl<'a> Layer<'a> for SoftMax<'a> {
 
             let loss_to_input_derivatives_buffer =
                 opencl3::memory::Buffer::<opencl3::device::cl_float>::create(
-                    self.opencl_context.unwrap(),
+                    context,
                     opencl3::memory::CL_MEM_READ_WRITE,
                     self.inputs_amount * samples_amount,
                     std::ptr::null_mut(),
@@ -314,8 +304,9 @@ impl<'a> Layer<'a> for SoftMax<'a> {
             .set_arg(&(samples_amount as opencl3::error_codes::cl_int))
             .set_arg(&(self.inputs_amount as opencl3::error_codes::cl_int))
             .set_global_work_sizes(&[samples_amount, self.inputs_amount])
-            .enqueue_nd_range(self.opencl_queue.unwrap())?
-            .wait()?;
+            .enqueue_nd_range(queue)?;
+
+            queue.finish()?;
 
             Ok(Some(loss_to_input_derivatives_buffer))
         } else {

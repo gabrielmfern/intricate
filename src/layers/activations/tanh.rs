@@ -35,28 +35,20 @@ pub struct TanH<'a> {
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    /// The OpenCL context used for managing OpenCL devices and queues.
-    pub opencl_context: Option<&'a Context>,
+    opencl_context: Option<&'a Context>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    /// The OpenCL queue, there exists one queue for each device,
-    /// so currently Intricate does not have support for multiple devices
-    /// doing computations on the data
-    pub opencl_queue: Option<&'a CommandQueue>,
+    opencl_queue: Option<&'a CommandQueue>,
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    /// The OpenCL program for the TanH, this contains the kernsl (OpenCL GPU shaders)
-    /// that will be needed for doing calculations with OpenCL
-    pub opencl_program: Option<Program>,
+    opencl_program: Option<Program>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    /// The OpenCL propagation kernel for the TanH.
-    pub opencl_propagate_kernel: Option<Kernel>,
+    opencl_propagate_kernel: Option<Kernel>,
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    /// The OpenCL back propagation kernel for the TanH.
-    pub opencl_back_propagate_kernel: Option<Kernel>,
+    opencl_back_propagate_kernel: Option<Kernel>,
 }
 
 #[cfg(test)]
