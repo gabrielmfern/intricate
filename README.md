@@ -139,7 +139,8 @@ To load and save data, as an example, say for the XoR model
 we trained above, we can just call the `save_file` function as such:
 
 ```rust
-xor_model.sync_gpu_data_with_cpu().unwrap(); // sends the weights and biases from the GPU to the CPU
+xor_model.sync_data_from_buffers_to_host().unwrap(); // sends the weights and biases from 
+                                                     // OpenCL buffers to Rust Vec's
 save_file("xor-model.bin", 0, &xor_model).unwrap();
 ```
 
@@ -165,4 +166,3 @@ and initialize the Model with the resulting OpenCLState.
 - have some feature of Intricate, should be optional, that would contain preloaded datasets, such as MNIST and others
 - write many more unit tests to make code safer, like a test for the backprop of every activation layer
 - perhaps write some kind of utility functions to help with writing repetitive tests for the backprop of activation functions
-- improve documentation of Intricate overall, like adding at least a general description for every mod
