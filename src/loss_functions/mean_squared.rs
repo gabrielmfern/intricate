@@ -1,3 +1,5 @@
+//! The module that implements the Mean Squared loss function.
+
 use std::mem;
 use std::ptr;
 
@@ -49,10 +51,20 @@ pub struct MeanSquared<'a> {
 }
 
 impl<'a> MeanSquared<'a> {
+    /// Creates a new instance of the Mean Squared but as a ModelLossFunction variant
+    /// for using in the **TrainingOptions** when fitting a Model.
+    ///
+    /// Be aware that after creation this needs to be called the `init` method before computing the
+    /// loss or anything like that.`
+    /// But when it is being used a Model, the Model will call the init automatically.`
     pub fn new() -> ModelLossFunction<'a> {
         Self::new_raw().into()
     }
 
+    /// Crates a new instance of the Mean Squared but as a raw version of the struct.
+    ///
+    /// Be aware that after creation this needs to be called the `init` method before computing the
+    /// loss or anything like that.`
     pub fn new_raw() -> MeanSquared<'a> {
         MeanSquared { opencl_state: None }
     }
@@ -178,10 +190,10 @@ mod mean_squared_tests {
     #[test]
     fn should_compute_derivatives_up_to_a_certain_precision() -> Result<(), CompilationOrOpenCLError>
     {
-        let mut opencl_state: OpenCLState = setup_opencl(DeviceType::GPU)?;
+        let opencl_state: OpenCLState = setup_opencl(DeviceType::GPU)?;
 
         let mut gpu_loss = MeanSquared::new_raw();
-        gpu_loss.init(&mut opencl_state)?;
+        gpu_loss.init(&opencl_state)?;
 
         let outputs_amount: usize = 61;
         let samples_amount: usize = 113;
@@ -262,10 +274,10 @@ mod mean_squared_tests {
 
     #[test]
     fn should_compute_loss_up_to_a_certain_precision() -> Result<(), CompilationOrOpenCLError> {
-        let mut opencl_state: OpenCLState = setup_opencl(DeviceType::GPU)?;
+        let opencl_state: OpenCLState = setup_opencl(DeviceType::GPU)?;
 
         let mut loss = MeanSquared::new();
-        loss.init(&mut opencl_state)?;
+        loss.init(&opencl_state)?;
 
         let mut rng = thread_rng();
         let samples_amount = 27;
