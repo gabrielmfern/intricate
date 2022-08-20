@@ -1,21 +1,17 @@
-use std::collections::HashMap;
 use std::mem;
 use std::ptr;
 
 use opencl3::{
-    command_queue::CommandQueue,
-    context::Context,
     device::cl_float,
     error_codes::{cl_int, ClError},
-    kernel::{ExecuteKernel, Kernel},
+    kernel::ExecuteKernel,
     memory::{Buffer, ClMem, CL_MEM_READ_WRITE},
-    program::Program,
 };
 
 use crate::loss_functions::LossFunction;
-use crate::types::CompilationOrOpenCLError;
 use crate::types::ModelLossFunction;
-use crate::utils::opencl::IntricateProgram;
+use crate::utils::opencl::ensure_program;
+use crate::utils::opencl::EnsureKernelsAndProgramError;
 use crate::utils::BufferOperations;
 use crate::utils::OpenCLState;
 
@@ -24,13 +20,32 @@ const PROGRAM_SOURCE: &str = include_str!("kernels/mean_squared.cl");
 const COMPUTE_LOSS_KERNEL: &str = "compute_loss";
 const COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL: &str = "compute_loss_to_output_derivatives";
 
+pub(crate) fn compile_mean_squared(
+    opencl_state: &mut OpenCLState,
+) -> Result<(), EnsureKernelsAndProgramError> {
+    let kernels = &[
+        COMPUTE_LOSS_KERNEL.to_string(),
+        COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL.to_string(),
+    ];
+
+    ensure_program(
+        opencl_state,
+        PROGRAM_NAME.to_string(),
+        PROGRAM_SOURCE.to_string(),
+        "".to_string(),
+        kernels,
+    )?;
+
+    Ok(())
+}
+
 #[derive(Debug)]
 /// The Mean Squared loss function, good for some problem with
 /// linear regression, because this error is quite free, in comparison
 /// to the `Categorical Cross Entropy` loss function which restricts things
 /// to be in (0, 1) (a **closed interval** between 0 and 1) to work well.
 pub struct MeanSquared<'a> {
-    opencl_state: Option<&'a mut OpenCLState>,
+    opencl_state: Option<&'a OpenCLState>,
 }
 
 impl<'a> MeanSquared<'a> {
@@ -44,51 +59,7 @@ impl<'a> MeanSquared<'a> {
 }
 
 impl<'a> LossFunction<'a> for MeanSquared<'a> {
-    fn init(&mut self, opencl_state: &'a mut OpenCLState) -> Result<(), CompilationOrOpenCLError> {
-        if !opencl_state
-            .programs
-            .contains_key(&PROGRAM_NAME.to_string())
-        {
-            let cl_program =
-                Program::create_and_build_from_source(&opencl_state.context, PROGRAM_SOURCE, "")?;
-            opencl_state.programs.insert(
-                PROGRAM_NAME.to_string(),
-                IntricateProgram {
-                    opencl_program: cl_program,
-                    kernels: HashMap::default(),
-                },
-            );
-        }
-
-        let program = opencl_state
-            .programs
-            .get_mut(&PROGRAM_NAME.to_string())
-            .unwrap();
-
-        if !program
-            .kernels
-            .contains_key(&COMPUTE_LOSS_KERNEL.to_string())
-        {
-            let compute_loss_kernel = Kernel::create(&program.opencl_program, COMPUTE_LOSS_KERNEL)?;
-            program
-                .kernels
-                .insert(COMPUTE_LOSS_KERNEL.to_string(), compute_loss_kernel);
-        }
-
-        if !program
-            .kernels
-            .contains_key(&COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL.to_string())
-        {
-            let compute_loss_derivative_with_respect_to_output_kernel = Kernel::create(
-                &program.opencl_program,
-                COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL,
-            )?;
-            program.kernels.insert(
-                COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL.to_string(),
-                compute_loss_derivative_with_respect_to_output_kernel,
-            );
-        }
-
+    fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), ClError> {
         self.opencl_state = Some(opencl_state);
 
         Ok(())
@@ -105,13 +76,13 @@ impl<'a> LossFunction<'a> for MeanSquared<'a> {
         assert_eq!(output_samples.size()?, expected_outputs.size()?);
 
         let state = self.opencl_state.unwrap();
-        let context = state.context;
+        let context = &state.context;
         let queue = state.queues.first().unwrap();
 
         let outputs_amount = output_samples.size()? / samples_amount / mem::size_of::<cl_float>();
 
         let sample_losses_buffer = Buffer::<cl_float>::create(
-            &context,
+            context,
             CL_MEM_READ_WRITE,
             samples_amount,
             ptr::null_mut(),
@@ -207,7 +178,7 @@ mod mean_squared_tests {
     #[test]
     fn should_compute_derivatives_up_to_a_certain_precision() -> Result<(), CompilationOrOpenCLError>
     {
-        let opencl_state: OpenCLState = setup_opencl(DeviceType::GPU)?;
+        let mut opencl_state: OpenCLState = setup_opencl(DeviceType::GPU)?;
 
         let mut gpu_loss = MeanSquared::new_raw();
         gpu_loss.init(&mut opencl_state)?;
@@ -291,7 +262,7 @@ mod mean_squared_tests {
 
     #[test]
     fn should_compute_loss_up_to_a_certain_precision() -> Result<(), CompilationOrOpenCLError> {
-        let opencl_state: OpenCLState = setup_opencl(DeviceType::GPU)?;
+        let mut opencl_state: OpenCLState = setup_opencl(DeviceType::GPU)?;
 
         let mut loss = MeanSquared::new();
         loss.init(&mut opencl_state)?;

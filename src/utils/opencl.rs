@@ -1,6 +1,9 @@
 use std::{collections::HashMap, mem, ptr};
 
+use crate::{layers::compile_layers, loss_functions::compile_losses};
+
 use super::gcd;
+use intricate_macros::ErrorsEnum;
 use opencl3::{
     command_queue::{CommandQueue, CL_NON_BLOCKING},
     context::Context,
@@ -15,18 +18,59 @@ use opencl3::{
     types::{cl_device_type, cl_float},
 };
 
-const SUM_PROGRAM_SOURCE: &str = include_str!("sum.cl");
-const SUM_PROGRAM_NAME: &str = "SUM";
-const SUM_KERNEL_NAME: &str = "sum_all_values_in_workgroups";
+const BUFFER_OPERATIONS_PROGRAM_SOURCE: &str = include_str!("sum.cl");
+const BUFFER_OPERATIONS_PROGRAM_NAME: &str = "SUM";
+const REDUCE_BUFFER_KERNEL_NAME: &str = "sum_all_values_in_workgroups";
 
-/// A trait that is implemented within Intricate for defining if a certain struct
-/// is summable using OpenCL and the kernel compiled with the **compile_buffer_summation_kernel**
-/// function.
-pub trait BufferOperations
-where
-    Self: ClMem,
-{
-    fn sum(&self, opencl_state: &mut OpenCLState) -> Result<f32, BufferOperationError>;
+#[derive(Debug, ErrorsEnum)]
+pub enum EnsureKernelsAndProgramError {
+    OpenCL(ClError),
+    Compilation(String),
+}
+
+/// Will compile all of the kernels listed in **kernel_names** inside of the
+/// program with source **program_source**, with the options **compile_options**
+/// and will insert that program as well with the kernels inside of the **opencl_state**
+/// for later usage.
+///
+/// # Errors
+///
+/// - Will yield an error if the compilation goes wrong.
+/// - Will yield an error if a specified kernel could not be found inside of the program's source.
+pub fn ensure_program(
+    opencl_state: &mut OpenCLState,
+    program_name: String,
+    program_source: String,
+    compile_options: String,
+    kernel_names: &[String],
+) -> Result<(), EnsureKernelsAndProgramError> {
+    let context = &opencl_state.context;
+
+    if !opencl_state.programs.contains_key(&program_name) {
+        let new_cl_program = Program::create_and_build_from_source(
+            context,
+            program_source.as_str(),
+            &compile_options,
+        )?;
+        opencl_state.programs.insert(
+            program_name.clone(),
+            IntricateProgram {
+                opencl_program: new_cl_program,
+                kernels: HashMap::default(),
+            },
+        );
+    }
+
+    let program = opencl_state.programs.get_mut(&program_name).unwrap();
+
+    for kernel_name in kernel_names.iter() {
+        if !program.kernels.contains_key(kernel_name) {
+            let kernel = Kernel::create(&program.opencl_program, kernel_name.as_str())?;
+            program.kernels.insert(kernel_name.to_string(), kernel);
+        }
+    }
+
+    Ok(())
 }
 
 /// Tries to find the optimal local and global work size as to use as much
@@ -75,26 +119,6 @@ pub fn find_optimal_local_and_global_work_sizes(
     (local_size, global_size)
 }
 
-#[derive(Debug)]
-pub enum BufferOperationError {
-    OpenCLError(ClError),
-    CompilationError(String),
-    NoDeviceFoundError,
-    NoCommandQueueFoundError,
-}
-
-impl From<ClError> for BufferOperationError {
-    fn from(err: ClError) -> Self {
-        BufferOperationError::OpenCLError(err)
-    }
-}
-
-impl From<String> for BufferOperationError {
-    fn from(err: String) -> Self {
-        BufferOperationError::CompilationError(err)
-    }
-}
-
 fn reduce_buffer_by_summation(
     buffer: &Buffer<cl_float>,
     context: &Context,
@@ -130,25 +154,61 @@ fn reduce_buffer_by_summation(
     Ok(current_reduced_buffer)
 }
 
+pub fn compile_buffer_operations_program(
+    opencl_state: &mut OpenCLState,
+) -> Result<(), EnsureKernelsAndProgramError> {
+    ensure_program(
+        opencl_state,
+        BUFFER_OPERATIONS_PROGRAM_NAME.to_string(),
+        BUFFER_OPERATIONS_PROGRAM_SOURCE.to_string(),
+        "".to_string(),
+        &[REDUCE_BUFFER_KERNEL_NAME.to_string()],
+    )
+}
+
+#[derive(Debug, ErrorsEnum)]
+/// All of the possible errors that may happen while trying to run any buffer operation on a
+/// certain buffer
+pub enum BufferOperationError {
+    /// Just a plain old OpenCL C error
+    OpenCLError(ClError),
+    /// This means that the program for the buffer operations
+    /// has not yet been compiled because it could not be found
+    ProgramNotFoundError,
+    /// This means that the Kernel (OpenCL's shader) for the operation in question was not found,
+    /// that may mean there is a problem in Intricate's code, so you should report this as an
+    /// issue.
+    KernelNotFoundError,
+    /// This just means that the operation did find any device for it to run on.
+    NoDeviceFoundError,
+    /// This means that there is no command queue associated with the device, this may be a problem
+    /// in Intricate's source code, so please report this in an issue.
+    NoCommandQueueFoundError,
+}
+
+/// A trait that is implemented within Intricate for defining if a certain struct
+/// is summable using OpenCL and the kernel compiled with the **compile_buffer_summation_kernel**
+/// function.
+pub trait BufferOperations
+where
+    Self: ClMem,
+{
+    fn sum(&self, opencl_state: &OpenCLState) -> Result<f32, BufferOperationError>;
+}
+
 impl BufferOperations for Buffer<cl_float> {
     /// Sums all of the numbers inside of a buffer and returns an Result enum
     /// containing either the resulting number or an OpenCL error.
     ///
-    /// # Params
-    ///
-    /// - **kernel**: It is the kernel that is written for summing all of the values
-    /// of a certain buffer in a workgroup. It can be compiled and built using the
-    /// **compile_buffer_summation_kernel** function that is defined in this same module.
-    ///
-    /// - **context**: Is OpenCL's context over the application.
-    ///
-    /// - **queue**: The command queue attached to the device that will sum the buffer.
-    ///
     /// # Errors
     ///
-    /// This function will return an error if something wrong occurs inside of
-    /// OpenCL.
-    fn sum(&self, opencl_state: &mut OpenCLState) -> Result<f32, BufferOperationError> {
+    /// This method will yield an error in the following cases:
+    /// - There is no device in the **opencl_state**.
+    /// - There is no command queue in the **opencl_state**.
+    /// - If something goes wrong while executing the kernels.
+    /// - If the program for buffer operations was not compiled in **opencl_state**.
+    /// - If the summation kernel was not foudn in the program for buffer operations.
+    fn sum(&self, opencl_state: &OpenCLState) -> Result<f32, BufferOperationError> {
         if opencl_state.devices.is_empty() {
             return Err(BufferOperationError::NoDeviceFoundError);
         }
@@ -160,38 +220,18 @@ impl BufferOperations for Buffer<cl_float> {
         let device = opencl_state.devices.first().unwrap();
         let queue = opencl_state.queues.first().unwrap();
 
-        let mut reduce_program_option = opencl_state.programs.get(&SUM_PROGRAM_NAME.to_string());
-        let reduce_program;
-        let reduce_kernel;
-        if reduce_program_option.is_some() {
-            reduce_program = reduce_program_option.unwrap();
-            reduce_kernel = reduce_program
-                .kernels
-                .get(&SUM_KERNEL_NAME.to_string())
-                .unwrap();
+        let operations_program;
+        if opencl_state.programs.contains_key(BUFFER_OPERATIONS_PROGRAM_NAME) {
+            operations_program = opencl_state.programs.get(BUFFER_OPERATIONS_PROGRAM_NAME).unwrap();
         } else {
-            let cl_program = Program::create_and_build_from_source(
-                &opencl_state.context,
-                SUM_PROGRAM_SOURCE,
-                "",
-            )?;
-            let cl_kernel = Kernel::create(&cl_program, SUM_KERNEL_NAME)?;
+            return Err(BufferOperationError::ProgramNotFoundError);
+        }
 
-            let temp_map = HashMap::new();
-            temp_map.insert(SUM_KERNEL_NAME.to_string(), cl_kernel);
-
-            opencl_state.programs.insert(
-                SUM_PROGRAM_NAME.to_string(),
-                IntricateProgram {
-                    opencl_program: cl_program,
-                    kernels: temp_map,
-                },
-            );
-            reduce_program = opencl_state
-                .programs
-                .get(&SUM_PROGRAM_NAME.to_string())
-                .unwrap();
-            reduce_kernel = &cl_kernel;
+        let reduce_kernel;
+        if operations_program.kernels.contains_key(REDUCE_BUFFER_KERNEL_NAME) {
+            reduce_kernel = operations_program.kernels.get(REDUCE_BUFFER_KERNEL_NAME).unwrap();
+        } else {
+            return Err(BufferOperationError::KernelNotFoundError);
         }
 
         let max_local_size = device.max_work_group_size()?;
@@ -250,16 +290,11 @@ pub struct OpenCLState {
     pub programs: HashMap<String, IntricateProgram>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, ErrorsEnum)]
 pub enum UnableToSetupOpenCLError {
     OpenCL(ClError),
+    BaseProgramCompilationErrors(EnsureKernelsAndProgramError),
     NoDeviceFound,
-}
-
-impl From<ClError> for UnableToSetupOpenCLError {
-    fn from(err: ClError) -> Self {
-        UnableToSetupOpenCLError::OpenCL(err)
-    }
 }
 
 #[derive(Debug)]
@@ -278,6 +313,7 @@ pub enum DeviceType {
 
 /// Finds all of the devices of a certain **device_type**, starts a context for all of the devices,
 /// and creates a CommandQueue for each one of the devices.
+/// Also will compile some basic Intricate programs after setting up.
 ///
 /// # Errors
 ///
@@ -287,7 +323,7 @@ pub enum DeviceType {
 pub fn setup_opencl(device_type: DeviceType) -> Result<OpenCLState, UnableToSetupOpenCLError> {
     let device_ids = get_all_devices(device_type as cl_device_type)?;
     if device_ids.is_empty() {
-        let devices: Vec<Device> = device_ids.into_iter().map(|id| Device::new(id)).collect();
+        let devices: Vec<Device> = device_ids.iter().map(|id| Device::new(*id)).collect();
         let context = Context::from_devices(&device_ids, &[], None, ptr::null_mut())?;
 
         // here it can be activated to make profiling on kernels
@@ -296,12 +332,20 @@ pub fn setup_opencl(device_type: DeviceType) -> Result<OpenCLState, UnableToSetu
             .map(|device| CommandQueue::create_with_properties(&context, device.id(), 0, 0))
             .collect::<Result<Vec<CommandQueue>, ClError>>()?;
 
-        Ok(OpenCLState {
+        let mut state = OpenCLState {
             context,
             queues,
             devices,
             programs: HashMap::default(),
-        })
+        };
+
+        compile_buffer_operations_program(&mut state)?;
+
+        compile_layers(&mut state)?;
+
+        compile_losses(&mut state)?;
+
+        Ok(state)
     } else {
         Err(UnableToSetupOpenCLError::NoDeviceFound)
     }
@@ -317,7 +361,7 @@ mod test_gpu_summable {
     use rand::{thread_rng, Rng};
     use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
-    use super::{setup_opencl, DeviceType, BufferOperations};
+    use super::{setup_opencl, BufferOperations, DeviceType};
 
     #[test]
     fn should_sum_buffer_to_correct_value() {
@@ -346,9 +390,7 @@ mod test_gpu_summable {
             .wait()
             .unwrap();
 
-        let actual_result = buff
-            .sum(&mut opencl_state)
-            .unwrap();
+        let actual_result = buff.sum(&opencl_state).unwrap();
 
         assert!(
             ((actual_result - expected_sum) / (actual_result.max(expected_sum))).abs() <= 0.0001

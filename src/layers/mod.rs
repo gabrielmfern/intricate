@@ -2,17 +2,25 @@
 //! As of v0.3.0, Intricate has only the Dense type of layer, but has the activation functions
 //! which are used as layers in Intricate.
 
-use opencl3::{
-    device::cl_float, error_codes::ClError,
-    memory::Buffer,
-};
+use opencl3::{device::cl_float, error_codes::ClError, memory::Buffer};
 
-use crate::{types::CompilationOrOpenCLError, utils::OpenCLState};
+use crate::utils::{opencl::EnsureKernelsAndProgramError, OpenCLState};
 
 pub mod activations;
 pub mod dense;
 
 pub use dense::Dense;
+
+use self::{activations::compile_activations, dense::compile_dense};
+
+pub(crate) fn compile_layers(
+    opencl_state: &mut OpenCLState,
+) -> Result<(), EnsureKernelsAndProgramError> {
+    compile_dense(opencl_state)?;
+    compile_activations(opencl_state)?;
+
+    Ok(())
+}
 
 /// A trait implemented by Intricate that is implemented in every struct that represents a Model
 /// Layer.
@@ -76,10 +84,7 @@ pub trait Layer<'a> {
     ///
     /// This function will return an error if something goes wrong while trying to compile and
     /// build the OpenCL programs or while allocating buffers into the device of the queue.
-    fn init(
-        &mut self,
-        opencl_state: &'a mut OpenCLState
-    ) -> Result<(), CompilationOrOpenCLError>;
+    fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), ClError>;
 
     /// Should calculate the outputs of the layer based on the inputs
     ///

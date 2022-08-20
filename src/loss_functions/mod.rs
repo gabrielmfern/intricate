@@ -10,12 +10,23 @@ pub mod mean_squared;
 pub use categorical_cross_entropy::CategoricalCrossEntropy;
 pub use mean_squared::MeanSquared;
 
-use crate::{types::CompilationOrOpenCLError, utils::OpenCLState};
+use crate::utils::{OpenCLState, opencl::EnsureKernelsAndProgramError};
 
-use opencl3::{
-    command_queue::CommandQueue, context::Context, device::cl_float, error_codes::ClError,
-    memory::Buffer,
+use opencl3::{device::cl_float, error_codes::ClError, memory::Buffer};
+
+use self::{
+    categorical_cross_entropy::compile_categorical_cross_entropy,
+    mean_squared::compile_mean_squared,
 };
+
+pub(crate) fn compile_losses(
+    opencl_state: &mut OpenCLState,
+) -> Result<(), EnsureKernelsAndProgramError> {
+    compile_mean_squared(opencl_state)?;
+    compile_categorical_cross_entropy(opencl_state)?;
+
+    Ok(())
+}
 
 /// A simple trait implemented by Intricate that will define the base functions
 /// for every Loss Function
@@ -23,7 +34,7 @@ pub trait LossFunction<'a>
 where
     Self: Debug,
 {
-    /// Computes the `f32´ loss of between the **output samples** 
+    /// Computes the `f32´ loss of between the **output samples**
     /// and the **expected output samples**.
     ///
     /// # Errors
@@ -43,7 +54,7 @@ where
     ///
     /// This function will return an error if some error happens while compiling OpenCL
     /// programs, or any other type of OpenCL error.
-    fn init(&mut self, opencl_state: &'a mut OpenCLState) -> Result<(), CompilationOrOpenCLError>;
+    fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), ClError>;
 
     /// Computes the derivative of the loss with respect to each one of the outputs
     /// given for some certain expected outputs.

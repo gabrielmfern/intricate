@@ -1,31 +1,52 @@
 //! The module that contains the SoftMax activation function.
 
-use std::collections::HashMap;
-
 use opencl3::{
-    command_queue::CommandQueue,
-    context::Context,
     device::cl_float,
     error_codes::{cl_int, ClError},
-    kernel::{ExecuteKernel, Kernel},
+    kernel::ExecuteKernel,
     memory::{Buffer, ClMem, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE},
-    program::Program,
 };
 
 use savefile_derive::Savefile;
 
 use crate::{
     layers::Layer,
-    utils::{opencl::IntricateProgram, OpenCLState},
+    utils::{
+        opencl::{ensure_program, EnsureKernelsAndProgramError},
+        OpenCLState,
+    },
 };
 
 const PROGRAM_NAME: &str = "SOFTMAX";
 const PROGRAM_SOURCE: &str = include_str!("kernels/softmax.cl");
 const PROPAGATE_KERNEL_NAME: &str = "propagate";
+
 const CALCULATE_EXPONENTIALS_KERNEL_NAME: &str = "calculate_exponentials";
 const SUM_EXPONENTIALS_PER_SAMPLE_KERNEL_NAME: &str = "sum_exponentials_per_sample";
-const FIND_MAX_INPUT_PER_SAMPLE: &str = "calculate_max_input_per_sample";
+const FIND_MAX_INPUT_PER_SAMPLE_KERNEL_NAME: &str = "calculate_max_input_per_sample";
 const BACK_PROPAGATE_KERNEL_NAME: &str = "back_propagate";
+
+pub(crate) fn compile_softmax(
+    opencl_state: &mut OpenCLState,
+) -> Result<(), EnsureKernelsAndProgramError> {
+    let kernels = &[
+        PROPAGATE_KERNEL_NAME.to_string(),
+        CALCULATE_EXPONENTIALS_KERNEL_NAME.to_string(),
+        SUM_EXPONENTIALS_PER_SAMPLE_KERNEL_NAME.to_string(),
+        FIND_MAX_INPUT_PER_SAMPLE_KERNEL_NAME.to_string(),
+        BACK_PROPAGATE_KERNEL_NAME.to_string(),
+    ];
+
+    ensure_program(
+        opencl_state,
+        PROGRAM_NAME.to_string(),
+        PROGRAM_SOURCE.to_string(),
+        "".to_string(),
+        kernels,
+    )?;
+
+    Ok(())
+}
 
 #[derive(Debug, Savefile)]
 /// The SoftMax activation function, this function will squash its inputs in such a way that only
@@ -46,7 +67,7 @@ pub struct SoftMax<'a> {
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    opencl_state: Option<&'a mut OpenCLState>,
+    opencl_state: Option<&'a OpenCLState>,
 }
 
 impl<'a> SoftMax<'a> {
@@ -73,87 +94,8 @@ impl<'a> SoftMax<'a> {
 impl<'a> Layer<'a> for SoftMax<'a> {
     fn init(
         &mut self,
-        opencl_state: &'a mut OpenCLState,
-    ) -> Result<(), crate::types::CompilationOrOpenCLError> {
-        assert!(!opencl_state.queues.is_empty());
-        assert!(!opencl_state.devices.is_empty());
-
-        let context = &opencl_state.context;
-
-        if !opencl_state
-            .programs
-            .contains_key(&PROGRAM_NAME.to_string())
-        {
-            let cl_program = Program::create_and_build_from_source(context, PROGRAM_SOURCE, "")?;
-            opencl_state.programs.insert(
-                PROGRAM_NAME.to_string(),
-                IntricateProgram {
-                    opencl_program: cl_program,
-                    kernels: HashMap::default(),
-                },
-            );
-        }
-
-        let program = opencl_state
-            .programs
-            .get_mut(&PROGRAM_NAME.to_string())
-            .unwrap();
-
-        if !program
-            .kernels
-            .contains_key(&PROPAGATE_KERNEL_NAME.to_string())
-        {
-            let propagation_kernel =
-                Kernel::create(&program.opencl_program, PROPAGATE_KERNEL_NAME)?;
-            program
-                .kernels
-                .insert(PROPAGATE_KERNEL_NAME.to_string(), propagation_kernel);
-        }
-
-        if !program
-            .kernels
-            .contains_key(&CALCULATE_EXPONENTIALS_KERNEL_NAME.to_string())
-        {
-            let kernel =
-                Kernel::create(&program.opencl_program, CALCULATE_EXPONENTIALS_KERNEL_NAME)?;
-            program
-                .kernels
-                .insert(CALCULATE_EXPONENTIALS_KERNEL_NAME.to_string(), kernel);
-        }
-
-        if !program
-            .kernels
-            .contains_key(&BACK_PROPAGATE_KERNEL_NAME.to_string())
-        {
-            let kernel = Kernel::create(&program.opencl_program, BACK_PROPAGATE_KERNEL_NAME)?;
-            program
-                .kernels
-                .insert(BACK_PROPAGATE_KERNEL_NAME.to_string(), kernel);
-        }
-
-        if !program
-            .kernels
-            .contains_key(&SUM_EXPONENTIALS_PER_SAMPLE_KERNEL_NAME.to_string())
-        {
-            let kernel = Kernel::create(
-                &program.opencl_program,
-                SUM_EXPONENTIALS_PER_SAMPLE_KERNEL_NAME,
-            )?;
-            program
-                .kernels
-                .insert(SUM_EXPONENTIALS_PER_SAMPLE_KERNEL_NAME.to_string(), kernel);
-        }
-
-        if !program
-            .kernels
-            .contains_key(&FIND_MAX_INPUT_PER_SAMPLE.to_string())
-        {
-            let kernel = Kernel::create(&program.opencl_program, FIND_MAX_INPUT_PER_SAMPLE)?;
-            program
-                .kernels
-                .insert(FIND_MAX_INPUT_PER_SAMPLE.to_string(), kernel);
-        }
-
+        opencl_state: &'a OpenCLState,
+    ) -> Result<(), ClError> {
         self.opencl_state = Some(opencl_state);
 
         Ok(())
@@ -230,7 +172,7 @@ impl<'a> Layer<'a> for SoftMax<'a> {
 
         let program = state.programs.get(PROGRAM_NAME).unwrap();
 
-        let max_input_per_sample_kernel = program.kernels.get(FIND_MAX_INPUT_PER_SAMPLE).unwrap();
+        let max_input_per_sample_kernel = program.kernels.get(FIND_MAX_INPUT_PER_SAMPLE_KERNEL_NAME).unwrap();
 
         let find_max_input_event = ExecuteKernel::new(max_input_per_sample_kernel)
             .set_arg(inputs)
@@ -346,17 +288,15 @@ impl<'a> Layer<'a> for SoftMax<'a> {
                 .get(BACK_PROPAGATE_KERNEL_NAME)
                 .unwrap();
 
-            opencl3::kernel::ExecuteKernel::new(
-                backprop_kernel,
-            )
-            .set_arg(layer_output_to_error_derivative)
-            .set_arg(self.last_outputs_buffer.as_ref().unwrap())
-            .set_arg(&loss_to_input_derivatives_buffer)
-            .set_arg(&(self.inputs_amount as opencl3::error_codes::cl_int))
-            .set_arg(&(samples_amount as opencl3::error_codes::cl_int))
-            .set_arg(&(self.inputs_amount as opencl3::error_codes::cl_int))
-            .set_global_work_sizes(&[samples_amount, self.inputs_amount])
-            .enqueue_nd_range(queue)?;
+            opencl3::kernel::ExecuteKernel::new(backprop_kernel)
+                .set_arg(layer_output_to_error_derivative)
+                .set_arg(self.last_outputs_buffer.as_ref().unwrap())
+                .set_arg(&loss_to_input_derivatives_buffer)
+                .set_arg(&(self.inputs_amount as opencl3::error_codes::cl_int))
+                .set_arg(&(samples_amount as opencl3::error_codes::cl_int))
+                .set_arg(&(self.inputs_amount as opencl3::error_codes::cl_int))
+                .set_global_work_sizes(&[samples_amount, self.inputs_amount])
+                .enqueue_nd_range(queue)?;
 
             queue.finish()?;
 
@@ -406,12 +346,10 @@ mod softmax_tests {
             })
             .collect();
 
-        let mut opencl_state = setup_opencl(DeviceType::GPU).unwrap();
+        let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
 
         let mut softmax = SoftMax::new_raw(numbers_amount);
-        softmax
-            .init(&mut opencl_state)
-            .unwrap();
+        softmax.init(&opencl_state).unwrap();
 
         let mut loss_to_output_derivatives_buffer = Buffer::<cl_float>::create(
             &opencl_state.context,
@@ -551,12 +489,10 @@ mod softmax_tests {
             })
             .collect();
 
-        let mut opencl_state = setup_opencl(DeviceType::GPU).unwrap();
+        let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
 
         let mut softmax = SoftMax::new_raw(numbers_amount);
-        softmax
-            .init(&mut opencl_state)
-            .unwrap();
+        softmax.init(&opencl_state).unwrap();
 
         let mut inputs_buffer = Buffer::<cl_float>::create(
             &opencl_state.context,

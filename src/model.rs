@@ -65,7 +65,7 @@ pub struct Model<'a> {
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    pub opencl_state: Option<&'a mut OpenCLState>,
+    pub opencl_state: Option<&'a OpenCLState>,
 }
 
 impl<'a> Model<'a> {
@@ -86,9 +86,9 @@ impl<'a> Model<'a> {
     ///
     /// This function will return an error if something goes wrong
     /// while reading the buffers into the CPU.
-    pub fn sync_gpu_data_with_cpu(&mut self) -> Result<(), ClError> {
+    pub fn sync_data_from_buffers_to_host(&mut self) -> Result<(), ClError> {
         for layer in self.layers.iter_mut() {
-            layer.sync_data_from_gpu_with_cpu()?;
+            layer.sync_data_from_buffers_to_host()?;
         }
 
         Ok(())
@@ -105,7 +105,7 @@ impl<'a> Model<'a> {
     /// yield some error if something it needs to do fails.
     pub fn init(
         &mut self,
-        opencl_state: &'a mut OpenCLState,
+        opencl_state: &'a OpenCLState,
     ) -> Result<(), CompilationOrOpenCLError> {
         for layer in self.layers.iter_mut() {
             layer.init(opencl_state)?;

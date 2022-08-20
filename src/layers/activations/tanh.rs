@@ -1,9 +1,6 @@
 //! The module that contains the TanH activation function.
 
-use opencl3::{
-    device::cl_float,
-    memory::Buffer,
-};
+use opencl3::{device::cl_float, memory::Buffer};
 
 use intricate_macros::ActivationLayer;
 
@@ -34,7 +31,7 @@ pub struct TanH<'a> {
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    opencl_state: Option<&'a mut OpenCLState>,
+    opencl_state: Option<&'a OpenCLState>,
 }
 
 #[cfg(test)]
@@ -49,23 +46,24 @@ mod tanh_tests {
     use rand::{thread_rng, Rng};
 
     use crate::{
-        layers::Layer, types::CompilationOrOpenCLError,
-        utils::{approx_eq::assert_approx_equal_distance, setup_opencl, opencl::DeviceType},
+        layers::Layer,
+        types::CompilationOrOpenCLError,
+        utils::{approx_eq::assert_approx_equal_distance, opencl::DeviceType, setup_opencl},
     };
 
     use super::TanH;
 
     #[test]
-    fn should_propagate_returning_correct_values() -> Result<(), CompilationOrOpenCLError> {
-        let mut state = setup_opencl(DeviceType::GPU)?;
-        let context = state.context;
+    fn should_propagate_returning_correct_values() -> () {
+        let state = setup_opencl(DeviceType::GPU).unwrap();
+        let context = &state.context;
         let queue = state.queues.first().unwrap();
 
         let samples_amount = 423;
         let numbers_amount = 1341;
 
         let mut tanh = TanH::new(numbers_amount);
-        tanh.init(&mut state)?;
+        tanh.init(&state).unwrap();
 
         let mut rng = thread_rng();
         let input_samples: Vec<f32> = (0..(samples_amount * numbers_amount))
@@ -79,7 +77,8 @@ mod tanh_tests {
             CL_MEM_READ_ONLY,
             numbers_amount * samples_amount,
             ptr::null_mut(),
-        )?;
+        )
+        .unwrap();
 
         queue
             .enqueue_write_buffer(
@@ -88,10 +87,12 @@ mod tanh_tests {
                 0,
                 input_samples.as_slice(),
                 &[],
-            )?
-            .wait()?;
+            )
+            .unwrap()
+            .wait()
+            .unwrap();
 
-        let actual_outputs_buffer = tanh.propagate(&input_samples_buffer)?;
+        let actual_outputs_buffer = tanh.propagate(&input_samples_buffer).unwrap();
 
         let mut actual_outputs = vec![0.0; numbers_amount * samples_amount];
         let actual_outputs_slice = actual_outputs.as_mut_slice();
@@ -102,26 +103,26 @@ mod tanh_tests {
                 0,
                 actual_outputs_slice,
                 &[],
-            )?
-            .wait()?;
+            )
+            .unwrap()
+            .wait()
+            .unwrap();
 
         assert_approx_equal_distance(&expected_outputs, &actual_outputs, 0.01);
-
-        Ok(())
     }
 
     #[test]
     fn should_back_propagate_returning_the_correct_derivatives(
     ) -> Result<(), CompilationOrOpenCLError> {
-        let mut state = setup_opencl(DeviceType::GPU)?;
-        let context = state.context;
+        let state = setup_opencl(DeviceType::GPU)?;
+        let context = &state.context;
         let queue = state.queues.first().unwrap();
 
         let samples_amount = 432;
         let numbers_amount = 331;
 
         let mut tanh = TanH::new(numbers_amount);
-        tanh.init(&mut state)?;
+        tanh.init(&state)?;
 
         let mut rng = thread_rng();
         let input_samples: Vec<f32> = (0..(samples_amount * numbers_amount))
@@ -206,7 +207,11 @@ mod tanh_tests {
 
         assert_approx_equal_distance(
             &actual_loss_to_input_derivatives,
-            &expected_loss_to_input_derivatives.iter().map(|v| v.to_vec()).flatten().collect(),
+            &expected_loss_to_input_derivatives
+                .iter()
+                .map(|v| v.to_vec())
+                .flatten()
+                .collect(),
             0.01,
         );
 

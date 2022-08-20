@@ -47,7 +47,7 @@ pub struct Sigmoid<'a> {
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    opencl_state: Option<&'a mut OpenCLState>
+    opencl_state: Option<&'a OpenCLState>
 }
 
 #[cfg(test)]
@@ -70,16 +70,16 @@ mod sigmoid_tests {
 
     #[test]
     fn should_propagate_to_correct_values() -> Result<(), CompilationOrOpenCLError> {
-        let mut state = setup_opencl(DeviceType::GPU)?;
+        let state = setup_opencl(DeviceType::GPU)?;
 
-        let context = state.context;
+        let context = &state.context;
         let queue = state.queues.first().unwrap();
 
         let samples_amount = 423;
         let numbers_amount = 141;
 
         let mut sigmoid = Sigmoid::new(numbers_amount);
-        sigmoid.init(&mut state)?;
+        sigmoid.init(&state)?;
 
         let mut rng = thread_rng();
         let input_samples: Vec<f32> = (0..(samples_amount * numbers_amount))
@@ -128,16 +128,16 @@ mod sigmoid_tests {
     #[test]
     fn should_back_propagate_returning_the_correct_derivatives(
     ) -> Result<(), CompilationOrOpenCLError> {
-        let mut state = setup_opencl(DeviceType::GPU)?;
+        let state = setup_opencl(DeviceType::GPU)?;
 
-        let context = state.context;
+        let context = &state.context;
         let queue = state.queues.first().unwrap();
 
         let samples_amount = 432;
         let numbers_amount = 331;
 
         let mut tanh = Sigmoid::new(numbers_amount);
-        tanh.init(&mut state)?;
+        tanh.init(&state)?;
 
         let mut rng = thread_rng();
         let input_samples: Vec<f32> = (0..(samples_amount * numbers_amount))

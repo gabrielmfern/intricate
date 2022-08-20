@@ -46,7 +46,7 @@ pub struct ReLU<'a> {
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    opencl_state: Option<&'a mut OpenCLState>,
+    opencl_state: Option<&'a OpenCLState>,
 }
 
 #[cfg(test)]
@@ -71,16 +71,16 @@ mod relu_tests {
 
         let expected_outputs: Vec<f32> = inputs.iter().map(|input| input.max(0.0)).collect();
 
-        let mut opencl_state = setup_opencl(DeviceType::GPU).unwrap();
+        let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
 
         let queue = opencl_state.queues.first().unwrap();
-        let context = opencl_state.context;
+        let context = &opencl_state.context;
 
         let mut relu = ReLU::new(numbers_amount);
-        relu.init(&mut opencl_state).unwrap();
+        relu.init(&opencl_state).unwrap();
 
         let mut inputs_buffer = Buffer::<cl_float>::create(
-            &opencl_state.context,
+            context,
             CL_MEM_READ_ONLY,
             samples_amount * numbers_amount,
             std::ptr::null_mut(),

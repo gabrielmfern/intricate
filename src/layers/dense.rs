@@ -1,23 +1,23 @@
 //! The module that defines the Dense layer.
 
 use opencl3::{
-    command_queue::{CommandQueue, CL_NON_BLOCKING},
-    context::Context,
-    device::cl_float,
+    command_queue::CL_NON_BLOCKING,
     error_codes::{cl_int, ClError},
-    kernel::{ExecuteKernel, Kernel},
-    memory::{Buffer, ClMem, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE},
-    program::Program,
+    kernel::ExecuteKernel,
+    memory::{Buffer, ClMem, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE}, device::cl_float,
 };
 use rand::Rng;
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use savefile_derive::Savefile;
 use std::ptr;
-use std::{collections::HashMap, mem};
+use std::mem;
 
 use crate::{
-    types::{CompilationOrOpenCLError, ModelLayer},
-    utils::{opencl::IntricateProgram, OpenCLState},
+    types::ModelLayer,
+    utils::{
+        opencl::{ensure_program, EnsureKernelsAndProgramError},
+        OpenCLState,
+    },
 };
 
 use super::Layer;
@@ -32,6 +32,34 @@ const WEIGHTS_GRADIENT_APPLICATION_KERNEL_NAME: &str = "weights_gradient_applica
 const BIAS_GRADIENT_APPLICATION_KERNEL_NAME: &str = "bias_gradient_application";
 const LOSS_TO_INPUT_DIFFERENTIATION_KERNEL_NAME: &str =
     "compute_loss_derivative_with_respect_to_inputs";
+
+pub(crate) fn compile_dense(
+    opencl_state: &mut OpenCLState,
+) -> Result<(), EnsureKernelsAndProgramError> {
+    let prop_kernels = &[PROPAGATION_KERNEL_NAME.to_string()];
+    let backprop_kernels = &[
+        WEIGHTS_GRADIENT_APPLICATION_KERNEL_NAME.to_string(),
+        BIAS_GRADIENT_APPLICATION_KERNEL_NAME.to_string(),
+        LOSS_TO_INPUT_DIFFERENTIATION_KERNEL_NAME.to_string(),
+    ];
+
+    ensure_program(
+        opencl_state,
+        DENSE_PROP_PROGRAM_NAME.to_string(),
+        PROPAGATION_PROGRAM_SORUCE.to_string(),
+        "".to_string(),
+        prop_kernels,
+    )?;
+    ensure_program(
+        opencl_state,
+        DENSE_BACKPROP_PROGRAM_NAME.to_string(),
+        BACK_PROPAGATION_PROGRAM_SOURCE.to_string(),
+        "".to_string(),
+        backprop_kernels,
+    )?;
+
+    Ok(())
+}
 
 #[derive(Debug, Savefile)]
 /// A densely connected layer, this layer consists of some inputs
@@ -150,7 +178,7 @@ impl<'a> Layer<'a> for Dense<'a> {
         }
     }
 
-    fn sync_data_from_gpu_with_cpu(&mut self) -> Result<(), ClError> {
+    fn sync_data_from_buffers_to_host(&mut self) -> Result<(), ClError> {
         assert!(self.weights_buffer.is_some());
         assert!(self.biases_buffer.is_some());
         assert!(self.opencl_state.is_some());
@@ -201,7 +229,7 @@ impl<'a> Layer<'a> for Dense<'a> {
         Ok(())
     }
 
-    fn init(&mut self, opencl_state: &'a mut OpenCLState) -> Result<(), CompilationOrOpenCLError> {
+    fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), ClError> {
         assert!(!self.weights.is_empty());
         assert!(!self.biases.is_empty());
         assert!(!opencl_state.queues.is_empty());
@@ -250,99 +278,6 @@ impl<'a> Layer<'a> for Dense<'a> {
         self.weights_buffer = Some(weights_buffer);
         self.biases_buffer = Some(biases_buffer);
 
-        if !opencl_state.programs.contains_key(DENSE_PROP_PROGRAM_NAME) {
-            let cl_propagation_program =
-                Program::create_and_build_from_source(context, PROPAGATION_PROGRAM_SORUCE, "")?;
-            opencl_state.programs.insert(
-                DENSE_PROP_PROGRAM_NAME.to_string(),
-                IntricateProgram {
-                    opencl_program: cl_propagation_program,
-                    kernels: HashMap::default(),
-                },
-            );
-        }
-
-        let propagation_program = opencl_state
-            .programs
-            .get_mut(DENSE_PROP_PROGRAM_NAME)
-            .unwrap();
-
-        if !propagation_program
-            .kernels
-            .contains_key(&PROPAGATION_KERNEL_NAME.to_string())
-        {
-            let propagation_kernel =
-                Kernel::create(&propagation_program.opencl_program, PROPAGATION_KERNEL_NAME)?;
-            propagation_program
-                .kernels
-                .insert(PROPAGATION_KERNEL_NAME.to_string(), propagation_kernel);
-        }
-
-        if !opencl_state
-            .programs
-            .contains_key(&DENSE_BACKPROP_PROGRAM_NAME.to_string())
-        {
-            let cl_back_propagation_program = Program::create_and_build_from_source(
-                &context,
-                BACK_PROPAGATION_PROGRAM_SOURCE,
-                "",
-            )?;
-            opencl_state.programs.insert(
-                DENSE_BACKPROP_PROGRAM_NAME.to_string(),
-                IntricateProgram {
-                    opencl_program: cl_back_propagation_program,
-                    kernels: HashMap::default(),
-                },
-            );
-        }
-
-        let backprop_program = opencl_state
-            .programs
-            .get_mut(DENSE_BACKPROP_PROGRAM_NAME)
-            .unwrap();
-
-        if !backprop_program
-            .kernels
-            .contains_key(&BIAS_GRADIENT_APPLICATION_KERNEL_NAME.to_string())
-        {
-            let bias_gradient_application_kernel = Kernel::create(
-                &backprop_program.opencl_program,
-                BIAS_GRADIENT_APPLICATION_KERNEL_NAME,
-            )?;
-            backprop_program.kernels.insert(
-                BIAS_GRADIENT_APPLICATION_KERNEL_NAME.to_string(),
-                bias_gradient_application_kernel,
-            );
-        }
-
-        if !backprop_program
-            .kernels
-            .contains_key(&WEIGHTS_GRADIENT_APPLICATION_KERNEL_NAME.to_string())
-        {
-            let weights_gradient_application_kernel = Kernel::create(
-                &backprop_program.opencl_program,
-                WEIGHTS_GRADIENT_APPLICATION_KERNEL_NAME,
-            )?;
-            backprop_program.kernels.insert(
-                WEIGHTS_GRADIENT_APPLICATION_KERNEL_NAME.to_string(),
-                weights_gradient_application_kernel,
-            );
-        }
-
-        if !backprop_program
-            .kernels
-            .contains_key(&LOSS_TO_INPUT_DIFFERENTIATION_KERNEL_NAME.to_string())
-        {
-            let loss_to_input_differentiation_kernel = Kernel::create(
-                &backprop_program.opencl_program,
-                LOSS_TO_INPUT_DIFFERENTIATION_KERNEL_NAME,
-            )?;
-            backprop_program.kernels.insert(
-                WEIGHTS_GRADIENT_APPLICATION_KERNEL_NAME.to_string(),
-                loss_to_input_differentiation_kernel,
-            );
-        }
-
         self.opencl_state = Some(opencl_state);
 
         Ok(())
@@ -372,13 +307,13 @@ impl<'a> Layer<'a> for Dense<'a> {
 
         let state = self.opencl_state.unwrap();
         let queue = state.queues.first().unwrap();
-        let context = state.context;
+        let context = &state.context;
 
         let inputs_size = input_samples.size()?;
         let inputs_total_count = inputs_size / mem::size_of::<cl_float>();
 
         let mut copied_last_inputs_buffer = Buffer::<cl_float>::create(
-            &context,
+            context,
             CL_MEM_READ_ONLY,
             inputs_total_count,
             ptr::null_mut(),
@@ -401,7 +336,7 @@ impl<'a> Layer<'a> for Dense<'a> {
             input_samples.size()? / self.inputs_amount / mem::size_of::<cl_float>();
 
         let outputs_buffer = Buffer::<cl_float>::create(
-            &context,
+            context,
             CL_MEM_READ_WRITE,
             self.outputs_amount * samples_amount,
             ptr::null_mut(),
@@ -442,7 +377,7 @@ impl<'a> Layer<'a> for Dense<'a> {
             / self.outputs_amount
             / mem::size_of::<cl_float>();
         let queue = state.queues.first().unwrap();
-        let context = state.context;
+        let context = &state.context;
         let mut layer_input_to_error_derivatives_buffer = None;
 
         let program = state.programs.get(DENSE_BACKPROP_PROGRAM_NAME).unwrap();
@@ -474,7 +409,7 @@ impl<'a> Layer<'a> for Dense<'a> {
         }
 
         let new_weights_buffer = Buffer::<cl_float>::create(
-            &context,
+            context,
             CL_MEM_READ_WRITE,
             self.inputs_amount * self.outputs_amount,
             ptr::null_mut(),
@@ -534,9 +469,8 @@ mod dense_tests {
     use std::ptr;
 
     use opencl3::{
-        command_queue::{CommandQueue, CL_BLOCKING, CL_NON_BLOCKING},
-        context::Context,
-        device::{cl_float, get_all_devices, Device, CL_DEVICE_TYPE_GPU},
+        command_queue::{CL_BLOCKING, CL_NON_BLOCKING},
+        device::cl_float,
         memory::{Buffer, CL_MEM_READ_ONLY},
     };
     use rand::{thread_rng, Rng};
@@ -552,14 +486,14 @@ mod dense_tests {
         let mut state = setup_opencl(DeviceType::GPU).unwrap();
 
         let queue = state.queues.first().unwrap();
-        let context = state.context;
+        let context = &state.context;
 
         let samples_amount = 100;
         let inputs_amount = 500;
         let outputs_amount = 500;
 
         let mut gpu_dense = Dense::new_raw(inputs_amount, outputs_amount);
-        gpu_dense.init(&mut state).unwrap();
+        gpu_dense.init(&state).unwrap();
 
         let mut rng = thread_rng();
         let loss_to_output_derivatives: Vec<Vec<f32>> = (0..samples_amount)
@@ -651,7 +585,7 @@ mod dense_tests {
         gpu_dense.last_inputs_buffer = Some(input_samples_buffer);
 
         let mut loss_to_output_derivatives_buffer = Buffer::<cl_float>::create(
-            &context,
+            context,
             CL_MEM_READ_ONLY,
             samples_amount * outputs_amount,
             ptr::null_mut(),
@@ -679,7 +613,7 @@ mod dense_tests {
             .back_propagate(false, &loss_to_output_derivatives_buffer, learning_rate)
             .unwrap();
 
-        gpu_dense.sync_data_from_gpu_with_cpu().unwrap();
+        gpu_dense.sync_data_from_buffers_to_host().unwrap();
 
         let max_dist = 0.01;
 
@@ -720,17 +654,17 @@ mod dense_tests {
 
     #[test]
     fn should_propagate_to_correct_value() -> Result<(), CompilationOrOpenCLError> {
-        let mut state = setup_opencl(DeviceType::GPU).unwrap();
+        let state = setup_opencl(DeviceType::GPU).unwrap();
 
         let queue = state.queues.first().unwrap();
-        let context = state.context;
+        let context = &state.context;
 
         let samples_amount = 4;
         let inputs_amount = 5;
         let outputs_amount = 5;
 
         let mut gpu_dense: Dense = Dense::new_raw(inputs_amount, outputs_amount);
-        gpu_dense.init(&mut state)?;
+        gpu_dense.init(&state)?;
 
         let mut rng = thread_rng();
         let input_samples: Vec<Vec<f32>> = (0..samples_amount)

@@ -8,12 +8,23 @@
 
 pub mod relu;
 pub mod sigmoid;
-pub mod tanh;
 pub mod softmax;
+pub mod tanh;
 
-pub use sigmoid::Sigmoid;
-pub use tanh::TanH;
-pub use softmax::SoftMax;
 pub use relu::ReLU;
+pub use sigmoid::Sigmoid;
+pub use softmax::SoftMax;
+pub use tanh::TanH;
 
-// mod tests;
+use crate::utils::{opencl::EnsureKernelsAndProgramError, OpenCLState};
+
+pub(crate) fn compile_activations(
+    opencl_state: &mut OpenCLState,
+) -> Result<(), EnsureKernelsAndProgramError> {
+    relu::compile_relu(opencl_state)?;
+    sigmoid::compile_sigmoid(opencl_state)?;
+    softmax::compile_softmax(opencl_state)?;
+    tanh::compile_tanh(opencl_state)?;
+
+    Ok(())
+}

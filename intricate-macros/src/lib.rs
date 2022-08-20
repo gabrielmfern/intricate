@@ -6,7 +6,143 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, Data, DeriveInput, Fields};
+use syn::{parse_macro_input, Data, DeriveInput, Fields, Ident};
+
+#[proc_macro_derive(ErrorsEnum)]
+/// Derives all the From<Error> implementations for the enum it is being derived on.
+pub fn erors_enum(_input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(_input as DeriveInput);
+    let enum_name = &input.ident;
+
+    let error_variants = if let Data::Enum(enm) = input.data {
+        enm.variants
+    } else {
+        panic!("The 'ErrorsEnum' derive macro can only be be used with enums!");
+    };
+
+    let error_names = error_variants.iter().filter_map(|variant| {
+        let variant_fields = match &variant.fields {
+            Fields::Unnamed(fields) => Some(&fields.unnamed),
+            _ => None,
+        };
+
+        if variant_fields.is_some() {
+            Some(&variant.ident)
+        } else {
+            None
+        }
+    });
+
+    let error_types = error_variants.iter().filter_map(|variant| {
+        let variant_fields = match &variant.fields {
+            Fields::Unnamed(fields) => Some(&fields.unnamed),
+            _ => None,
+        };
+
+        if variant_fields.is_some() {
+            Some(variant_fields.unwrap().first().unwrap())
+        } else {
+            None
+        }
+    });
+
+    quote! {
+        #(impl From<#error_types> for #enum_name {
+            fn from(err: #error_types) -> Self {
+                #enum_name::#error_names(err)
+            }
+        })*
+    }
+    .into()
+}
+
+#[proc_macro_derive(LossFunctionEnum)]
+/// Derives the implementation of intricate::loss_functions::LossFunction for
+/// a enum contaning only variants that are loss functions, such as the Mean Squared and others.
+///
+/// This will also derive `From<...>` for every loss function in the enum.
+pub fn loss_function_enum(_input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(_input as DeriveInput);
+    let enum_name = &input.ident;
+
+    let variants = if let Data::Enum(enm) = input.data {
+        enm.variants
+    } else {
+        panic!("The 'LossFunctionEnum' derive macro can only be used with enums!");
+    };
+
+    let loss_function_names = variants.iter().map(|variant| &variant.ident);
+    let loss_function_names_2 = loss_function_names.clone();
+    let loss_function_names_3 = loss_function_names.clone();
+    let loss_function_names_4 = loss_function_names.clone();
+
+    let loss_types = variants.iter().map(|variant| {
+        let variant_fields = match &variant.fields {
+            Fields::Unnamed(fields) => &fields.unnamed,
+            _ => panic!(
+                "Every variant of the enum must be a loss function, therefore can only contain one unnamed field which is the actual loss function"
+            )
+        };
+
+        &variant_fields.first().expect("Every variant of the enum must be a loss function, therefore can only contain one unnamed field which is the actual loss function").ty
+    });
+
+    quote! {
+        #(impl<'a> From<#loss_types> for #enum_name<'a> {
+            fn from(layer: #loss_types) -> Self {
+                #enum_name::#loss_function_names(layer)
+            }
+        })*
+
+        impl<'a> crate::loss_functions::LossFunction<'a> for #enum_name<'a> {
+            fn compute_loss(
+                &self,
+                output_samples: &opencl3::memory::Buffer<opencl3::device::cl_float>,
+                expected_outputs: &opencl3::memory::Buffer<opencl3::device::cl_float>,
+                samples_amount: usize,
+            ) -> Result<f32, opencl3::error_codes::ClError> {
+                match self {
+                #(
+                    #enum_name::#loss_function_names_2(lossfn) => lossfn.compute_loss(
+                        output_samples, 
+                        expected_outputs, 
+                        samples_amount
+                    ),
+                )*
+                }
+            }
+
+            fn init(
+                &mut self,
+                opencl_state: &'a OpenCLState,
+            ) -> Result<(), opencl3::error_codes::ClError> {
+                match self {
+                #(
+                    #enum_name::#loss_function_names_3(lossfn) => lossfn.init(opencl_state),
+                )*
+                }
+            }
+
+            fn compute_loss_derivative_with_respect_to_output_samples(
+                &self,
+                output_samples: &opencl3::memory::Buffer<opencl3::device::cl_float>,
+                expected_outputs: &opencl3::memory::Buffer<opencl3::device::cl_float>,
+                samples_amount: usize,
+            ) -> Result<opencl3::memory::Buffer<opencl3::device::cl_float>, opencl3::error_codes::ClError> {
+                match self {
+                #(
+                    #enum_name::#loss_function_names_4(lossfn) =>
+                        lossfn.compute_loss_derivative_with_respect_to_output_samples(
+                            output_samples,
+                            expected_outputs,
+                            samples_amount,
+                        ),
+                )*
+                }
+            }
+        }
+    }.into()
+}
 
 #[proc_macro_derive(EnumLayer)]
 /// Derives the implementation of intricate::layers::Layer for
@@ -91,8 +227,8 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
 
             fn init(
                 &mut self,
-                opencl_state: &'a mut crate::utils::OpenCLState,
-            ) -> Result<(), crate::types::CompilationOrOpenCLError> {
+                opencl_state: &'a crate::utils::OpenCLState,
+            ) -> Result<(), opencl3::error_codes::ClError> {
                 match self {
                     #(
                         #enum_name::#layer_names_6(layer) => layer.init(opencl_state),
@@ -117,10 +253,10 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             }
 
             fn propagate(
-                &mut self, 
+                &mut self,
                 inputs: &opencl3::memory::Buffer<opencl3::device::cl_float>
             ) -> Result<
-                &opencl3::memory::Buffer<opencl3::device::cl_float>, 
+                &opencl3::memory::Buffer<opencl3::device::cl_float>,
                 opencl3::error_codes::ClError
             > {
                 match self {
@@ -136,7 +272,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
                 layer_output_to_error_derivative: &opencl3::memory::Buffer<opencl3::device::cl_float>,
                 learning_rate: opencl3::device::cl_float,
             ) -> Result<
-                Option<opencl3::memory::Buffer<opencl3::device::cl_float>>, 
+                Option<opencl3::memory::Buffer<opencl3::device::cl_float>>,
                 opencl3::error_codes::ClError
             > {
                 match self {
@@ -174,6 +310,10 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
 pub fn activation_layer(_input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(_input as DeriveInput);
     let activation_name = &input.ident;
+    let compile_activation = Ident::new(
+        ("compile_".to_string() + &activation_name.to_string().to_lowercase()).as_str(),
+        input.ident.span(),
+    );
 
     TokenStream::from(quote! {
         impl<'a> #activation_name<'a> {
@@ -197,38 +337,27 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
             }
         }
 
+        pub(crate) fn #compile_activation(opencl_state: &mut OpenCLState) -> Result<(), crate::utils::opencl::EnsureKernelsAndProgramError> {
+            let kernels = &[PROPAGATE_KERNEL_NAME.to_string(), BACK_PROPAGATE_KERNEL_NAME.to_string()];
+
+            crate::utils::opencl::ensure_program(
+                opencl_state,
+                PROGRAM_NAME.to_string(),
+                PROGRAM_SOURCE.to_string(),
+                "".to_string(),
+                kernels,
+            )?;
+
+            Ok(())
+        }
+
         use opencl3::memory::ClMem;
 
         impl<'a> crate::layers::Layer<'a> for #activation_name<'a> {
             fn init(
                 &mut self,
-                opencl_state: &'a mut crate::utils::OpenCLState,
-            ) -> Result<(), crate::types::CompilationOrOpenCLError> {
-                assert!(!opencl_state.queues.is_empty());
-
-                let context = &opencl_state.context;
-                let queue = opencl_state.queues.first().unwrap();
-
-                if !opencl_state.programs.contains_key(&PROGRAM_NAME.to_string()) {
-                    let cl_program = opencl3::program::Program::create_and_build_from_source(context, PROGRAM_SOURCE, "")?;
-                    opencl_state.programs.insert(PROGRAM_NAME.to_string(), crate::utils::opencl::IntricateProgram {
-                        opencl_program: cl_program,
-                        kernels: std::collections::HashMap::default(),
-                    });
-                }
-
-                let program = opencl_state.programs.get(&PROGRAM_NAME.to_string()).unwrap();
-
-                if !program.kernels.contains_key(&PROPAGATE_KERNEL_NAME.to_string()) {
-                    let propagation_kernel = opencl3::kernel::Kernel::create(&program.opencl_program, PROPAGATE_KERNEL_NAME)?;
-                    program.kernels.insert(PROPAGATE_KERNEL_NAME.to_string(), propagation_kernel);
-                }
-
-                if !program.kernels.contains_key(&BACK_PROPAGATE_KERNEL_NAME.to_string()) {
-                    let back_propagation_kernel = opencl3::kernel::Kernel::create(&program.opencl_program, BACK_PROPAGATE_KERNEL_NAME)?;
-                    program.kernels.insert(BACK_PROPAGATE_KERNEL_NAME.to_string(), back_propagation_kernel);
-                }
-
+                opencl_state: &'a crate::utils::OpenCLState,
+            ) -> Result<(), opencl3::error_codes::ClError> {
                 self.opencl_state = Some(opencl_state);
 
                 Ok(())
@@ -268,14 +397,14 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                 assert!(self.opencl_state.is_some());
 
                 let state = self.opencl_state.unwrap();
-                let context = state.context;
+                let context = &state.context;
                 let queue = state.queues.first().unwrap();
 
                 let inputs_size = inputs.size()?;
                 let inputs_total_count = inputs_size / std::mem::size_of::<opencl3::device::cl_float>();
 
                 let mut copied_last_inputs_buffer = opencl3::memory::Buffer::<opencl3::device::cl_float>::create(
-                    &context,
+                    context,
                     opencl3::memory::CL_MEM_READ_ONLY,
                     inputs_total_count,
                     std::ptr::null_mut(),
@@ -298,7 +427,7 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                 let outputs_total_count = inputs.size()? / std::mem::size_of::<opencl3::device::cl_float>();
 
                 let outputs_buffer = opencl3::memory::Buffer::<opencl3::device::cl_float>::create(
-                    &context,
+                    context,
                     opencl3::memory::CL_MEM_READ_WRITE,
                     outputs_total_count,
                     std::ptr::null_mut(),
@@ -336,7 +465,7 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
 
                     let state = self.opencl_state.unwrap();
 
-                    let context = state.context;
+                    let context = &state.context;
                     let queue = state.queues.first().unwrap();
 
                     let samples_amount = self.last_outputs_buffer.as_ref().unwrap().size()?
@@ -346,7 +475,7 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                     assert_eq!(samples_amount % 1, 0);
 
                     let loss_to_input_derivatives_buffer = opencl3::memory::Buffer::<opencl3::device::cl_float>::create(
-                        &context,
+                        context,
                         opencl3::memory::CL_MEM_READ_WRITE,
                         self.inputs_amount * samples_amount,
                         std::ptr::null_mut(),
