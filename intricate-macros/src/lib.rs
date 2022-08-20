@@ -108,10 +108,10 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
                 }
             }
 
-            fn sync_data_from_gpu_with_cpu(&mut self) -> Result<(), opencl3::error_codes::ClError> {
+            fn sync_data_from_buffers_to_host(&mut self) -> Result<(), opencl3::error_codes::ClError> {
                 match self {
                     #(
-                        #enum_name::#layer_names_8(layer) => layer.sync_data_from_gpu_with_cpu(),
+                        #enum_name::#layer_names_8(layer) => layer.sync_data_from_buffers_to_host(),
                     )*
                 }
             }
@@ -260,7 +260,7 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                 }
             }
 
-            fn sync_data_from_gpu_with_cpu(&mut self) -> Result<(), opencl3::error_codes::ClError> {
+            fn sync_data_from_buffers_to_host(&mut self) -> Result<(), opencl3::error_codes::ClError> {
                 Ok(())
             }
 
