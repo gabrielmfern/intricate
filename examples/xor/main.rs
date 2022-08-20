@@ -55,7 +55,7 @@ fn main() -> () {
     // for saving Intricate uses the 'savefile' crate
     // that simply needs to call the 'save_file' function to the path you want
     // for the Model as follows
-    xor_model.sync_gpu_data_with_cpu().unwrap();
+    xor_model.sync_data_from_buffers_to_host().unwrap();
     save_file("xor-model.bin", 0, &xor_model).unwrap();
 
     // as for loading we can just call the 'load_file' function
