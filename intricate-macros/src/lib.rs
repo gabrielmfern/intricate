@@ -220,13 +220,13 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                 let program = opencl_state.programs.get(&PROGRAM_NAME.to_string()).unwrap();
 
                 if !program.kernels.contains_key(&PROPAGATE_KERNEL_NAME.to_string()) {
-                    let propagation_kernel = opencl3::kernel::Kernel::create(&program, PROPAGATE_KERNEL_NAME)?;
-                    program.kernels.insert(PROPAGATE_KERNEL_NAME, propagation_kernel);
+                    let propagation_kernel = opencl3::kernel::Kernel::create(&program.opencl_program, PROPAGATE_KERNEL_NAME)?;
+                    program.kernels.insert(PROPAGATE_KERNEL_NAME.to_string(), propagation_kernel);
                 }
 
                 if !program.kernels.contains_key(&BACK_PROPAGATE_KERNEL_NAME.to_string()) {
-                    let back_propagation_kernel = opencl3::kernel::Kernel::create(&program, BACK_PROPAGATE_KERNEL_NAME)?;
-                    program.kernels.insert(BACK_PROPAGATE_KERNEL_NAME, back_propagation_kernel);
+                    let back_propagation_kernel = opencl3::kernel::Kernel::create(&program.opencl_program, BACK_PROPAGATE_KERNEL_NAME)?;
+                    program.kernels.insert(BACK_PROPAGATE_KERNEL_NAME.to_string(), back_propagation_kernel);
                 }
 
                 self.opencl_state = Some(opencl_state);
