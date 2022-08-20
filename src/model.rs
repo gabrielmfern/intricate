@@ -1,3 +1,6 @@
+//! The module that implements a sequential Model, that contains some layers, and forward passes
+//! some inputs over and over again from one layer to another.
+
 use std::time::Instant;
 
 use super::utils::OpenCLState;
@@ -61,10 +64,12 @@ use crate::{
 /// let my_model: Model = Model::new(my_layers);
 /// ```
 pub struct Model<'a> {
+    /// The list of layers that this Model consits of.
     pub layers: Vec<ModelLayer<'a>>,
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
+    /// A optional reference to the current OpenCL state.
     pub opencl_state: Option<&'a OpenCLState>,
 }
 
@@ -222,6 +227,13 @@ impl<'a> Model<'a> {
         Ok(current_value.unwrap())
     }
 
+    /// This is the same as normal predict but it is made to run with a buffer instead of with a
+    /// Vec, this is used on the backprop function, but is pub for being used if needed.
+    ///
+    /// # Errors
+    ///
+    /// Will yield an error if something goes wrong in executing kernels inside of any of the
+    /// layers inside of the Model.
     pub fn predict_with_buffer<'b>(
         &'b mut self,
         input_samples: &'b Buffer<cl_float>,
@@ -326,6 +338,14 @@ impl<'a> Model<'a> {
         Ok(loss)
     }
 
+    /// The base function for actually doing backprop in the whole Model, this only does it once
+    /// though. This function is also made to be fast in loops, so it receives as parameters the
+    /// actual buffers for the data instead of Vec's.
+    ///
+    /// # Errors
+    ///
+    /// This function will yield an error in case something goes wrong while executing OpenCL
+    /// kernels.
     pub fn back_propagate(
         &mut self,
         samples_amount: usize,

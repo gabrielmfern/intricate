@@ -1,6 +1,6 @@
 //! Just a module with a few utilities that make writing code easier through out Intricate
 
-pub mod approx_eq;
+pub(crate) mod approx_eq;
 
 pub mod opencl;
 pub use opencl::{
