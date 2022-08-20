@@ -3,11 +3,11 @@
 //! which are used as layers in Intricate.
 
 use opencl3::{
-    command_queue::CommandQueue, context::Context, device::cl_float, error_codes::ClError,
+    device::cl_float, error_codes::ClError,
     memory::Buffer,
 };
 
-use crate::types::CompilationOrOpenCLError;
+use crate::{types::CompilationOrOpenCLError, utils::OpenCLState};
 
 pub mod activations;
 pub mod dense;
@@ -77,8 +77,7 @@ pub trait Layer<'a> {
     /// build the OpenCL programs or while allocating buffers into the device of the queue.
     fn init(
         &mut self,
-        queue: &'a CommandQueue,
-        context: &'a Context,
+        opencl_state: &'a mut OpenCLState
     ) -> Result<(), CompilationOrOpenCLError>;
 
     /// Should calculate the outputs of the layer based on the inputs
@@ -100,17 +99,16 @@ pub trait Layer<'a> {
     ///
     /// dE/dI <- back_propagate <- dE/dO
     ///
-    /// the returning part can be disabled in case of
-    /// wanting to save some computing time where
-    /// there is no other layer before it.
+    /// # Params
     ///
-    /// the queue and the context here is used for
-    /// making OpenCL calls to run kernels
-    /// (opencl functions that run in the GPU) for computations
-    /// but of curse, this may run just on Rust in the CPU,
-    /// so it is an Option
+    /// - **should_calculate_input_to_error_derivative**: Weather or not the backprop should return
+    /// the derivatives of the loss with respect to the input.
+    /// - **layer_output_to_error_derivative**: The reference to the the buffer in the GPU
+    /// containing the derivatives of the loss with respect to the outputs of the layer.
+    /// - **learning_rate** After calculating gradients, the value will be multiplied by this
+    /// number as to downscale them and to not jump up and dow in the loss.
     ///
-    /// take care with the buffer you pass into the layer_output_to_error_derivative
+    /// take care with the buffer you pass into the **layer_output_to_error_derivative**
     /// because the buffer needs to be from the Context passed in
     /// and from when the Dense was initiated, so strictly associated with
     /// the same device everywhere here

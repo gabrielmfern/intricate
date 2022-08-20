@@ -53,7 +53,3 @@ kernel void sum_all_values_in_workgroups(
         reduced[get_group_id(0)] = workgroup_state[0];
     }
 }
-
-// TODO: write another kernel taht would reduce the size of the buffer 
-// with some manual loop as to pass into the next iteration of the reduce and to be divisble by
-// the max local workgroup size

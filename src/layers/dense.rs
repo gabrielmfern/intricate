@@ -12,12 +12,18 @@ use opencl3::{
 use rand::Rng;
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use savefile_derive::Savefile;
-use std::mem;
 use std::ptr;
+use std::{collections::HashMap, mem};
 
-use crate::types::{CompilationOrOpenCLError, ModelLayer};
+use crate::{
+    types::{CompilationOrOpenCLError, ModelLayer},
+    utils::{opencl::IntricateProgram, OpenCLState},
+};
 
 use super::Layer;
+
+const DENSE_PROP_PROGRAM_NAME: &str = "DENSE_PROPAGATION";
+const DENSE_BACKPROP_PROGRAM_NAME: &str = "DENSE_BACKPROPAGATION";
 
 const PROPAGATION_PROGRAM_SORUCE: &str = include_str!("kernels/dense_propagation.cl");
 const BACK_PROPAGATION_PROGRAM_SOURCE: &str = include_str!("kernels/dense_back_propagation.cl");
@@ -78,29 +84,7 @@ pub struct Dense<'a> {
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    propagation_kernel: Option<Kernel>,
-    #[savefile_ignore]
-    #[savefile_introspect_ignore]
-    propagation_program: Option<Program>,
-    #[savefile_ignore]
-    #[savefile_introspect_ignore]
-    weights_gradient_application_kernel: Option<Kernel>,
-    #[savefile_ignore]
-    #[savefile_introspect_ignore]
-    bias_gradient_application_kernel: Option<Kernel>,
-    #[savefile_ignore]
-    #[savefile_introspect_ignore]
-    loss_to_input_differentiation_kernel: Option<Kernel>,
-    #[savefile_ignore]
-    #[savefile_introspect_ignore]
-    back_propagation_program: Option<Program>,
-
-    #[savefile_ignore]
-    #[savefile_introspect_ignore]
-    opencl_context: Option<&'a Context>,
-    #[savefile_ignore]
-    #[savefile_introspect_ignore]
-    opencl_queue: Option<&'a CommandQueue>,
+    opencl_state: Option<&'a OpenCLState>,
 }
 
 impl<'a> Dense<'a> {
@@ -126,20 +110,17 @@ impl<'a> Dense<'a> {
         Dense {
             inputs_amount,
             outputs_amount,
-            weights_buffer: None,
-            biases_buffer: None,
+
             weights,
             biases,
-            propagation_kernel: None,
-            propagation_program: None,
-            back_propagation_program: None,
-            weights_gradient_application_kernel: None,
-            bias_gradient_application_kernel: None,
-            loss_to_input_differentiation_kernel: None,
+
+            weights_buffer: None,
+            biases_buffer: None,
+
             last_inputs_buffer: None,
             last_outputs_buffer: None,
-            opencl_queue: None,
-            opencl_context: None,
+
+            opencl_state: None,
         }
         .into() // because ModelLayer implements From<Dense>
     }
@@ -172,6 +153,8 @@ impl<'a> Layer<'a> for Dense<'a> {
     fn sync_data_from_gpu_with_cpu(&mut self) -> Result<(), ClError> {
         assert!(self.weights_buffer.is_some());
         assert!(self.biases_buffer.is_some());
+        assert!(self.opencl_state.is_some());
+        assert!(!self.opencl_state.unwrap().queues.is_empty());
 
         let mut weights_flat_vec = vec![0.0; self.inputs_amount * self.outputs_amount];
         let weights_flat_slice = weights_flat_vec.as_mut_slice();
@@ -179,7 +162,7 @@ impl<'a> Layer<'a> for Dense<'a> {
         let mut biases_vec = vec![0.0; self.outputs_amount];
         let biases_slice = biases_vec.as_mut_slice();
 
-        let queue = self.opencl_queue.as_ref().unwrap();
+        let queue = self.opencl_state.unwrap().queues.first().unwrap();
 
         let read_weights_event = queue.enqueue_read_buffer(
             self.weights_buffer.as_ref().unwrap(),
@@ -218,13 +201,12 @@ impl<'a> Layer<'a> for Dense<'a> {
         Ok(())
     }
 
-    fn init(
-        &mut self,
-        queue: &'a CommandQueue,
-        context: &'a Context,
-    ) -> Result<(), CompilationOrOpenCLError> {
+    fn init(&mut self, opencl_state: &'a mut OpenCLState) -> Result<(), CompilationOrOpenCLError> {
         assert!(!self.weights.is_empty());
         assert!(!self.biases.is_empty());
+        assert!(!opencl_state.queues.is_empty());
+
+        let context = &opencl_state.context;
 
         let mut weights_buffer = Buffer::<cl_float>::create(
             context,
@@ -238,6 +220,8 @@ impl<'a> Layer<'a> for Dense<'a> {
             self.outputs_amount,
             ptr::null_mut(),
         )?;
+
+        let queue = opencl_state.queues.first().unwrap();
 
         queue
             .enqueue_write_buffer(
@@ -266,35 +250,97 @@ impl<'a> Layer<'a> for Dense<'a> {
         self.weights_buffer = Some(weights_buffer);
         self.biases_buffer = Some(biases_buffer);
 
-        self.opencl_context = Some(context);
-        self.opencl_queue = Some(queue);
+        if !opencl_state.programs.contains_key(DENSE_PROP_PROGRAM_NAME) {
+            let cl_propagation_program =
+                Program::create_and_build_from_source(context, PROPAGATION_PROGRAM_SORUCE, "")?;
+            opencl_state.programs.insert(
+                DENSE_PROP_PROGRAM_NAME.to_string(),
+                IntricateProgram {
+                    opencl_program: cl_propagation_program,
+                    kernels: HashMap::default(),
+                },
+            );
+        }
 
-        let propagation_program =
-            Program::create_and_build_from_source(context, PROPAGATION_PROGRAM_SORUCE, "")?;
-        let back_propagation_program =
-            Program::create_and_build_from_source(&context, BACK_PROPAGATION_PROGRAM_SOURCE, "")?;
-        let propagation_kernel = Kernel::create(&propagation_program, PROPAGATION_KERNEL_NAME)?;
+        let propagation_program = opencl_state
+            .programs
+            .get_mut(DENSE_PROP_PROGRAM_NAME)
+            .unwrap();
 
-        let bias_gradient_application_kernel = Kernel::create(
-            &back_propagation_program,
-            BIAS_GRADIENT_APPLICATION_KERNEL_NAME,
-        )?;
-        let weights_gradient_application_kernel = Kernel::create(
-            &back_propagation_program,
-            WEIGHTS_GRADIENT_APPLICATION_KERNEL_NAME,
-        )?;
-        let loss_to_input_differentiation_kernel = Kernel::create(
-            &back_propagation_program,
-            LOSS_TO_INPUT_DIFFERENTIATION_KERNEL_NAME,
-        )?;
+        if !propagation_program
+            .kernels
+            .contains_key(&PROPAGATION_KERNEL_NAME.to_string())
+        {
+            let propagation_kernel =
+                Kernel::create(&propagation_program.opencl_program, PROPAGATION_KERNEL_NAME)?;
+            propagation_program
+                .kernels
+                .insert(PROPAGATION_KERNEL_NAME.to_string(), propagation_kernel);
+        }
 
-        self.propagation_program = Some(propagation_program);
-        self.propagation_kernel = Some(propagation_kernel);
+        if !opencl_state
+            .programs
+            .contains_key(&DENSE_BACKPROP_PROGRAM_NAME.to_string())
+        {
+            let cl_back_propagation_program = Program::create_and_build_from_source(
+                &context,
+                BACK_PROPAGATION_PROGRAM_SOURCE,
+                "",
+            )?;
+            opencl_state.programs.insert(
+                DENSE_BACKPROP_PROGRAM_NAME.to_string(),
+                IntricateProgram {
+                    opencl_program: cl_back_propagation_program,
+                    kernels: HashMap::default(),
+                },
+            );
+        }
 
-        self.back_propagation_program = Some(back_propagation_program);
-        self.weights_gradient_application_kernel = Some(weights_gradient_application_kernel);
-        self.bias_gradient_application_kernel = Some(bias_gradient_application_kernel);
-        self.loss_to_input_differentiation_kernel = Some(loss_to_input_differentiation_kernel);
+        let backprop_program = opencl_state
+            .programs
+            .get_mut(DENSE_BACKPROP_PROGRAM_NAME)
+            .unwrap();
+
+        if !backprop_program
+            .kernels
+            .contains_key(&BIAS_GRADIENT_APPLICATION_KERNEL_NAME.to_string())
+        {
+            let bias_gradient_application_kernel = Kernel::create(
+                &backprop_program.opencl_program,
+                BIAS_GRADIENT_APPLICATION_KERNEL_NAME,
+            )?;
+            backprop_program
+                .kernels
+                .insert(BIAS_GRADIENT_APPLICATION_KERNEL_NAME.to_string(), bias_gradient_application_kernel);
+        }
+
+        if !backprop_program
+            .kernels
+            .contains_key(&WEIGHTS_GRADIENT_APPLICATION_KERNEL_NAME.to_string())
+        {
+            let weights_gradient_application_kernel = Kernel::create(
+                &backprop_program.opencl_program,
+                WEIGHTS_GRADIENT_APPLICATION_KERNEL_NAME,
+            )?;
+            backprop_program
+                .kernels
+                .insert(WEIGHTS_GRADIENT_APPLICATION_KERNEL_NAME.to_string(), weights_gradient_application_kernel);
+        }
+
+        if !backprop_program
+            .kernels
+            .contains_key(&LOSS_TO_INPUT_DIFFERENTIATION_KERNEL_NAME.to_string())
+        {
+            let loss_to_input_differentiation_kernel = Kernel::create(
+                &backprop_program.opencl_program,
+                LOSS_TO_INPUT_DIFFERENTIATION_KERNEL_NAME,
+            )?;
+            backprop_program
+                .kernels
+                .insert(WEIGHTS_GRADIENT_APPLICATION_KERNEL_NAME.to_string(), loss_to_input_differentiation_kernel);
+        }
+
+        self.opencl_state = Some(opencl_state);
 
         Ok(())
     }
@@ -627,7 +673,9 @@ mod dense_tests {
                 .flatten()
                 .zip(expected_new_weights.iter().flatten())
                 .for_each(|(weight, expected_weight)| {
-                    assert!((weight - expected_weight).abs() / weight.max(*expected_weight) <= max_dist);
+                    assert!(
+                        (weight - expected_weight).abs() / weight.max(*expected_weight) <= max_dist
+                    );
                 })
         };
 

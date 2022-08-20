@@ -71,29 +71,8 @@ pub struct Model<'a> {
 impl<'a> Model<'a> {
     /// Creates a new Model from a Vec of layers with an empty OpenCLState.
     ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use intricate::{
-    ///     types::ModelLayer,
-    ///     layers::{
-    ///         Dense,
-    ///         activations::TanH,
-    ///     },
-    ///     Model,
-    /// };
-    ///
-    /// let my_layers: Vec<ModelLayer> = vec![
-    ///     Dense::new(768, 300), // make sure the outputs are the same as the inputs of the next
-    ///                           // one or Intricate will panic when asserting these are of the
-    ///                           // same shape
-    ///     Dense::new(300, 100),
-    ///     TanH::new(100), // Activations are layers by themselves, this makes all calculations
-    ///                     // much simpler under the hood
-    /// ];
-    ///
-    /// let my_model: Model = Model::new(my_layers);
-    /// ```
+    /// This does not initialize OpenCL in each of the layers, after calling this method, to do
+    /// anything with the Model you **need** to call the `ìnit` method.
     pub fn new(layers: Vec<ModelLayer<'a>>) -> Model<'a> {
         Model {
             layers,

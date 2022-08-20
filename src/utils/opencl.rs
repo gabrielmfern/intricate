@@ -1,4 +1,4 @@
-use std::{mem, ptr};
+use std::{collections::HashMap, mem, ptr};
 
 use crate::types::CompilationOrOpenCLError;
 
@@ -14,49 +14,21 @@ use opencl3::{
     kernel::{ExecuteKernel, Kernel},
     memory::{Buffer, ClMem, CL_MEM_READ_WRITE},
     program::Program,
-    types::cl_float,
+    types::{cl_device_type, cl_float},
 };
 
 const SUM_PROGRAM_SOURCE: &str = include_str!("sum.cl");
-
-/// Compiles the summation program and builds it and then returns
-/// a Ok contaning a tuple with both the Program and the Kernel respectively.
-///
-/// # Panics
-///
-/// Panics if the compilation or build process fails.
-///
-/// # Errors
-///
-/// This function will return an error if the kernel of summation
-/// cannot be found inside th program.
-pub fn compile_buffer_summation_kernel(
-    context: &Context,
-) -> Result<(Program, Kernel), CompilationOrOpenCLError> {
-    let program = Program::create_and_build_from_source(context, SUM_PROGRAM_SOURCE, "")?;
-
-    let kernel = Kernel::create(&program, "sum_all_values_in_workgroups")?;
-
-    Ok((program, kernel))
-}
+const SUM_PROGRAM_NAME: &str = "SUM";
+const SUM_KERNEL_NAME: &str = "sum_all_values_in_workgroups";
 
 /// A trait that is implemented within Intricate for defining if a certain struct
 /// is summable using OpenCL and the kernel compiled with the **compile_buffer_summation_kernel**
 /// function.
-pub trait OpenCLSummable
+pub trait BufferOperations
 where
     Self: ClMem,
 {
-    fn sum(&self, context: &Context, queue: &CommandQueue, kernel: &Kernel)
-        -> Result<f32, ClError>;
-
-    fn reduce(
-        &self,
-        context: &Context,
-        queue: &CommandQueue,
-        max_local_size: usize,
-        reduce_kernel: &Kernel,
-    ) -> Result<Buffer<cl_float>, ClError>;
+    fn sum(&self, opencl_state: &mut OpenCLState) -> Result<f32, BufferOperationError>;
 }
 
 /// Tries to find the optimal local and global work size as to use as much
@@ -105,7 +77,62 @@ pub fn find_optimal_local_and_global_work_sizes(
     (local_size, global_size)
 }
 
-impl OpenCLSummable for Buffer<cl_float> {
+#[derive(Debug)]
+pub enum BufferOperationError {
+    OpenCLError(ClError),
+    CompilationError(String),
+    NoDeviceFoundError,
+    NoCommandQueueFoundError,
+}
+
+impl From<ClError> for BufferOperationError {
+    fn from(err: ClError) -> Self {
+        BufferOperationError::OpenCLError(err)
+    }
+}
+
+impl From<String> for BufferOperationError {
+    fn from(err: String) -> Self {
+        BufferOperationError::CompilationError(err)
+    }
+}
+
+fn reduce_buffer_by_summation(
+    buffer: &Buffer<cl_float>,
+    context: &Context,
+    queue: &CommandQueue,
+    max_local_size: usize,
+    reduce_kernel: &Kernel,
+) -> Result<Buffer<cl_float>, ClError> {
+    let current_count = buffer.size()? / mem::size_of::<cl_float>();
+    assert!(current_count >= 1);
+
+    let (local_size, global_size) =
+        find_optimal_local_and_global_work_sizes(current_count, max_local_size);
+    dbg!(local_size);
+    dbg!(global_size);
+
+    let current_reduced_buffer = Buffer::<cl_float>::create(
+        context,
+        CL_MEM_READ_WRITE,
+        global_size / local_size,
+        ptr::null_mut(),
+    )?;
+
+    ExecuteKernel::new(reduce_kernel)
+        .set_arg(buffer)
+        .set_arg(&current_reduced_buffer)
+        .set_arg_local_buffer(local_size)
+        .set_arg(&(current_count as cl_int))
+        .set_local_work_size(local_size)
+        .set_global_work_size(global_size)
+        .enqueue_nd_range(queue)?
+        .wait()?;
+
+    Ok(current_reduced_buffer)
+}
+
+impl BufferOperations for Buffer<cl_float> {
     /// Sums all of the numbers inside of a buffer and returns an Result enum
     /// containing either the resulting number or an OpenCL error.
     ///
@@ -123,13 +150,52 @@ impl OpenCLSummable for Buffer<cl_float> {
     ///
     /// This function will return an error if something wrong occurs inside of
     /// OpenCL.
-    fn sum(
-        &self,
-        context: &Context,
-        queue: &CommandQueue,
-        kernel: &Kernel,
-    ) -> Result<f32, ClError> {
-        let device = Device::new(queue.device()?);
+    fn sum(&self, opencl_state: &mut OpenCLState) -> Result<f32, BufferOperationError> {
+        if opencl_state.devices.is_empty() {
+            return Err(BufferOperationError::NoDeviceFoundError);
+        }
+
+        if opencl_state.queues.is_empty() {
+            return Err(BufferOperationError::NoCommandQueueFoundError);
+        }
+
+        let device = opencl_state.devices.first().unwrap();
+        let queue = opencl_state.queues.first().unwrap();
+
+        let mut reduce_program_option = opencl_state.programs.get(&SUM_PROGRAM_NAME.to_string());
+        let reduce_program;
+        let reduce_kernel;
+        if reduce_program_option.is_some() {
+            reduce_program = reduce_program_option.unwrap();
+            reduce_kernel = reduce_program
+                .kernels
+                .get(&SUM_KERNEL_NAME.to_string())
+                .unwrap();
+        } else {
+            let cl_program = Program::create_and_build_from_source(
+                &opencl_state.context,
+                SUM_PROGRAM_SOURCE,
+                "",
+            )?;
+            let cl_kernel = Kernel::create(&cl_program, SUM_KERNEL_NAME)?;
+
+            let temp_map = HashMap::new();
+            temp_map.insert(SUM_KERNEL_NAME.to_string(), cl_kernel);
+
+            opencl_state.programs.insert(
+                SUM_PROGRAM_NAME.to_string(),
+                IntricateProgram {
+                    opencl_program: cl_program,
+                    kernels: temp_map,
+                },
+            );
+            reduce_program = opencl_state
+                .programs
+                .get(&SUM_PROGRAM_NAME.to_string())
+                .unwrap();
+            reduce_kernel = &cl_kernel;
+        }
+
         let max_local_size = device.max_work_group_size()?;
 
         let mut current_count = self.size()? / mem::size_of::<cl_float>();
@@ -145,11 +211,19 @@ impl OpenCLSummable for Buffer<cl_float> {
         } else if current_count == 0 {
             Ok(0.0)
         } else {
-            let mut current_buf = self.reduce(context, queue, max_local_size, &kernel)?;
+            let context = &opencl_state.context;
+            let mut current_buf =
+                reduce_buffer_by_summation(self, context, queue, max_local_size, reduce_kernel)?;
             current_count = current_buf.size()? / mem::size_of::<cl_float>();
 
             while current_count > 1 {
-                current_buf = current_buf.reduce(context, queue, max_local_size, &kernel)?;
+                current_buf = reduce_buffer_by_summation(
+                    &current_buf,
+                    context,
+                    queue,
+                    max_local_size,
+                    reduce_kernel,
+                )?;
                 current_count = current_buf.size()? / mem::size_of::<cl_float>();
             }
 
@@ -162,50 +236,20 @@ impl OpenCLSummable for Buffer<cl_float> {
             Ok(buf_slice[0])
         }
     }
+}
 
-    fn reduce(
-        &self,
-        context: &Context,
-        queue: &CommandQueue,
-        max_local_size: usize,
-        reduce_kernel: &Kernel,
-    ) -> Result<Buffer<cl_float>, ClError> {
-        let current_count = self.size()? / mem::size_of::<cl_float>();
-        assert!(current_count >= 1);
-
-        let (local_size, global_size) = find_optimal_local_and_global_work_sizes(
-            current_count,
-            max_local_size
-        );
-        dbg!(local_size);
-        dbg!(global_size);
-
-        let current_reduced_buffer = Buffer::<cl_float>::create(
-            context,
-            CL_MEM_READ_WRITE,
-            global_size / local_size,
-            ptr::null_mut(),
-        )?;
-
-        ExecuteKernel::new(reduce_kernel)
-            .set_arg(self)
-            .set_arg(&current_reduced_buffer)
-            .set_arg_local_buffer(local_size)
-            .set_arg(&(current_count as cl_int))
-            .set_local_work_size(local_size)
-            .set_global_work_size(global_size)
-            .enqueue_nd_range(queue)?
-            .wait()?;
-
-        Ok(current_reduced_buffer)
-    }
+#[derive(Debug)]
+pub struct IntricateProgram {
+    pub opencl_program: Program,
+    pub kernels: HashMap<String, Kernel>,
 }
 
 #[derive(Debug)]
 pub struct OpenCLState {
     pub context: Context,
-    pub queue: CommandQueue,
-    pub device: Device,
+    pub queues: Vec<CommandQueue>,
+    pub devices: Vec<Device>,
+    pub programs: HashMap<String, IntricateProgram>,
 }
 
 #[derive(Debug)]
@@ -234,25 +278,31 @@ pub enum DeviceType {
     ACCELERATOR = CL_DEVICE_TYPE_ACCELERATOR as isize,
 }
 
-/// Gets the first device of a certain type it can find, starts the Context and the Command Queue
-/// and then returns them all on a OpenCLState struct.
+/// Finds all of the devices of a certain **device_type**, starts a context for all of the devices,
+/// and creates a CommandQueue for each one of the devices.
 ///
 /// # Errors
 ///
-/// Will return an error if OpenCL is unable to do something with the first device it finds,
-/// or will return another type of error in case there is no available device.
+/// Will return an NoDeviceFound error if it could not find any device of the specified type, or
+/// will return an ClError with the respective OpenCL error code if something goes wrong while
+/// creating the context or the queues.
 pub fn setup_opencl(device_type: DeviceType) -> Result<OpenCLState, UnableToSetupOpenCLError> {
-    let device_ids = get_all_devices(device_type as u64)?;
-    if device_ids.len() > 0 {
-        let first_gpu = Device::new(device_ids[0]);
-        let context = Context::from_device(&first_gpu)?;
+    let device_ids = get_all_devices(device_type as cl_device_type)?;
+    if device_ids.is_empty() {
+        let devices: Vec<Device> = device_ids.into_iter().map(|id| Device::new(id)).collect();
+        let context = Context::from_devices(&device_ids, &[], None, ptr::null_mut())?;
+
         // here it can be activated to make profiling on kernels
-        let queue = CommandQueue::create_with_properties(&context, first_gpu.id(), 0, 0)?;
+        let queues: Vec<CommandQueue> = devices
+            .iter()
+            .map(|device| CommandQueue::create_with_properties(&context, device.id(), 0, 0))
+            .collect::<Result<Vec<CommandQueue>, ClError>>()?;
 
         Ok(OpenCLState {
             context,
-            queue,
-            device: first_gpu,
+            queues,
+            devices,
+            programs: HashMap::default(),
         })
     } else {
         Err(UnableToSetupOpenCLError::NoDeviceFound)
@@ -269,12 +319,11 @@ mod test_gpu_summable {
     use rand::{thread_rng, Rng};
     use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
-    use super::{compile_buffer_summation_kernel, setup_opencl, DeviceType, OpenCLSummable};
+    use super::{setup_opencl, DeviceType, BufferOperations};
 
     #[test]
     fn should_sum_buffer_to_correct_value() {
         let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
-        let (_program, kernel) = compile_buffer_summation_kernel(&opencl_state.context).unwrap();
 
         let mut rng = thread_rng();
         let numbers_amount = 1234;
@@ -291,15 +340,16 @@ mod test_gpu_summable {
         )
         .unwrap();
 
-        opencl_state
-            .queue
+        let first_device_queue = opencl_state.queues.first().unwrap();
+
+        first_device_queue
             .enqueue_write_buffer(&mut buff, CL_NON_BLOCKING, 0, test_vec.as_slice(), &[])
             .unwrap()
             .wait()
             .unwrap();
 
         let actual_result = buff
-            .sum(&opencl_state.context, &opencl_state.queue, &kernel)
+            .sum(&mut opencl_state)
             .unwrap();
 
         assert!(
