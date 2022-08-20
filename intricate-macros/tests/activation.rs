@@ -7,6 +7,7 @@ use opencl3::{
 #[allow(dead_code)]
 use savefile_derive::Savefile;
 
+const PROGRAM_NAME: &str = "";
 const PROGRAM_SOURCE: &str = "";
 const PROPAGATE_KERNEL_NAME: &str = "propagate";
 const BACK_PROPAGATE_KERNEL_NAME: &str = "back_propagate";
@@ -25,20 +26,7 @@ pub struct Softmax<'a> {
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    pub opencl_context: Option<&'a Context>,
-    #[savefile_ignore]
-    #[savefile_introspect_ignore]
-    pub opencl_queue: Option<&'a CommandQueue>,
-
-    #[savefile_ignore]
-    #[savefile_introspect_ignore]
-    pub opencl_program: Option<Program>,
-    #[savefile_ignore]
-    #[savefile_introspect_ignore]
-    pub opencl_propagate_kernel: Option<Kernel>,
-    #[savefile_ignore]
-    #[savefile_introspect_ignore]
-    pub opencl_back_propagate_kernel: Option<Kernel>,
+    opencl_state: Option<&'a OpenclState>,
 }
 
 fn main() {}

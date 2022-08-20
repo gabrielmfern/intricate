@@ -91,12 +91,11 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
 
             fn init(
                 &mut self,
-                queue: &'a opencl3::command_queue::CommandQueue,
-                context: &'a opencl3::context::Context,
+                opencl_state: &'a mut crate::utils::OpenCLState,
             ) -> Result<(), crate::types::CompilationOrOpenCLError> {
                 match self {
                     #(
-                        #enum_name::#layer_names_6(layer) => layer.init(queue, context),
+                        #enum_name::#layer_names_6(layer) => layer.init(opencl_state),
                     )*
                 }
             }
@@ -183,13 +182,11 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
             pub fn new_raw(inputs_amount: usize) -> #activation_name<'a> {
                 #activation_name {
                     inputs_amount,
-                    opencl_context: None,
-                    opencl_queue: None,
-                    opencl_program: None,
-                    opencl_propagate_kernel: None,
-                    opencl_back_propagate_kernel: None,
+
                     last_outputs_buffer: None,
                     last_inputs_buffer: None,
+
+                    opencl_state: None,
                 }
             }
 
@@ -205,19 +202,34 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
         impl<'a> crate::layers::Layer<'a> for #activation_name<'a> {
             fn init(
                 &mut self,
-                queue: &'a opencl3::command_queue::CommandQueue,
-                context: &'a opencl3::context::Context,
+                opencl_state: &'a mut crate::utils::OpenCLState,
             ) -> Result<(), crate::types::CompilationOrOpenCLError> {
-                let program = opencl3::program::Program::create_and_build_from_source(context, PROGRAM_SOURCE, "")?;
+                assert!(!opencl_state.queues.is_empty());
 
-                let propagation_kernel = opencl3::kernel::Kernel::create(&program, PROPAGATE_KERNEL_NAME)?;
-                let back_propagation_kernel = opencl3::kernel::Kernel::create(&program, BACK_PROPAGATE_KERNEL_NAME)?;
+                let context = &opencl_state.context;
+                let queue = opencl_state.queues.first().unwrap();
 
-                self.opencl_program = Some(program);
-                self.opencl_propagate_kernel = Some(propagation_kernel);
-                self.opencl_back_propagate_kernel = Some(back_propagation_kernel);
-                self.opencl_queue = Some(queue);
-                self.opencl_context = Some(context);
+                if !opencl_state.programs.contains_key(&PROGRAM_NAME.to_string()) {
+                    let cl_program = opencl3::program::Program::create_and_build_from_source(context, PROGRAM_SOURCE, "")?;
+                    opencl_state.programs.insert(PROGRAM_NAME.to_string(), crate::utils::opencl::IntricateProgram {
+                        opencl_program: cl_program,
+                        kernels: std::collections::HashMap::default(),
+                    });
+                }
+
+                let program = opencl_state.programs.get(&PROGRAM_NAME.to_string()).unwrap();
+
+                if !program.kernels.contains_key(&PROPAGATE_KERNEL_NAME.to_string()) {
+                    let propagation_kernel = opencl3::kernel::Kernel::create(&program, PROPAGATE_KERNEL_NAME)?;
+                    program.kernels.insert(PROPAGATE_KERNEL_NAME, propagation_kernel);
+                }
+
+                if !program.kernels.contains_key(&BACK_PROPAGATE_KERNEL_NAME.to_string()) {
+                    let back_propagation_kernel = opencl3::kernel::Kernel::create(&program, BACK_PROPAGATE_KERNEL_NAME)?;
+                    program.kernels.insert(BACK_PROPAGATE_KERNEL_NAME, back_propagation_kernel);
+                }
+
+                self.opencl_state = Some(opencl_state);
 
                 Ok(())
             }
@@ -253,17 +265,17 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
             }
 
             fn propagate(&mut self, inputs: &opencl3::memory::Buffer<opencl3::device::cl_float>) -> Result<&opencl3::memory::Buffer<opencl3::device::cl_float>, opencl3::error_codes::ClError> {
-                assert!(self.opencl_context.is_some());
-                assert!(self.opencl_queue.is_some());
+                assert!(self.opencl_state.is_some());
 
-                let context = self.opencl_context.unwrap();
-                let queue = self.opencl_queue.unwrap();
+                let state = self.opencl_state.unwrap();
+                let context = state.context;
+                let queue = state.queues.first().unwrap();
 
                 let inputs_size = inputs.size()?;
                 let inputs_total_count = inputs_size / std::mem::size_of::<opencl3::device::cl_float>();
 
                 let mut copied_last_inputs_buffer = opencl3::memory::Buffer::<opencl3::device::cl_float>::create(
-                    context,
+                    &context,
                     opencl3::memory::CL_MEM_READ_ONLY,
                     inputs_total_count,
                     std::ptr::null_mut(),
@@ -286,13 +298,20 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                 let outputs_total_count = inputs.size()? / std::mem::size_of::<opencl3::device::cl_float>();
 
                 let outputs_buffer = opencl3::memory::Buffer::<opencl3::device::cl_float>::create(
-                    context,
+                    &context,
                     opencl3::memory::CL_MEM_READ_WRITE,
                     outputs_total_count,
                     std::ptr::null_mut(),
                 )?;
 
-                opencl3::kernel::ExecuteKernel::new(self.opencl_propagate_kernel.as_ref().unwrap())
+                let propagate_kernel = state.programs
+                    .get(PROGRAM_NAME)
+                    .unwrap()
+                    .kernels
+                    .get(PROPAGATE_KERNEL_NAME)
+                    .unwrap();
+
+                opencl3::kernel::ExecuteKernel::new(propagate_kernel)
                     .set_arg(inputs)
                     .set_arg(&outputs_buffer)
                     .set_arg(&(outputs_total_count as opencl3::error_codes::cl_int))
@@ -313,11 +332,12 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                 _: opencl3::device::cl_float,
             ) -> Result<Option<opencl3::memory::Buffer<opencl3::device::cl_float>>, opencl3::error_codes::ClError> {
                 if should_calculate_input_to_error_derivative {
-                    assert!(self.opencl_context.is_some());
-                    assert!(self.opencl_queue.is_some());
+                    assert!(self.opencl_state.is_some());
 
-                    let context = self.opencl_context.unwrap();
-                    let queue = self.opencl_queue.unwrap();
+                    let state = self.opencl_state.unwrap();
+
+                    let context = state.context;
+                    let queue = state.queues.first().unwrap();
 
                     let samples_amount = self.last_outputs_buffer.as_ref().unwrap().size()?
                         / self.inputs_amount
@@ -326,13 +346,20 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                     assert_eq!(samples_amount % 1, 0);
 
                     let loss_to_input_derivatives_buffer = opencl3::memory::Buffer::<opencl3::device::cl_float>::create(
-                        context,
+                        &context,
                         opencl3::memory::CL_MEM_READ_WRITE,
                         self.inputs_amount * samples_amount,
                         std::ptr::null_mut(),
                     )?;
 
-                    opencl3::kernel::ExecuteKernel::new(self.opencl_back_propagate_kernel.as_ref().unwrap())
+                    let back_prop_kernel = state.programs
+                        .get(PROGRAM_NAME)
+                        .unwrap()
+                        .kernels
+                        .get(BACK_PROPAGATE_KERNEL_NAME)
+                        .unwrap();
+
+                    opencl3::kernel::ExecuteKernel::new(back_prop_kernel)
                         .set_arg(layer_output_to_error_derivative)
                         .set_arg(self.last_outputs_buffer.as_ref().unwrap())
                         .set_arg(&loss_to_input_derivatives_buffer)
