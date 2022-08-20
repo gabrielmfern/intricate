@@ -27,7 +27,9 @@ const DENSE_BACKPROP_PROGRAM_NAME: &str = "DENSE_BACKPROPAGATION";
 
 const PROPAGATION_PROGRAM_SORUCE: &str = include_str!("kernels/dense_propagation.cl");
 const BACK_PROPAGATION_PROGRAM_SOURCE: &str = include_str!("kernels/dense_back_propagation.cl");
+
 const PROPAGATION_KERNEL_NAME: &str = "dense_propagate";
+
 const WEIGHTS_GRADIENT_APPLICATION_KERNEL_NAME: &str = "weights_gradient_application";
 const BIAS_GRADIENT_APPLICATION_KERNEL_NAME: &str = "bias_gradient_application";
 const LOSS_TO_INPUT_DIFFERENTIATION_KERNEL_NAME: &str =
@@ -343,7 +345,7 @@ impl<'a> Layer<'a> for Dense<'a> {
         )?;
 
         let program = state.programs.get(DENSE_PROP_PROGRAM_NAME).unwrap();
-        let kernel = program.kernels.get(DENSE_BACKPROP_PROGRAM_NAME).unwrap();
+        let kernel = program.kernels.get(PROPAGATION_KERNEL_NAME).unwrap();
 
         ExecuteKernel::new(kernel)
             .set_arg(input_samples)
@@ -483,7 +485,7 @@ mod dense_tests {
 
     #[test]
     fn should_apply_gradients_correctly() -> () {
-        let mut state = setup_opencl(DeviceType::GPU).unwrap();
+        let state = setup_opencl(DeviceType::GPU).unwrap();
 
         let queue = state.queues.first().unwrap();
         let context = &state.context;
@@ -512,8 +514,8 @@ mod dense_tests {
             })
             .collect();
 
-        println!("inputs: {:?}", input_samples);
-        println!("dE/dO: {:?}", loss_to_output_derivatives);
+        // println!("inputs: {:?}", input_samples);
+        // println!("dE/dO: {:?}", loss_to_output_derivatives);
 
         let learning_rate = 0.1;
 
@@ -617,8 +619,8 @@ mod dense_tests {
 
         let max_dist = 0.01;
 
-        println!("new weights GPU: {:?}", gpu_dense.weights);
-        println!("new weights CPU: {:?}", expected_new_weights);
+        // println!("new weights GPU: {:?}", gpu_dense.weights);
+        // println!("new weights CPU: {:?}", expected_new_weights);
 
         {
             assert_eq!(gpu_dense.weights.len(), expected_new_weights.len());
@@ -635,8 +637,8 @@ mod dense_tests {
                 })
         };
 
-        println!("new biases GPU: {:?}", gpu_dense.biases);
-        println!("new biases CPU: {:?}", expected_new_biases);
+        // println!("new biases GPU: {:?}", gpu_dense.biases);
+        // println!("new biases CPU: {:?}", expected_new_biases);
 
         {
             assert_eq!(gpu_dense.biases.len(), expected_new_biases.len());
@@ -646,7 +648,7 @@ mod dense_tests {
                 .iter()
                 .zip(&expected_new_biases)
                 .for_each(|(x, y)| {
-                    println!("x:{}\ny:{}", x, y);
+                    // println!("x:{}\ny:{}", x, y);
                     assert!((x - y).abs() / x.max(*y) <= max_dist);
                 });
         };
@@ -732,8 +734,8 @@ mod dense_tests {
             .flatten()
             .collect();
 
-        println!("CPU prediction: {:?}", flattened_expected_outputs);
-        println!("\nGPU prediction: {:?}", outputs_vec);
+        // println!("CPU prediction: {:?}", flattened_expected_outputs);
+        // println!("\nGPU prediction: {:?}", outputs_vec);
 
         {
             let a = &outputs_vec;
@@ -742,7 +744,7 @@ mod dense_tests {
             assert_eq!(a.len(), b.len());
 
             a.iter().zip(b).for_each(|(x, y)| {
-                println!("x:{}\ny:{}", x, y);
+                // println!("x:{}\ny:{}", x, y);
                 assert!((x - y).abs() / x.max(*y) <= max_dist);
             });
         };
