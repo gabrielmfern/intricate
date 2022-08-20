@@ -30,8 +30,8 @@ fn should_decrease_error() -> () {
     ];
 
     let mut model = Model::new(layers);
-    let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
-    model.init(&opencl_state).unwrap();
+    let mut opencl_state = setup_opencl(DeviceType::GPU).unwrap();
+    model.init(&mut opencl_state).unwrap();
 
     let training_input_samples = vec![
         vec![0.0_f32, 0.0_f32],

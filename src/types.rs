@@ -1,7 +1,7 @@
 //! A module containing internal data types for Intricate
 
 use opencl3::{
-    command_queue::CommandQueue, context::Context, device::cl_float, error_codes::ClError,
+    device::cl_float, error_codes::ClError,
     memory::Buffer,
 };
 use savefile_derive::Savefile;
@@ -11,7 +11,7 @@ use intricate_macros::EnumLayer;
 use crate::{
     layers::{activations::{TanH, SoftMax, ReLU, Sigmoid}, Dense},
     loss_functions::{CategoricalCrossEntropy, LossFunction, MeanSquared},
-    utils::opencl::UnableToSetupOpenCLError,
+    utils::{opencl::UnableToSetupOpenCLError, OpenCLState},
 };
 
 /// A simple type for initialization errors, since they can be either a straight up ClError
@@ -88,12 +88,11 @@ impl<'a> LossFunction<'a> for ModelLossFunction<'a> {
 
     fn init(
         &mut self,
-        context: &'a Context,
-        queue: &'a CommandQueue,
+        opencl_state: &'a mut OpenCLState,
     ) -> Result<(), CompilationOrOpenCLError> {
         match self {
-            ModelLossFunction::MeanSquared(lossfn) => lossfn.init(context, queue),
-            ModelLossFunction::CategoricalCrossEntropy(lossfn) => lossfn.init(context, queue),
+            ModelLossFunction::MeanSquared(lossfn) => lossfn.init(opencl_state),
+            ModelLossFunction::CategoricalCrossEntropy(lossfn) => lossfn.init(opencl_state),
         }
     }
 

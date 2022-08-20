@@ -1,14 +1,17 @@
 //! The module that contains the Sigmoid activation function.
 
 use opencl3::{
-    command_queue::CommandQueue, context::Context, device::cl_float, kernel::Kernel,
-    memory::Buffer, program::Program,
+    device::cl_float,
+    memory::Buffer
 };
 
 use intricate_macros::ActivationLayer;
 
 use savefile_derive::Savefile;
 
+use crate::utils::OpenCLState;
+
+const PROGRAM_NAME: &str = "SIGMOID";
 const PROGRAM_SOURCE: &str = include_str!("kernels/sigmoid.cl");
 const PROPAGATE_KERNEL_NAME: &str = "propagate";
 const BACK_PROPAGATE_KERNEL_NAME: &str = "back_propagate";
@@ -44,20 +47,7 @@ pub struct Sigmoid<'a> {
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    opencl_context: Option<&'a Context>,
-    #[savefile_ignore]
-    #[savefile_introspect_ignore]
-    opencl_queue: Option<&'a CommandQueue>,
-
-    #[savefile_ignore]
-    #[savefile_introspect_ignore]
-    opencl_program: Option<Program>,
-    #[savefile_ignore]
-    #[savefile_introspect_ignore]
-    opencl_propagate_kernel: Option<Kernel>,
-    #[savefile_ignore]
-    #[savefile_introspect_ignore]
-    opencl_back_propagate_kernel: Option<Kernel>,
+    opencl_state: Option<&'a mut OpenCLState>
 }
 
 #[cfg(test)]
@@ -65,33 +55,31 @@ mod sigmoid_tests {
     use std::{f32::consts::E, ptr};
 
     use opencl3::{
-        command_queue::{CommandQueue, CL_BLOCKING, CL_NON_BLOCKING},
-        context::Context,
-        device::{cl_float, get_all_devices, Device, CL_DEVICE_TYPE_GPU},
-        memory::{Buffer, CL_MEM_READ_ONLY},
+        command_queue::{CL_BLOCKING, CL_NON_BLOCKING},
+        device::cl_float,
+        memory::{Buffer, CL_MEM_READ_ONLY}
     };
     use rand::{thread_rng, Rng};
 
     use crate::{
         layers::Layer, types::CompilationOrOpenCLError,
-        utils::approx_eq::assert_approx_equal_distance,
+        utils::{approx_eq::assert_approx_equal_distance, setup_opencl, opencl::DeviceType},
     };
 
     use super::Sigmoid;
 
     #[test]
     fn should_propagate_to_correct_values() -> Result<(), CompilationOrOpenCLError> {
-        let device_ids = get_all_devices(CL_DEVICE_TYPE_GPU)?;
-        let first_device = Device::new(device_ids[0]);
+        let mut state = setup_opencl(DeviceType::GPU)?;
 
-        let context = Context::from_device(&first_device)?;
-        let queue = CommandQueue::create_with_properties(&context, device_ids[0], 0, 0)?;
+        let context = state.context;
+        let queue = state.queues.first().unwrap();
 
         let samples_amount = 423;
         let numbers_amount = 141;
 
         let mut sigmoid = Sigmoid::new(numbers_amount);
-        sigmoid.init(&queue, &context)?;
+        sigmoid.init(&mut state)?;
 
         let mut rng = thread_rng();
         let input_samples: Vec<f32> = (0..(samples_amount * numbers_amount))
@@ -140,17 +128,16 @@ mod sigmoid_tests {
     #[test]
     fn should_back_propagate_returning_the_correct_derivatives(
     ) -> Result<(), CompilationOrOpenCLError> {
-        let device_ids = get_all_devices(CL_DEVICE_TYPE_GPU)?;
-        let first_device = Device::new(device_ids[0]);
+        let mut state = setup_opencl(DeviceType::GPU)?;
 
-        let context = Context::from_device(&first_device)?;
-        let queue = CommandQueue::create_with_properties(&context, device_ids[0], 0, 0)?;
+        let context = state.context;
+        let queue = state.queues.first().unwrap();
 
         let samples_amount = 432;
         let numbers_amount = 331;
 
         let mut tanh = Sigmoid::new(numbers_amount);
-        tanh.init(&queue, &context)?;
+        tanh.init(&mut state)?;
 
         let mut rng = thread_rng();
         let input_samples: Vec<f32> = (0..(samples_amount * numbers_amount))

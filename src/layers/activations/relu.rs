@@ -1,18 +1,17 @@
 //! The module that will implement the Rectified Linear Unit activatoin function.
 
 use opencl3::{
-    command_queue::CommandQueue,
-    context::Context,
     device::cl_float,
-    kernel::Kernel,
     memory::Buffer,
-    program::Program,
 };
 
 use intricate_macros::ActivationLayer;
 
 use savefile_derive::Savefile;
 
+use crate::utils::OpenCLState;
+
+const PROGRAM_NAME: &str= "RELU";
 const PROGRAM_SOURCE: &str = include_str!("kernels/relu.cl");
 const PROPAGATE_KERNEL_NAME: &str = "propagate";
 const BACK_PROPAGATE_KERNEL_NAME: &str = "back_propagate";
@@ -47,20 +46,7 @@ pub struct ReLU<'a> {
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    opencl_context: Option<&'a Context>,
-    #[savefile_ignore]
-    #[savefile_introspect_ignore]
-    opencl_queue: Option<&'a CommandQueue>,
-
-    #[savefile_ignore]
-    #[savefile_introspect_ignore]
-    opencl_program: Option<Program>,
-    #[savefile_ignore]
-    #[savefile_introspect_ignore]
-    opencl_propagate_kernel: Option<Kernel>,
-    #[savefile_ignore]
-    #[savefile_introspect_ignore]
-    opencl_back_propagate_kernel: Option<Kernel>,
+    opencl_state: Option<&'a mut OpenCLState>,
 }
 
 #[cfg(test)]
@@ -85,10 +71,13 @@ mod relu_tests {
 
         let expected_outputs: Vec<f32> = inputs.iter().map(|input| input.max(0.0)).collect();
 
-        let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
+        let mut opencl_state = setup_opencl(DeviceType::GPU).unwrap();
+
+        let queue = opencl_state.queues.first().unwrap();
+        let context = opencl_state.context;
 
         let mut relu = ReLU::new(numbers_amount);
-        relu.init(&opencl_state.queue, &opencl_state.context).unwrap();
+        relu.init(&mut opencl_state).unwrap();
 
         let mut inputs_buffer = Buffer::<cl_float>::create(
             &opencl_state.context,
@@ -97,7 +86,7 @@ mod relu_tests {
             std::ptr::null_mut(),
         ).unwrap();
 
-        opencl_state.queue.enqueue_write_buffer(
+        queue.enqueue_write_buffer(
             &mut inputs_buffer,
             CL_BLOCKING,
             0,
@@ -109,7 +98,7 @@ mod relu_tests {
 
         let mut actual_outputs = vec![0.0; samples_amount * numbers_amount];
         
-        opencl_state.queue.enqueue_read_buffer(
+        queue.enqueue_read_buffer(
             &outputs_buffer,
             CL_BLOCKING,
             0,

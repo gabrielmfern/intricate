@@ -65,7 +65,7 @@ pub struct Model<'a> {
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
-    pub opencl_state: Option<&'a OpenCLState>,
+    pub opencl_state: Option<&'a mut OpenCLState>,
 }
 
 impl<'a> Model<'a> {
@@ -103,9 +103,12 @@ impl<'a> Model<'a> {
     /// CompilationError (just a String with some stacktrace to the error).
     /// If the programs were compiled successfully don't put your guard down yet because OpenCL may
     /// yield some error if something it needs to do fails.
-    pub fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), CompilationOrOpenCLError> {
+    pub fn init(
+        &mut self,
+        opencl_state: &'a mut OpenCLState,
+    ) -> Result<(), CompilationOrOpenCLError> {
         for layer in self.layers.iter_mut() {
-            layer.init(&opencl_state.queue, &opencl_state.context)?;
+            layer.init(opencl_state)?;
         }
 
         self.opencl_state = Some(opencl_state);
@@ -128,13 +131,15 @@ impl<'a> Model<'a> {
     ///
     /// # Panics
     ///
-    /// Will panic if the 'init' method was not called setting the **opencl_state**, if there 
+    /// Will panic if the 'init' method was not called setting the **opencl_state**, if there
     /// is no layers in the model or if there is not outputs in the last layer.
     pub fn get_last_prediction(&self) -> Result<Vec<f32>, ClError> {
         // TODO: get rid of all these unwraps and make a customized enum for errors in this
         // function
         assert!(self.opencl_state.is_some());
+        assert!(!self.opencl_state.unwrap().queues.is_empty());
         let state = self.opencl_state.unwrap();
+        let queue = state.queues.first().unwrap();
 
         let buffer = self.layers.last().unwrap().get_last_outputs().unwrap();
 
@@ -142,8 +147,7 @@ impl<'a> Model<'a> {
         let mut resulting_vec = vec![0.0; size];
         let resulting_slice = resulting_vec.as_mut_slice();
 
-        state
-            .queue
+        queue
             .enqueue_read_buffer(buffer, CL_NON_BLOCKING, 0, resulting_slice, &[])?
             .wait()?;
 
@@ -165,8 +169,9 @@ impl<'a> Model<'a> {
     /// Will panic if the `init` was not called on the Model, or if the model has no layers.
     pub fn predict(&mut self, input_samples: &Vec<Vec<f32>>) -> Result<&Buffer<cl_float>, ClError> {
         assert!(self.opencl_state.is_some());
-
+        assert!(!self.opencl_state.unwrap().queues.is_empty());
         let state = self.opencl_state.unwrap();
+        let queue = state.queues.first().unwrap();
 
         let samples_amount = input_samples.len();
 
@@ -177,8 +182,7 @@ impl<'a> Model<'a> {
             ptr::null_mut(),
         )?;
 
-        state
-            .queue
+        queue
             .enqueue_write_buffer(
                 &mut first_input_samples_buffer,
                 CL_NON_BLOCKING,
@@ -251,13 +255,13 @@ impl<'a> Model<'a> {
         training_options: &mut TrainingOptions<'a>,
     ) -> Result<Option<f32>, CompilationOrOpenCLError> {
         assert!(self.opencl_state.is_some());
+        assert!(!self.opencl_state.unwrap().queues.is_empty());
         let state = self.opencl_state.unwrap();
+        let queue = state.queues.first().unwrap();
 
         let samples_amount = training_input_samples.len();
 
-        training_options
-            .loss_algorithm
-            .init(&state.context, &state.queue)?;
+        training_options.loss_algorithm.init(state)?;
 
         let mut input_samples_buffer = Buffer::<cl_float>::create(
             &state.context,
@@ -273,8 +277,7 @@ impl<'a> Model<'a> {
             ptr::null_mut(),
         )?;
 
-        state
-            .queue
+        queue
             .enqueue_write_buffer(
                 &mut input_samples_buffer,
                 CL_NON_BLOCKING,
@@ -288,8 +291,7 @@ impl<'a> Model<'a> {
                 &[],
             )?
             .wait()?;
-        state
-            .queue
+        queue
             .enqueue_write_buffer(
                 &mut expected_output_samples_buffer,
                 CL_NON_BLOCKING,
