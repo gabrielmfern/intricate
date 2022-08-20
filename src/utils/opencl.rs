@@ -1,7 +1,5 @@
 use std::{collections::HashMap, mem, ptr};
 
-use crate::types::CompilationOrOpenCLError;
-
 use super::gcd;
 use opencl3::{
     command_queue::{CommandQueue, CL_NON_BLOCKING},
