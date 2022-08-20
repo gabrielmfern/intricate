@@ -54,7 +54,8 @@ pub trait Layer<'a> {
     /// for this layer
     fn clean_up_gpu_state(&mut self) -> ();
 
-    /// Allocates the data from the GPU into the CPU
+    /// Allocates the data from the OpenCL's device that contains the buffers of the data for the
+    /// layer into the host with Vec's of the values.
     ///
     /// does not allocate the last_inputs nor the last_outputs
     ///
@@ -62,7 +63,7 @@ pub trait Layer<'a> {
     ///
     /// This function will return an error if something goes wrong while triying to read the data
     /// from the buffers with OpenCL.
-    fn sync_data_from_gpu_with_cpu(&mut self) -> Result<(), ClError>;
+    fn sync_data_from_buffers_to_host(&mut self) -> Result<(), ClError>;
 
     /// Sends the important information of the current layer to the GPU
     /// as to be used in the propagation and back propagation
