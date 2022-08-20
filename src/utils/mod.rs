@@ -4,7 +4,7 @@ pub mod approx_eq;
 
 pub mod opencl;
 pub use opencl::{
-    OpenCLSummable,
+    BufferOperations,
     setup_opencl,
     OpenCLState
 };

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::mem;
 use std::ptr;
 
@@ -14,8 +15,11 @@ use opencl3::{
 use crate::loss_functions::LossFunction;
 use crate::types::CompilationOrOpenCLError;
 use crate::types::ModelLossFunction;
-use crate::utils::{opencl::compile_buffer_summation_kernel, OpenCLSummable};
+use crate::utils::opencl::IntricateProgram;
+use crate::utils::BufferOperations;
+use crate::utils::OpenCLState;
 
+const PROGRAM_NAME: &str = "MEAN_SQUARED";
 const PROGRAM_SOURCE: &str = include_str!("kernels/mean_squared.cl");
 const COMPUTE_LOSS_KERNEL: &str = "compute_loss";
 const COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL: &str = "compute_loss_to_output_derivatives";
@@ -26,55 +30,66 @@ const COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL: &str = "compute_loss_to_output_
 /// to the `Categorical Cross Entropy` loss function which restricts things
 /// to be in (0, 1) (a **closed interval** between 0 and 1) to work well.
 pub struct MeanSquared<'a> {
-    opencl_context: Option<&'a Context>,
-    oepncl_queue: Option<&'a CommandQueue>,
-    opencl_program: Option<Program>,
-    opencl_compute_loss_kernel: Option<Kernel>,
-    opencl_compute_loss_to_output_derivatives_kernel: Option<Kernel>,
-    opencl_sum_buffer_program: Option<Program>,
-    opencl_sum_buffer_kernel: Option<Kernel>,
+    opencl_state: Option<&'a mut OpenCLState>,
 }
 
 impl<'a> MeanSquared<'a> {
     pub fn new() -> ModelLossFunction<'a> {
-        MeanSquared {
-            opencl_context: None,
-            oepncl_queue: None,
-            opencl_program: None,
-            opencl_compute_loss_kernel: None,
-            // TODO: improve this as to not have these kernels lying around
-            // where they should not
-            // perhaps store the kernel and the program statically somehow?
-            opencl_sum_buffer_kernel: None,
-            opencl_sum_buffer_program: None,
-            opencl_compute_loss_to_output_derivatives_kernel: None,
-        }.into()
+        Self::new_raw().into()
+    }
+
+    pub fn new_raw() -> MeanSquared<'a> {
+        MeanSquared { opencl_state: None }
     }
 }
 
 impl<'a> LossFunction<'a> for MeanSquared<'a> {
-    fn init(
-        &mut self,
-        context: &'a Context,
-        queue: &'a CommandQueue,
-    ) -> Result<(), CompilationOrOpenCLError> {
-        let program =
-            Program::create_and_build_from_source(context, PROGRAM_SOURCE, "")?;
+    fn init(&mut self, opencl_state: &'a mut OpenCLState) -> Result<(), CompilationOrOpenCLError> {
+        if !opencl_state
+            .programs
+            .contains_key(&PROGRAM_NAME.to_string())
+        {
+            let cl_program =
+                Program::create_and_build_from_source(&opencl_state.context, PROGRAM_SOURCE, "")?;
+            opencl_state.programs.insert(
+                PROGRAM_NAME.to_string(),
+                IntricateProgram {
+                    opencl_program: cl_program,
+                    kernels: HashMap::default(),
+                },
+            );
+        }
 
-        let compute_loss_kernel = Kernel::create(&program, COMPUTE_LOSS_KERNEL)?;
-        let compute_loss_derivative_with_respect_to_output_kernel =
-            Kernel::create(&program, COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL)?;
+        let program = opencl_state
+            .programs
+            .get_mut(&PROGRAM_NAME.to_string())
+            .unwrap();
 
-        self.opencl_context = Some(context);
-        self.opencl_program = Some(program);
-        self.oepncl_queue = Some(queue);
-        self.opencl_compute_loss_kernel = Some(compute_loss_kernel);
-        self.opencl_compute_loss_to_output_derivatives_kernel =
-            Some(compute_loss_derivative_with_respect_to_output_kernel);
+        if !program
+            .kernels
+            .contains_key(&COMPUTE_LOSS_KERNEL.to_string())
+        {
+            let compute_loss_kernel = Kernel::create(&program.opencl_program, COMPUTE_LOSS_KERNEL)?;
+            program
+                .kernels
+                .insert(COMPUTE_LOSS_KERNEL.to_string(), compute_loss_kernel);
+        }
 
-        let sum_program_kernel = compile_buffer_summation_kernel(context)?;
-        self.opencl_sum_buffer_program = Some(sum_program_kernel.0);
-        self.opencl_sum_buffer_kernel = Some(sum_program_kernel.1);
+        if !program
+            .kernels
+            .contains_key(&COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL.to_string())
+        {
+            let compute_loss_derivative_with_respect_to_output_kernel = Kernel::create(
+                &program.opencl_program,
+                COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL,
+            )?;
+            program.kernels.insert(
+                COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL.to_string(),
+                compute_loss_derivative_with_respect_to_output_kernel,
+            );
+        }
+
+        self.opencl_state = Some(opencl_state);
 
         Ok(())
     }
@@ -85,30 +100,33 @@ impl<'a> LossFunction<'a> for MeanSquared<'a> {
         expected_outputs: &Buffer<cl_float>,
         samples_amount: usize,
     ) -> Result<f32, ClError> {
-        assert!(self.opencl_context.is_some());
-        assert!(self.oepncl_queue.is_some());
-        assert!(self.opencl_program.is_some());
-        assert!(self.opencl_compute_loss_kernel.is_some());
-        assert!(self
-            .opencl_compute_loss_to_output_derivatives_kernel
-            .is_some());
-        assert!(self.opencl_sum_buffer_kernel.is_some());
-        assert!(self.opencl_sum_buffer_program.is_some());
+        assert!(self.opencl_state.is_some());
+        assert!(!self.opencl_state.unwrap().queues.is_empty());
         assert_eq!(output_samples.size()?, expected_outputs.size()?);
 
-        let context = self.opencl_context.unwrap();
-        let queue = self.oepncl_queue.unwrap();
+        let state = self.opencl_state.unwrap();
+        let context = state.context;
+        let queue = state.queues.first().unwrap();
 
         let outputs_amount = output_samples.size()? / samples_amount / mem::size_of::<cl_float>();
 
         let sample_losses_buffer = Buffer::<cl_float>::create(
-            self.opencl_context.unwrap(),
+            &context,
             CL_MEM_READ_WRITE,
             samples_amount,
             ptr::null_mut(),
         )?;
 
-        ExecuteKernel::new(self.opencl_compute_loss_kernel.as_ref().unwrap())
+        // TODO: treat this error cases
+        let compute_loss_kernel = state
+            .programs
+            .get(PROGRAM_NAME)
+            .unwrap()
+            .kernels
+            .get(COMPUTE_LOSS_KERNEL)
+            .unwrap();
+
+        ExecuteKernel::new(compute_loss_kernel)
             .set_arg(output_samples)
             .set_arg(expected_outputs)
             .set_arg(&sample_losses_buffer)
@@ -119,11 +137,10 @@ impl<'a> LossFunction<'a> for MeanSquared<'a> {
             .wait()?;
 
         // Ok(0.0)
-        Ok(sample_losses_buffer.sum(
-            context,
-            queue,
-            self.opencl_sum_buffer_kernel.as_ref().unwrap(),
-        )? / outputs_amount as f32
+        Ok(sample_losses_buffer
+            .sum(self.opencl_state.unwrap())
+            .unwrap() // TODO: treat this BufferOperationError instead of unwraping it here
+            / outputs_amount as f32
             / samples_amount as f32)
     }
 
@@ -133,35 +150,39 @@ impl<'a> LossFunction<'a> for MeanSquared<'a> {
         expected_outputs: &Buffer<cl_float>,
         samples_amount: usize,
     ) -> Result<Buffer<cl_float>, ClError> {
-        assert!(self.opencl_context.is_some());
-        assert!(self.oepncl_queue.is_some());
-        assert!(self.opencl_program.is_some());
-        assert!(self.opencl_compute_loss_kernel.is_some());
-        assert!(self
-            .opencl_compute_loss_to_output_derivatives_kernel
-            .is_some());
+        assert!(self.opencl_state.is_some());
+        assert!(!self.opencl_state.unwrap().queues.is_empty());
+        assert_eq!(output_samples.size()?, expected_outputs.size()?);
+
+        let state = self.opencl_state.unwrap();
+        let context = &state.context;
 
         let outputs_amount = output_samples.size()? / samples_amount / mem::size_of::<cl_float>();
         let derivatives_buffer = Buffer::<cl_float>::create(
-            self.opencl_context.as_ref().unwrap(),
+            context,
             CL_MEM_READ_WRITE,
             output_samples.size()? / mem::size_of::<cl_float>(),
             ptr::null_mut(),
         )?;
 
-        ExecuteKernel::new(
-            self.opencl_compute_loss_to_output_derivatives_kernel
-                .as_ref()
-                .unwrap(),
-        )
-        .set_arg(output_samples)
-        .set_arg(expected_outputs)
-        .set_arg(&derivatives_buffer)
-        .set_arg(&(samples_amount as cl_int))
-        .set_arg(&(outputs_amount as cl_int))
-        .set_global_work_sizes(&[samples_amount, outputs_amount])
-        .enqueue_nd_range(self.oepncl_queue.unwrap())?
-        .wait()?;
+        // TODO: treat this error cases
+        let compute_loss_to_output_derivatives_kernel = state
+            .programs
+            .get(PROGRAM_NAME)
+            .unwrap()
+            .kernels
+            .get(COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL)
+            .unwrap();
+
+        ExecuteKernel::new(&compute_loss_to_output_derivatives_kernel)
+            .set_arg(output_samples)
+            .set_arg(expected_outputs)
+            .set_arg(&derivatives_buffer)
+            .set_arg(&(samples_amount as cl_int))
+            .set_arg(&(outputs_amount as cl_int))
+            .set_global_work_sizes(&[samples_amount, outputs_amount])
+            .enqueue_nd_range(state.queues.first().unwrap())?
+            .wait()?;
 
         Ok(derivatives_buffer)
     }
@@ -178,15 +199,18 @@ mod mean_squared_tests {
     use rand::{thread_rng, Rng};
 
     use super::MeanSquared;
-    use crate::{types::CompilationOrOpenCLError, loss_functions::LossFunction, utils::opencl::DeviceType};
     use crate::utils::{approx_eq::assert_approx_equal_distance, setup_opencl, OpenCLState};
+    use crate::{
+        loss_functions::LossFunction, types::CompilationOrOpenCLError, utils::opencl::DeviceType,
+    };
 
     #[test]
-    fn should_compute_derivatives_up_to_a_certain_precision() -> Result<(), CompilationOrOpenCLError> {
+    fn should_compute_derivatives_up_to_a_certain_precision() -> Result<(), CompilationOrOpenCLError>
+    {
         let opencl_state: OpenCLState = setup_opencl(DeviceType::GPU)?;
 
-        let mut gpu_loss = MeanSquared::new();
-        gpu_loss.init(&opencl_state.context, &opencl_state.queue)?;
+        let mut gpu_loss = MeanSquared::new_raw();
+        gpu_loss.init(&mut opencl_state)?;
 
         let outputs_amount: usize = 61;
         let samples_amount: usize = 113;
@@ -227,8 +251,9 @@ mod mean_squared_tests {
             ptr::null_mut(),
         )?;
 
-        opencl_state
-            .queue
+        let queue = opencl_state.queues.first().unwrap();
+
+        queue
             .enqueue_write_buffer(
                 &mut outputs_buf,
                 CL_NON_BLOCKING,
@@ -237,8 +262,7 @@ mod mean_squared_tests {
                 &[],
             )?
             .wait()?;
-        opencl_state
-            .queue
+        queue
             .enqueue_write_buffer(
                 &mut expected_outputs_buf,
                 CL_NON_BLOCKING,
@@ -256,8 +280,7 @@ mod mean_squared_tests {
         let mut derivatives_vec = vec![0.0; samples_amount * outputs_amount];
         let derivatives_slice = derivatives_vec.as_mut_slice();
 
-        opencl_state
-            .queue
+        queue
             .enqueue_read_buffer(&buf, CL_NON_BLOCKING, 0, derivatives_slice, &[])?
             .wait()?;
 
@@ -271,7 +294,7 @@ mod mean_squared_tests {
         let opencl_state: OpenCLState = setup_opencl(DeviceType::GPU)?;
 
         let mut loss = MeanSquared::new();
-        loss.init(&opencl_state.context, &opencl_state.queue)?;
+        loss.init(&mut opencl_state)?;
 
         let mut rng = thread_rng();
         let samples_amount = 27;
@@ -305,8 +328,9 @@ mod mean_squared_tests {
             ptr::null_mut(),
         )?;
 
-        opencl_state
-            .queue
+        let queue = opencl_state.queues.first().unwrap();
+
+        queue
             .enqueue_write_buffer(
                 &mut outputs_buf,
                 CL_NON_BLOCKING,
@@ -315,8 +339,7 @@ mod mean_squared_tests {
                 &[],
             )?
             .wait()?;
-        opencl_state
-            .queue
+        queue
             .enqueue_write_buffer(
                 &mut expected_outputs_buf,
                 CL_NON_BLOCKING,
@@ -328,7 +351,12 @@ mod mean_squared_tests {
 
         let actual_loss = loss.compute_loss(&outputs_buf, &expected_outputs_buf, samples_amount)?;
 
-        println!("|({} - {}) / {}| <= 0.1%", expected_loss, actual_loss, expected_loss.max(actual_loss));
+        println!(
+            "|({} - {}) / {}| <= 0.1%",
+            expected_loss,
+            actual_loss,
+            expected_loss.max(actual_loss)
+        );
         assert!((expected_loss - actual_loss).abs() / expected_loss.max(actual_loss) <= 0.001);
 
         Ok(())

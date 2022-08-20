@@ -10,7 +10,7 @@ pub mod mean_squared;
 pub use categorical_cross_entropy::CategoricalCrossEntropy;
 pub use mean_squared::MeanSquared;
 
-use crate::types::CompilationOrOpenCLError;
+use crate::{types::CompilationOrOpenCLError, utils::OpenCLState};
 
 use opencl3::{
     command_queue::CommandQueue, context::Context, device::cl_float, error_codes::ClError,
@@ -43,7 +43,7 @@ where
     ///
     /// This function will return an error if some error happens while compiling OpenCL
     /// programs, or any other type of OpenCL error.
-    fn init(&mut self, context: &'a Context, queue: &'a CommandQueue) -> Result<(), CompilationOrOpenCLError>;
+    fn init(&mut self, opencl_state: &'a mut OpenCLState) -> Result<(), CompilationOrOpenCLError>;
 
     /// Computes the derivative of the loss with respect to each one of the outputs
     /// given for some certain expected outputs.
