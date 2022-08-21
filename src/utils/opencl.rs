@@ -699,6 +699,14 @@ pub(crate) enum ConversionError {
     NoCommandQueueFoundError,
 }
 
+pub(crate) fn empty_buffer(
+    count: usize,
+    flags: cl_mem_flags,
+    opencl_state: &OpenCLState,
+) -> Result<Buffer<cl_float>, ClError> {
+    Buffer::create(&opencl_state.context, flags, count, ptr::null_mut())
+}
+
 impl BufferLike<cl_float> for Vec<f32> {
     fn to_buffer(
         &self,

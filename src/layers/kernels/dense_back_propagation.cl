@@ -38,7 +38,7 @@ kernel void weights_gradient_calculation(
     flattened_gradients[flat_weight_i] = weight_gradient_contributions / f_samples_amount;
 }
 
-kernel void bias_gradient_application(
+kernel void bias_gradient_calculation(
     global float* flattened_output_to_loss_derivatives,
 
     global float* gradients,
@@ -69,8 +69,8 @@ kernel void compute_loss_derivative_with_respect_to_inputs(
 
     global float* flattened_loss_to_input_derivatives,
 
-    int outputs_amount,
     int samples_amount,
+    int outputs_amount,
     int inputs_amount
 ) {
     int sample_index = get_global_id(0);

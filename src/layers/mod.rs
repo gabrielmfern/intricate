@@ -84,8 +84,8 @@ pub trait Gradients<'a> {
 pub enum LayerPropagationError {
     OpenCL(ClError),
 
-    ProgramNotFound,
-    KernelNotFound,
+    ProgramNotFound(String),
+    KernelNotFound(String),
 
     NoCommandQueueFound,
     NoDeviceFound,
@@ -110,8 +110,10 @@ pub enum LayerGradientComputationError {
 pub enum LayerGradientApplicationError {
     OpenCL(ClError),
 
-    ProgramNotFound,
-    KernelNotFound,
+    ComputeUpdateVectorsError(LayerGradientComputationError),
+
+    ProgramNotFound(String),
+    KernelNotFound(String),
 
     NoCommandQueueFound,
     NoDeviceFound,
@@ -127,6 +129,15 @@ pub enum LayerSyncDataError {
         field_name: String
     },
     NoCommandQueue,
+}
+
+#[derive(Debug, ErrorsEnum)]
+pub enum LayerLossToInputDifferentiationError {
+    OpenCL(ClError),
+    LayerNotInitialized,
+    NoCommandQueue,
+    ProgramNotFound(String),
+    KernelNotFound(String),
 }
 
 /// A trait implemented by Intricate that is implemented in every struct that represents a Model
@@ -232,10 +243,11 @@ where
     fn apply_gradients(
         &mut self,
         per_parameter_type_gradients: LayerGradients,
+        optimizer: dyn Optimizer,
     ) -> Result<(), LayerGradientApplicationError>;
 
     fn compute_loss_to_input_derivatives(
         &self,
         layer_output_to_error_derivative: &Buffer<cl_float>,
-    ) -> Result<Buffer<cl_float>, ClError>;
+    ) -> Result<Buffer<cl_float>, LayerLossToInputDifferentiationError>;
 }
