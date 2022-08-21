@@ -194,7 +194,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             }
         })*
 
-        impl<'a> crate::layers::Layer<'a> for #enum_name<'a> {
+        impl<'a, LayerGradients> crate::layers::Layer<'a, LayerGradients> for #enum_name<'a> {
             fn get_last_inputs(&self) -> Option<&opencl3::memory::Buffer<opencl3::device::cl_float>> {
                 match self {
                     #(
@@ -270,14 +270,12 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
 
             fn compute_gradients(
                 &self,
-                layer_output_to_error_derivative: &Buffer<cl_float>,
-            ) -> Result<LayerGradients, LayerGradientComputationError> {
+                layer_output_to_error_derivative: &opencl3::memory::Buffer<opencl3::device::cl_float>,
+            ) -> Result<LayerGradients, crate::layers::LayerGradientComputationError> {
                 match self {
                     #(
-                        #enum_name::#layer_names_10(layer) => layer.back_propagate(
-                            should_calculate_input_to_error_derivative,
+                        #enum_name::#layer_names_10(layer) => layer.compute_gradients(
                             layer_output_to_error_derivative,
-                            learning_rate,
                         ),
                     )*
                 }
@@ -286,14 +284,13 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             fn apply_gradients(
                 &mut self,
                 per_parameter_type_gradients: LayerGradients,
-                optimizer: dyn Optimizer,
-            ) -> Result<(), LayerGradientApplicationError> {
+                optimizer: dyn crate::optimizers::Optimizer,
+            ) -> Result<(), crate::layers::LayerGradientApplicationError> {
                 match self {
                     #(
-                        #enum_name::#layer_names_11(layer) => layer.back_propagate(
-                            should_calculate_input_to_error_derivative,
-                            layer_output_to_error_derivative,
-                            learning_rate,
+                        #enum_name::#layer_names_11(layer) => layer.apply_gradients(
+                            per_parameter_type_gradients,
+                            optimizer
                         ),
                     )*
                 }
@@ -301,14 +298,12 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
 
             fn compute_loss_to_input_derivatives(
                 &self,
-                layer_output_to_error_derivative: &Buffer<cl_float>,
-            ) -> Result<Buffer<cl_float>, LayerLossToInputDifferentiationError> {
+                layer_output_to_error_derivative: &opencl3::memory::Buffer<opencl3::device::cl_float>,
+            ) -> Result<opencl3::memory::Buffer<opencl3::device::cl_float>, crate::layers::LayerLossToInputDifferentiationError> {
                 match self {
                     #(
-                        #enum_name::#layer_names_12(layer) => layer.back_propagate(
-                            should_calculate_input_to_error_derivative,
+                        #enum_name::#layer_names_12(layer) => layer.compute_loss_to_input_derivatives(
                             layer_output_to_error_derivative,
-                            learning_rate,
                         ),
                     )*
                 }
