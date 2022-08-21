@@ -26,7 +26,7 @@ pub fn erors_enum(_input: TokenStream) -> TokenStream {
             _ => None,
         };
 
-        if variant_fields.is_some() {
+        if variant_fields.is_some() && variant_fields.unwrap().len() == 1 {
             Some(&variant.ident)
         } else {
             None
@@ -39,7 +39,7 @@ pub fn erors_enum(_input: TokenStream) -> TokenStream {
             _ => None,
         };
 
-        if variant_fields.is_some() {
+        if variant_fields.is_some() && variant_fields.unwrap().len() == 1 {
             Some(variant_fields.unwrap().first().unwrap())
         } else {
             None
