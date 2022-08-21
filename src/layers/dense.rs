@@ -606,7 +606,7 @@ mod dense_tests {
         layers::{dense::Dense, Layer},
         types::CompilationOrOpenCLError,
         utils::{
-            opencl::{empty_buffer, BufferLike, BufferOperations, DeviceType},
+            opencl::{BufferLike, DeviceType},
             setup_opencl,
         },
     };

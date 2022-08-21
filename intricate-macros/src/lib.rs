@@ -172,7 +172,9 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
     let layer_names_7 = layer_variants.iter().map(|variant| &variant.ident);
     let layer_names_8 = layer_variants.iter().map(|variant| &variant.ident);
     let layer_names_9 = layer_variants.iter().map(|variant| &variant.ident);
-    let layer_names_10 = layer_variants.iter().map(|variant| &variant.ident); // lol
+    let layer_names_10 = layer_names_9.clone();
+    let layer_names_11 = layer_names_9.clone();
+    let layer_names_12 = layer_names_9.clone();
 
     let layer_types = layer_variants.iter().map(|variant| {
         let variant_fields = match &variant.fields {
@@ -266,18 +268,44 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
                 }
             }
 
-            fn back_propagate(
-                &mut self,
-                should_calculate_input_to_error_derivative: bool,
-                layer_output_to_error_derivative: &opencl3::memory::Buffer<opencl3::device::cl_float>,
-                learning_rate: opencl3::device::cl_float,
-            ) -> Result<
-                Option<opencl3::memory::Buffer<opencl3::device::cl_float>>,
-                opencl3::error_codes::ClError
-            > {
+            fn compute_gradients(
+                &self,
+                layer_output_to_error_derivative: &Buffer<cl_float>,
+            ) -> Result<LayerGradients, LayerGradientComputationError> {
                 match self {
                     #(
                         #enum_name::#layer_names_10(layer) => layer.back_propagate(
+                            should_calculate_input_to_error_derivative,
+                            layer_output_to_error_derivative,
+                            learning_rate,
+                        ),
+                    )*
+                }
+            }
+
+            fn apply_gradients(
+                &mut self,
+                per_parameter_type_gradients: LayerGradients,
+                optimizer: dyn Optimizer,
+            ) -> Result<(), LayerGradientApplicationError> {
+                match self {
+                    #(
+                        #enum_name::#layer_names_11(layer) => layer.back_propagate(
+                            should_calculate_input_to_error_derivative,
+                            layer_output_to_error_derivative,
+                            learning_rate,
+                        ),
+                    )*
+                }
+            }
+
+            fn compute_loss_to_input_derivatives(
+                &self,
+                layer_output_to_error_derivative: &Buffer<cl_float>,
+            ) -> Result<Buffer<cl_float>, LayerLossToInputDifferentiationError> {
+                match self {
+                    #(
+                        #enum_name::#layer_names_12(layer) => layer.back_propagate(
                             should_calculate_input_to_error_derivative,
                             layer_output_to_error_derivative,
                             learning_rate,
@@ -353,7 +381,7 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
 
         use opencl3::memory::ClMem;
 
-        impl<'a> crate::layers::Layer<'a> for #activation_name<'a> {
+        impl<'a> crate::layers::Layer<'a, crate::layers::NoGradients<'a>> for #activation_name<'a> {
             fn init(
                 &mut self,
                 opencl_state: &'a crate::utils::OpenCLState,
@@ -454,56 +482,81 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                 Ok(self.last_outputs_buffer.as_ref().unwrap())
             }
 
-        fn back_propagate(
+            fn compute_gradients(
+                &self,
+                _: &opencl3::memory::Buffer<opencl3::device::cl_float>,
+            ) -> Result<crate::layers::NoGradients<'a>, crate::layers::LayerGradientComputationError> {
+                Ok(crate::layers::NoGradients)
+            }
+
+            fn apply_gradients(
                 &mut self,
-                should_calculate_input_to_error_derivative: bool,
+                _per_parameter_type_gradients: crate::layers::NoGradients,
+                _optimizer: dyn crate::optimizers::Optimizer,
+            ) -> Result<(), crate::layers::LayerGradientApplicationError> {
+                Ok(())
+            }
+
+            fn compute_loss_to_input_derivatives(
+                &mut self,
                 layer_output_to_error_derivative: &opencl3::memory::Buffer<opencl3::device::cl_float>,
-                _: opencl3::device::cl_float,
-            ) -> Result<Option<opencl3::memory::Buffer<opencl3::device::cl_float>>, opencl3::error_codes::ClError> {
-                if should_calculate_input_to_error_derivative {
-                    assert!(self.opencl_state.is_some());
-
-                    let state = self.opencl_state.unwrap();
-
-                    let context = &state.context;
-                    let queue = state.queues.first().unwrap();
-
-                    let samples_amount = self.last_outputs_buffer.as_ref().unwrap().size()?
-                        / self.inputs_amount
-                        / std::mem::size_of::<opencl3::device::cl_float>();
-
-                    assert_eq!(samples_amount % 1, 0);
-
-                    let loss_to_input_derivatives_buffer = opencl3::memory::Buffer::<opencl3::device::cl_float>::create(
-                        context,
-                        opencl3::memory::CL_MEM_READ_WRITE,
-                        self.inputs_amount * samples_amount,
-                        std::ptr::null_mut(),
-                    )?;
-
-                    let back_prop_kernel = state.programs
-                        .get(PROGRAM_NAME)
-                        .unwrap()
-                        .kernels
-                        .get(BACK_PROPAGATE_KERNEL_NAME)
-                        .unwrap();
-
-                    opencl3::kernel::ExecuteKernel::new(back_prop_kernel)
-                        .set_arg(layer_output_to_error_derivative)
-                        .set_arg(self.last_outputs_buffer.as_ref().unwrap())
-                        .set_arg(&loss_to_input_derivatives_buffer)
-                        .set_arg(&(self.inputs_amount as opencl3::error_codes::cl_int))
-                        .set_arg(&(samples_amount as opencl3::error_codes::cl_int))
-                        .set_arg(&(self.inputs_amount as opencl3::error_codes::cl_int))
-                        .set_global_work_sizes(&[samples_amount, self.inputs_amount])
-                        .enqueue_nd_range(queue)?;
-
-                    queue.finish()?;
-
-                    Ok(Some(loss_to_input_derivatives_buffer))
-                } else {
-                    Ok(None)
+            ) -> Result<opencl3::memory::Buffer<opencl3::device::cl_float>, crate::layers::LayerLossToInputDifferentiationError> {
+                if self.opencl_state.is_none() {
+                    return Err(crate::layers::LayerLossToInputDifferentiationError::LayerNotInitializedError);
                 }
+
+                let state = self.opencl_state.unwrap();
+
+                let context = &state.context;
+
+                if state.queues.len() == 0 {
+                    return Err(crate::layers::LayerLossToInputDifferentiationError::NoCommandQueue);
+                }
+
+                let queue = state.queues.first().unwrap();
+
+                if self.last_outputs_buffer.is_none() {
+                    return Err(crate::layers::LayerLossToInputDifferentiationError::HasNotPropagatedBeforeCalculation);
+                }
+
+                let samples_amount = self.last_outputs_buffer.as_ref().unwrap().size()?
+                    / self.inputs_amount
+                    / std::mem::size_of::<opencl3::device::cl_float>();
+
+                let loss_to_input_derivatives_buffer = opencl3::memory::Buffer::<opencl3::device::cl_float>::create(
+                    context,
+                    opencl3::memory::CL_MEM_READ_WRITE,
+                    self.inputs_amount * samples_amount,
+                    std::ptr::null_mut(),
+                )?;
+
+                if !state.programs.contains_key(PROGRAM_NAME) {
+                    return Err(crate::layers::LayerLossToInputDifferentiationError::ProgramNotFound(PROGRAM_NAME));
+                }
+
+                let program = state.programs.get(PROGRAM_NAME).unwrap();
+
+                if !program.kernels.contains_key(BACK_PROPAGATE_KERNEL_NAME) {
+                    return Err(crate::layers::LayerLossToInputDifferentiationError::KernelNotFound(BACK_PROPAGATE_KERNEL_NAME));
+                }
+
+                let back_prop_kernel = program.kernels
+                    .get(BACK_PROPAGATE_KERNEL_NAME)
+                    .unwrap();
+
+                opencl3::kernel::ExecuteKernel::new(back_prop_kernel)
+                    .set_arg(layer_output_to_error_derivative)
+                    .set_arg(self.last_outputs_buffer.as_ref().unwrap())
+                    .set_arg(&loss_to_input_derivatives_buffer)
+                    .set_arg(&(self.inputs_amount as opencl3::error_codes::cl_int))
+                    .set_arg(&(samples_amount as opencl3::error_codes::cl_int))
+                    .set_arg(&(self.inputs_amount as opencl3::error_codes::cl_int))
+                    .set_global_work_sizes(&[samples_amount, self.inputs_amount])
+                    .enqueue_nd_range(queue)?;
+
+                queue.finish()?;
+
+                Ok(loss_to_input_derivatives_buffer)
             }
         }
     })

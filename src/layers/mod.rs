@@ -30,11 +30,6 @@ pub(crate) fn compile_layers(
     Ok(())
 }
 
-#[derive(Debug, ErrorsEnum)]
-pub enum GradientComputationError {
-    OpenCL(ClError),
-}
-
 #[derive(Debug)]
 pub struct Gradient {
     pub value: Buffer<cl_float>,
@@ -42,23 +37,47 @@ pub struct Gradient {
 }
 
 #[derive(Debug, ErrorsEnum)]
-pub enum ComputeVectorComputationError {
+pub enum UpdateVectorsComputationError {
     OpenCL(ClError),
     GradientOptimzationError(OptimizationError),
     UninitializedState,
     NoCommandQueueFound,
 }
 
+pub struct NoGradients<'a>;
+
+impl<'a> Gradients<'a> for NoGradients<'a> {
+    fn get_gradients(&self) -> &[Gradient] {
+        &[]
+    }
+
+    fn get_opencl_state(&self) -> Option<&'a OpenCLState> {
+        None
+    }
+
+    fn compute_update_vectors(
+        &self,
+        _optimizer: dyn Optimizer,
+    ) -> Result<Vec<Buffer<cl_float>>, UpdateVectorsComputationError> {
+        Ok(Vec::new())
+    }
+}
+
 pub trait Gradients<'a> {
     fn get_gradients(&self) -> &[Gradient];
 
-    fn get_opencl_state(&self) -> &'a OpenCLState;
+    fn get_opencl_state(&self) -> Option<&'a OpenCLState>;
 
     fn compute_update_vectors(
         &self,
         optimizer: dyn Optimizer,
-    ) -> Result<Vec<Buffer<cl_float>>, ComputeVectorComputationError> {
-        let state = self.get_opencl_state();
+    ) -> Result<Vec<Buffer<cl_float>>, UpdateVectorsComputationError> {
+        if self.get_opencl_state().is_none() {
+            return Err(UpdateVectorsComputationError::UninitializedState);
+        }
+
+        let state = self.get_opencl_state().unwrap();
+        
         if let Some(queue) = state.queues.first() {
             let all_gradients = self.get_gradients();
             let mut update_vectors: Vec<Buffer<cl_float>> = Vec::with_capacity(all_gradients.len());
@@ -75,7 +94,7 @@ pub trait Gradients<'a> {
 
             Ok(update_vectors)
         } else {
-            Err(ComputeVectorComputationError::NoCommandQueueFound)
+            Err(UpdateVectorsComputationError::NoCommandQueueFound)
         }
     }
 }
@@ -136,6 +155,7 @@ pub enum LayerLossToInputDifferentiationError {
     OpenCL(ClError),
     LayerNotInitialized,
     NoCommandQueue,
+    HasNotPropagatedBeforeCalculation,
     ProgramNotFound(String),
     KernelNotFound(String),
 }
