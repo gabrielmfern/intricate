@@ -18,7 +18,7 @@ use opencl3::{
     kernel::{ExecuteKernel, Kernel},
     memory::{Buffer, ClMem, CL_MEM_READ_WRITE},
     program::Program,
-    types::{cl_device_type, cl_float},
+    types::{cl_device_type, cl_float, cl_mem_flags},
 };
 
 const BUFFER_OPERATIONS_PROGRAM_SOURCE: &str = include_str!("sum.cl");
@@ -185,7 +185,7 @@ pub enum BufferOperationError {
     /// that may mean there is a problem in Intricate's code, so you should report this as an
     /// issue.
     KernelNotFoundError,
-    /// This just means that the operation did find any device for it to run on.
+    /// This just means that the operation did ot find any device for it to run on.
     NoDeviceFoundError,
     /// This means that there is no command queue associated with the device, this may be a problem
     /// in Intricate's source code, so please report this in an issue.
@@ -211,9 +211,26 @@ where
     /// - If the program for buffer operations was not compiled in **opencl_state**.
     /// - If the summation kernel was not foudn in the program for buffer operations.
     fn sum(&self, opencl_state: &OpenCLState) -> Result<f32, BufferOperationError>;
+
+    fn clone(&self, flags: cl_mem_flags, opencl_state: &OpenCLState) -> Result<Self, BufferOperationError>;
 }
 
 impl BufferOperations for Buffer<cl_float> {
+    fn clone(&self, flags: cl_mem_flags, opencl_state: &OpenCLState) -> Result<Self, BufferOperationError> {
+        if let Some(queue) = opencl_state.queues.first() {
+            let context = &opencl_state.context;
+            let size = self.size()?;
+            let count = size / std::mem::size_of::<cl_float>();
+            let mut copied_buff = Buffer::create(context, flags, count, ptr::null_mut())?;
+
+            queue.enqueue_copy_buffer(self, &mut copied_buff, 0, 0, size, &[])?.wait();
+
+            Ok(copied_buff)
+        } else {
+            Err(BufferOperationError::NoCommandQueueFoundError)
+        }
+    }
+
     fn sum(&self, opencl_state: &OpenCLState) -> Result<f32, BufferOperationError> {
         if opencl_state.devices.is_empty() {
             return Err(BufferOperationError::NoDeviceFoundError);

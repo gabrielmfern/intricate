@@ -48,18 +48,33 @@ pub enum ModelLayer<'a> {
     Sigmoid(Sigmoid<'a>),
 }
 
+#[derive(Debug)]
+pub enum GradientDescent {}
+
+#[derive(Debug)]
+pub enum Optimizer {}
+
 /// A struct that defines the options for training a Model.
 pub struct TrainingOptions<'a> {
     /// The amount at which the gradients should be multiplied as to have a
 /// gradual learning experience for the Model.
     pub loss_algorithm: ModelLossFunction<'a>,
-    // TODO: implement optimizers
     /// The loss function that will be used for calculating how **wrong** the Model 
     /// was after some prediction over many samples.
-    pub learning_rate: f32,
+    pub initial_learning_rate: f32,
+    pub gradient_descent_method: GradientDescent,
+    pub optimizer: Optimizer,
     /// Weather or not the training process should be verbose, as to print the current epoch, 
     /// and the current loss after applying gradients.
-    pub should_print_information: bool,
+    pub verbose: bool,
+    /// Weather or not at the end of each backprop the Model should compute its own loss and
+    /// return it.
+    ///
+    /// If this is **true**, at the end of the **fit** method there will be returned the loss after
+    /// applying the gradients.
+    ///
+    /// This will be necessarily true if `verbose` is set to **true**.
+    pub compute_loss: bool,
     /// The amount of epochs that the Model should train for.
     pub epochs: usize,
 }
