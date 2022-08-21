@@ -4,7 +4,6 @@
 
 use intricate_macros::ErrorsEnum;
 use opencl3::{
-    command_queue::CommandQueue,
     device::cl_float,
     error_codes::ClError,
     memory::{Buffer, ClMem, CL_MEM_READ_ONLY},
@@ -53,33 +52,30 @@ pub enum ComputeVectorComputationError {
 pub trait Gradients<'a> {
     fn get_gradients(&self) -> &[Gradient];
 
-    fn get_opencl_state(&self) -> Option<&'a OpenCLState>;
+    fn get_opencl_state(&self) -> &'a OpenCLState;
 
     fn compute_update_vectors(
         &self,
         optimizer: dyn Optimizer,
     ) -> Result<Vec<Buffer<cl_float>>, ComputeVectorComputationError> {
-        if let Some(state) = self.get_opencl_state() {
-            if let Some(queue) = state.queues.first() {
-                let all_gradients = self.get_gradients();
-                let mut update_vectors: Vec<Buffer<cl_float>> = Vec::with_capacity(all_gradients.len());
+        let state = self.get_opencl_state();
+        if let Some(queue) = state.queues.first() {
+            let all_gradients = self.get_gradients();
+            let mut update_vectors: Vec<Buffer<cl_float>> = Vec::with_capacity(all_gradients.len());
 
-                let context = &state.context;
+            let context = &state.context;
 
-                for (i, gradients) in all_gradients.iter().enumerate() {
-                    if gradients.optimizable {
-                        update_vectors[i] = optimizer.compute_update_vectors(&gradients.value)?;
-                    } else {
-                        update_vectors[i] = gradients.value.clone(CL_MEM_READ_ONLY, state)?;
-                    }
+            for (i, gradients) in all_gradients.iter().enumerate() {
+                if gradients.optimizable {
+                    update_vectors[i] = optimizer.compute_update_vectors(&gradients.value)?;
+                } else {
+                    update_vectors[i] = gradients.value.clone(CL_MEM_READ_ONLY, state)?;
                 }
-
-                Ok(update_vectors)
-            } else {
-                Err(ComputeVectorComputationError::NoCommandQueueFound)
             }
+
+            Ok(update_vectors)
         } else {
-            Err(ComputeVectorComputationError::UninitializedState)
+            Err(ComputeVectorComputationError::NoCommandQueueFound)
         }
     }
 }
