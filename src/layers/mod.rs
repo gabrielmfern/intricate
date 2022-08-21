@@ -119,6 +119,16 @@ pub enum LayerGradientApplicationError {
     LayerNotInitialized
 }
 
+#[derive(Debug, ErrorsEnum)]
+pub enum LayerSyncDataError {
+    OpenCL(ClError),
+    LayerNotInitialized,
+    NotAllocatedInDevice {
+        field_name: String
+    },
+    NoCommandQueue,
+}
+
 /// A trait implemented by Intricate that is implemented in every struct that represents a Model
 /// Layer.
 /// A layer in Intricate can be defined basically as a function that can take some inputs and gives
@@ -174,7 +184,7 @@ where
     ///
     /// This function will return an error if something goes wrong while triying to read the data
     /// from the buffers with OpenCL.
-    fn sync_data_from_buffers_to_host(&mut self) -> Result<(), ClError>;
+    fn sync_data_from_buffers_to_host(&mut self) -> Result<(), LayerSyncDataError>;
 
     /// Sends the important information of the current layer to the GPU
     /// as to be used in the propagation and back propagation
@@ -185,8 +195,8 @@ where
     ///
     /// # Errors
     ///
-    /// This function will return an error if something goes wrong while trying to compile and
-    /// build the OpenCL programs or while allocating buffers into the device of the queue.
+    /// This function will return an error if something goes wrong while 
+    /// allocating buffers into the device of the queue.
     fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), ClError>;
 
     /// Should calculate the outputs of the layer based on the inputs
@@ -223,4 +233,9 @@ where
         &mut self,
         per_parameter_type_gradients: LayerGradients,
     ) -> Result<(), LayerGradientApplicationError>;
+
+    fn compute_loss_to_input_derivatives(
+        &self,
+        layer_output_to_error_derivative: &Buffer<cl_float>,
+    ) -> Result<Buffer<cl_float>, ClError>;
 }

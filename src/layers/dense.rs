@@ -20,7 +20,7 @@ use crate::{
     },
 };
 
-use super::Layer;
+use super::{Layer, Gradients, Gradient, LayerSyncDataError};
 
 const DENSE_PROP_PROGRAM_NAME: &str = "DENSE_PROPAGATION";
 const DENSE_BACKPROP_PROGRAM_NAME: &str = "DENSE_BACKPROPAGATION";
@@ -161,7 +161,32 @@ impl<'a> Dense<'a> {
     }
 }
 
-impl<'a> Layer<'a> for Dense<'a> {
+pub struct DenseGradients<'a> {
+    opencl_state: &'a OpenCLState,
+    weights_gradients: Buffer<cl_float>,
+    bias_gradients: Buffer<cl_float>,
+}
+
+impl<'a> Gradients<'a> for DenseGradients<'a> {
+    fn get_gradients(&self) -> &[Gradient] {
+        return &[
+            Gradient {
+                value: self.weights_gradients,
+                optimizable: true,
+            },
+            Gradient {
+                value: self.bias_gradients,
+                optimizable: true,
+            },
+        ];
+    }
+
+    fn get_opencl_state(&self) -> &'a OpenCLState {
+        self.opencl_state
+    }
+}
+
+impl<'a> Layer<'a, DenseGradients<'a>> for Dense<'a> {
     fn clean_up_gpu_state(&mut self) -> () {
         if self.weights_buffer.is_some() {
             drop(self.weights_buffer.as_ref().unwrap());
@@ -180,17 +205,25 @@ impl<'a> Layer<'a> for Dense<'a> {
         }
     }
 
-    fn sync_data_from_buffers_to_host(&mut self) -> Result<(), ClError> {
-        assert!(self.weights_buffer.is_some());
-        assert!(self.biases_buffer.is_some());
-        assert!(self.opencl_state.is_some());
-        assert!(!self.opencl_state.unwrap().queues.is_empty());
+    fn sync_data_from_buffers_to_host(&mut self) -> Result<(), LayerSyncDataError> {
+        if self.weights_buffer.is_none() {
+            Err(LayerSyncDataError::NotAllocatedInDevice { field_name: "weights_buffer".to_string() })
+        }
 
-        let mut weights_flat_vec = vec![0.0; self.inputs_amount * self.outputs_amount];
-        let weights_flat_slice = weights_flat_vec.as_mut_slice();
+        if self.biases_buffer.is_none() {
+            Err(LayerSyncDataError::NotAllocatedInDevice { field_name: "biases_buffer".to_string() })
+        }
 
-        let mut biases_vec = vec![0.0; self.outputs_amount];
-        let biases_slice = biases_vec.as_mut_slice();
+        if self.opencl_state.is_none {
+            Err(LayerSyncDataError::LayerNotInitialized)
+        }
+
+        if self.opencl_state.unwrap().queues.is_empty() {
+            Err(LayerSyncDataError::NoCommandQueue)
+        }
+
+        let mut weights_flat = vec![0.0; self.inputs_amount * self.outputs_amount];
+        let mut biases = vec![0.0; self.outputs_amount];
 
         let queue = self.opencl_state.unwrap().queues.first().unwrap();
 
@@ -198,7 +231,7 @@ impl<'a> Layer<'a> for Dense<'a> {
             self.weights_buffer.as_ref().unwrap(),
             CL_NON_BLOCKING,
             0,
-            weights_flat_slice,
+            weights_flat.as_mut_slice(),
             &[],
         )?;
 
@@ -206,14 +239,14 @@ impl<'a> Layer<'a> for Dense<'a> {
             self.biases_buffer.as_ref().unwrap(),
             CL_NON_BLOCKING,
             0,
-            biases_slice,
+            biases.as_mut_slice(),
             &[],
         )?;
 
         read_weights_event.wait()?;
         read_biases_event.wait()?;
 
-        self.biases = biases_vec;
+        self.biases = biases;
         self.weights = (0..self.inputs_amount)
             .into_par_iter()
             .map(|i| {
@@ -222,7 +255,7 @@ impl<'a> Layer<'a> for Dense<'a> {
                     .into_iter()
                     .map(|j| {
                         let flat_index = row_part + j;
-                        weights_flat_vec[flat_index]
+                        weights_flat[flat_index]
                     })
                     .collect::<Vec<f32>>()
             })
