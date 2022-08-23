@@ -137,8 +137,6 @@ fn reduce_buffer_by_summation(
 
     let (local_size, global_size) =
         find_optimal_local_and_global_work_sizes(current_count, max_local_size);
-    dbg!(local_size);
-    dbg!(global_size);
 
     let current_reduced_buffer = Buffer::<cl_float>::create(
         context,
