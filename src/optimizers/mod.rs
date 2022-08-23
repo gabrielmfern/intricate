@@ -7,7 +7,7 @@ pub use dummy::Dummy;
 use intricate_macros::FromForAllUnnamedVariants;
 use opencl3::{device::cl_float, error_codes::ClError, memory::Buffer};
 
-use crate::utils::opencl::BufferOperationError;
+use crate::utils::{opencl::BufferOperationError, OpenCLState};
 
 #[derive(Debug, FromForAllUnnamedVariants)]
 pub enum OptimizationError {
@@ -18,6 +18,11 @@ pub enum OptimizationError {
 }
 
 pub trait Optimizer<'a> {
+    fn init(
+        &mut self,
+        opencl_state: &'a OpenCLState,
+    ) -> Result<(), ClError>;
+
     fn optimize_parameters(
         &self,
         parameters: &Buffer<cl_float>,

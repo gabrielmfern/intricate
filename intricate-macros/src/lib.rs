@@ -70,6 +70,7 @@ pub fn optimizer_enum(_input: TokenStream) -> TokenStream {
 
     let variant = variants.iter().map(|variant| &variant.ident);
     let variant_2 = variant.clone();
+    let variant_3 = variant.clone();
 
     quote! {
         impl<'a> crate::optimizers::Optimizer<'a> for #enum_name<'a> {
@@ -94,6 +95,19 @@ pub fn optimizer_enum(_input: TokenStream) -> TokenStream {
                 #(
                     #enum_name::#variant_2(v) => v.compute_update_vectors(
                         gradients
+                    ),
+                )*
+                }
+            }
+
+            fn init(
+                &mut self,
+                opencl_state: &'a OpenCLState,
+            ) -> Result<(), ClError> {
+                match self {
+                #(
+                    #enum_name::#variant_3(v) => v.init(
+                        opencl_state
                     ),
                 )*
                 }
