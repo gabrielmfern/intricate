@@ -11,7 +11,7 @@ pub struct Dummy<'a> {
 }
 
 impl<'a> Dummy<'a> {
-    pub fn new(learning_rate: f32) -> PossibleOptimizer {
+    pub fn new(learning_rate: f32) -> PossibleOptimizer<'a> {
         Self::new_raw(learning_rate).into()
     }
 
