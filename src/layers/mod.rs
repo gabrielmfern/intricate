@@ -2,16 +2,16 @@
 //! As of v0.3.0, Intricate has only the Dense type of layer, but has the activation functions
 //! which are used as layers in Intricate.
 
-use intricate_macros::ErrorsEnum;
+use intricate_macros::FromForAllUnnamedVariants;
 use opencl3::{
     device::cl_float,
     error_codes::ClError,
-    memory::{Buffer, ClMem, CL_MEM_READ_ONLY},
+    memory::{Buffer, CL_MEM_READ_ONLY},
 };
 
 use crate::{
     optimizers::{OptimizationError, Optimizer},
-    utils::{opencl::EnsureKernelsAndProgramError, OpenCLState, BufferOperations},
+    utils::{opencl::{EnsureKernelsAndProgramError, BufferOperationError}, OpenCLState, BufferOperations}, types::{KernelNotFoundError, ProgramNotFoundError, PossibleOptimizer},
 };
 
 pub mod activations;
@@ -36,75 +36,45 @@ pub struct Gradient {
     pub optimizable: bool,
 }
 
-#[derive(Debug, ErrorsEnum)]
+#[derive(Debug, FromForAllUnnamedVariants)]
 pub enum UpdateVectorsComputationError {
     OpenCL(ClError),
-    GradientOptimzationError(OptimizationError),
-    UninitializedState,
+    GradientOptimzation(OptimizationError),
+    BufferOperation(BufferOperationError),
     NoCommandQueueFound,
 }
 
-pub struct NoGradients<'a>;
+pub fn compute_update_vectors(
+    optimizer: &PossibleOptimizer,
+    all_gradients: &[Gradient],
+    state: &OpenCLState,
+) -> Result<Vec<Buffer<cl_float>>, UpdateVectorsComputationError> {
+    if let Some(queue) = state.queues.first() {
+        let mut update_vectors: Vec<Buffer<cl_float>> = Vec::with_capacity(all_gradients.len());
 
-impl<'a> Gradients<'a> for NoGradients<'a> {
-    fn get_gradients(&self) -> &[Gradient] {
-        &[]
-    }
+        let context = &state.context;
 
-    fn get_opencl_state(&self) -> Option<&'a OpenCLState> {
-        None
-    }
-
-    fn compute_update_vectors(
-        &self,
-        _optimizer: dyn Optimizer,
-    ) -> Result<Vec<Buffer<cl_float>>, UpdateVectorsComputationError> {
-        Ok(Vec::new())
-    }
-}
-
-pub trait Gradients<'a> {
-    fn get_gradients(&self) -> &[Gradient];
-
-    fn get_opencl_state(&self) -> Option<&'a OpenCLState>;
-
-    fn compute_update_vectors(
-        &self,
-        optimizer: dyn Optimizer,
-    ) -> Result<Vec<Buffer<cl_float>>, UpdateVectorsComputationError> {
-        if self.get_opencl_state().is_none() {
-            return Err(UpdateVectorsComputationError::UninitializedState);
-        }
-
-        let state = self.get_opencl_state().unwrap();
-        
-        if let Some(queue) = state.queues.first() {
-            let all_gradients = self.get_gradients();
-            let mut update_vectors: Vec<Buffer<cl_float>> = Vec::with_capacity(all_gradients.len());
-
-            let context = &state.context;
-
-            for (i, gradients) in all_gradients.iter().enumerate() {
-                if gradients.optimizable {
-                    update_vectors[i] = optimizer.compute_update_vectors(&gradients.value)?;
-                } else {
-                    update_vectors[i] = gradients.value.clone(CL_MEM_READ_ONLY, state)?;
-                }
+        for (i, gradients) in all_gradients.iter().enumerate() {
+            if gradients.optimizable {
+                update_vectors[i] = optimizer.compute_update_vectors(&gradients.value)?;
+            } else {
+                update_vectors[i] = gradients.value.clone(CL_MEM_READ_ONLY, state)?;
             }
-
-            Ok(update_vectors)
-        } else {
-            Err(UpdateVectorsComputationError::NoCommandQueueFound)
         }
+
+        Ok(update_vectors)
+    } else {
+        Err(UpdateVectorsComputationError::NoCommandQueueFound)
     }
 }
 
-#[derive(Debug, ErrorsEnum)]
+#[derive(Debug, FromForAllUnnamedVariants)]
 pub enum LayerPropagationError {
     OpenCL(ClError),
 
-    ProgramNotFound(String),
-    KernelNotFound(String),
+    ProgramNotFound(ProgramNotFoundError),
+    KernelNotFound(KernelNotFoundError),
+    BufferOperation(BufferOperationError),
 
     NoCommandQueueFound,
     NoDeviceFound,
@@ -112,12 +82,12 @@ pub enum LayerPropagationError {
     LayerNotInitialized
 }
 
-#[derive(Debug, ErrorsEnum)]
+#[derive(Debug, FromForAllUnnamedVariants)]
 pub enum LayerGradientComputationError {
     OpenCL(ClError),
 
-    ProgramNotFound,
-    KernelNotFound,
+    ProgramNotFound(ProgramNotFoundError),
+    KernelNotFound(KernelNotFoundError),
 
     NoCommandQueueFound,
     NoDeviceFound,
@@ -125,14 +95,16 @@ pub enum LayerGradientComputationError {
     LayerNotInitialized
 }
 
-#[derive(Debug, ErrorsEnum)]
+#[derive(Debug, FromForAllUnnamedVariants)]
 pub enum LayerGradientApplicationError {
     OpenCL(ClError),
 
-    ComputeUpdateVectorsError(LayerGradientComputationError),
+    ComputeUpdateVectors(LayerGradientComputationError),
+    BufferOperation(BufferOperationError),
+    UpdateVectorsComputation(UpdateVectorsComputationError),
 
-    ProgramNotFound(String),
-    KernelNotFound(String),
+    ProgramNotFound(ProgramNotFoundError),
+    KernelNotFound(KernelNotFoundError),
 
     NoCommandQueueFound,
     NoDeviceFound,
@@ -140,7 +112,7 @@ pub enum LayerGradientApplicationError {
     LayerNotInitialized
 }
 
-#[derive(Debug, ErrorsEnum)]
+#[derive(Debug, FromForAllUnnamedVariants)]
 pub enum LayerSyncDataError {
     OpenCL(ClError),
     LayerNotInitialized,
@@ -150,14 +122,14 @@ pub enum LayerSyncDataError {
     NoCommandQueue,
 }
 
-#[derive(Debug, ErrorsEnum)]
+#[derive(Debug, FromForAllUnnamedVariants)]
 pub enum LayerLossToInputDifferentiationError {
     OpenCL(ClError),
     LayerNotInitialized,
-    NoCommandQueue,
+    NoCommandQueueFound,
     HasNotPropagatedBeforeCalculation,
-    ProgramNotFound(String),
-    KernelNotFound(String),
+    ProgramNotFound(ProgramNotFoundError),
+    KernelNotFound(KernelNotFoundError),
 }
 
 /// A trait implemented by Intricate that is implemented in every struct that represents a Model
@@ -166,10 +138,7 @@ pub enum LayerLossToInputDifferentiationError {
 /// outputs however it sees fit, but, that also backpropagates using derivatives of the outputs to
 /// the loss of the whole Model, and returning derivatives of the loss with respect to the inputs
 /// of the layer.
-pub trait Layer<'a, LayerGradients>
-where
-    LayerGradients: Gradients<'a>,
-{
+pub trait Layer<'a> {
     /// Gets the last input samples that were used in the 'propagate' method,
     /// having this getter forces a struct that implements Layer to save its
     /// inputs on propagate
@@ -258,12 +227,12 @@ where
     fn compute_gradients(
         &self,
         layer_output_to_error_derivative: &Buffer<cl_float>,
-    ) -> Result<LayerGradients, LayerGradientComputationError>;
+    ) -> Result<Vec<Gradient>, LayerGradientComputationError>;
 
     fn apply_gradients(
         &mut self,
-        per_parameter_type_gradients: LayerGradients,
-        optimizer: dyn Optimizer,
+        per_parameter_type_gradients: &[Gradient],
+        optimizer: &PossibleOptimizer,
     ) -> Result<(), LayerGradientApplicationError>;
 
     fn compute_loss_to_input_derivatives(

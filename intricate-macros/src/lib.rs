@@ -8,19 +8,20 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, Data, DeriveInput, Fields, Ident};
 
-#[proc_macro_derive(ErrorsEnum)]
-/// Derives all the From<Error> implementations for the enum it is being derived on.
-pub fn erors_enum(_input: TokenStream) -> TokenStream {
+#[proc_macro_derive(FromForAllUnnamedVariants)]
+/// Derives all the From<...> implementations for the enum it is being derived on.
+pub fn from_for_all_variants(_input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(_input as DeriveInput);
     let enum_name = &input.ident;
+    let generics = &input.generics;
 
-    let error_variants = if let Data::Enum(enm) = input.data {
+    let variants = if let Data::Enum(enm) = input.data {
         enm.variants
     } else {
-        panic!("The 'ErrorsEnum' derive macro can only be be used with enums!");
+        panic!("The 'FromForAllUnnamedVariants' derive macro can only be be used with enums!");
     };
 
-    let error_names = error_variants.iter().filter_map(|variant| {
+    let names = variants.iter().filter_map(|variant| {
         let variant_fields = match &variant.fields {
             Fields::Unnamed(fields) => Some(&fields.unnamed),
             _ => None,
@@ -33,7 +34,7 @@ pub fn erors_enum(_input: TokenStream) -> TokenStream {
         }
     });
 
-    let error_types = error_variants.iter().filter_map(|variant| {
+    let types = variants.iter().filter_map(|variant| {
         let variant_fields = match &variant.fields {
             Fields::Unnamed(fields) => Some(&fields.unnamed),
             _ => None,
@@ -47,13 +48,58 @@ pub fn erors_enum(_input: TokenStream) -> TokenStream {
     });
 
     quote! {
-        #(impl From<#error_types> for #enum_name {
-            fn from(err: #error_types) -> Self {
-                #enum_name::#error_names(err)
+        #(impl #generics From<#types> for #enum_name #generics {
+            fn from(v: #types) -> Self {
+                #enum_name::#names(v)
             }
         })*
     }
     .into()
+}
+
+#[proc_macro_derive(OptimizerEnum)]
+pub fn optimizer_enum(_input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(_input as DeriveInput);
+    let enum_name = &input.ident;
+
+    let variants = if let Data::Enum(enm) = input.data {
+        enm.variants
+    } else {
+        panic!("The 'LossFunctionEnum' derive macro can only be used with enums!");
+    };
+
+    let variant = variants.iter().map(|variant| &variant.ident);
+    let variant_2 = variant.clone();
+
+    quote! {
+        impl<'a> crate::optimizers::Optimizer<'a> for #enum_name<'a> {
+            fn optimize_parameters(
+                &self,
+                parameters: &opencl3::memory::Buffer<opencl3::device::cl_float>,
+            ) -> Result<opencl3::memory::Buffer<opencl3::device::cl_float>, crate::optimizers::OptimizationError> {
+                match self {
+                #(
+                    #enum_name::#variant(v) => v.optimize_parameters(
+                        parameters
+                    ),
+                )*
+                }
+            }
+
+            fn compute_update_vectors(
+                &self,
+                gradients: &opencl3::memory::Buffer<opencl3::device::cl_float>,
+            ) -> Result<opencl3::memory::Buffer<opencl3::device::cl_float>, crate::optimizers::OptimizationError> {
+                match self {
+                #(
+                    #enum_name::#variant_2(v) => v.compute_update_vectors(
+                        gradients
+                    ),
+                )*
+                }
+            }
+        }
+    }.into()
 }
 
 #[proc_macro_derive(LossFunctionEnum)]
@@ -76,24 +122,7 @@ pub fn loss_function_enum(_input: TokenStream) -> TokenStream {
     let loss_function_names_3 = loss_function_names.clone();
     let loss_function_names_4 = loss_function_names.clone();
 
-    let loss_types = variants.iter().map(|variant| {
-        let variant_fields = match &variant.fields {
-            Fields::Unnamed(fields) => &fields.unnamed,
-            _ => panic!(
-                "Every variant of the enum must be a loss function, therefore can only contain one unnamed field which is the actual loss function"
-            )
-        };
-
-        &variant_fields.first().expect("Every variant of the enum must be a loss function, therefore can only contain one unnamed field which is the actual loss function").ty
-    });
-
     quote! {
-        #(impl<'a> From<#loss_types> for #enum_name<'a> {
-            fn from(layer: #loss_types) -> Self {
-                #enum_name::#loss_function_names(layer)
-            }
-        })*
-
         impl<'a> crate::loss_functions::LossFunction<'a> for #enum_name<'a> {
             fn compute_loss(
                 &self,
@@ -174,31 +203,13 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
     let layer_names_9 = layer_variants.iter().map(|variant| &variant.ident);
     let layer_names_10 = layer_names_9.clone();
     let layer_names_11 = layer_names_9.clone();
-    let layer_names_12 = layer_names_9.clone();
-
-    let layer_types = layer_variants.iter().map(|variant| {
-        let variant_fields = match &variant.fields {
-            Fields::Unnamed(fields) => &fields.unnamed,
-            _ => panic!(
-                "Every variant of the enum must be a layer, therefore can only contain one unnamed field which is the actual layer"
-            )
-        };
-
-        &variant_fields.first().expect("Every variant of the enum must be a layer, therefore can only contain one unnamed field which is the actual layer").ty
-    });
 
     TokenStream::from(quote! {
-        #(impl<'a> From<#layer_types> for #enum_name<'a> {
-            fn from(layer: #layer_types) -> Self {
-                #enum_name::#layer_names(layer)
-            }
-        })*
-
-        impl<'a, LayerGradients> crate::layers::Layer<'a, LayerGradients> for #enum_name<'a> {
+        impl<'a> crate::layers::Layer<'a> for #enum_name<'a> {
             fn get_last_inputs(&self) -> Option<&opencl3::memory::Buffer<opencl3::device::cl_float>> {
                 match self {
                     #(
-                        #enum_name::#layer_names_2(layer) => layer.get_last_inputs(),
+                        #enum_name::#layer_names(layer) => layer.get_last_inputs(),
                     )*
                 }
             }
@@ -206,7 +217,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             fn get_last_outputs(&self) -> Option<&opencl3::memory::Buffer<opencl3::device::cl_float>> {
                 match self {
                     #(
-                        #enum_name::#layer_names_3(layer) => layer.get_last_outputs(),
+                        #enum_name::#layer_names_2(layer) => layer.get_last_outputs(),
                     )*
                 }
             }
@@ -214,7 +225,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             fn get_inputs_amount(&self) -> usize {
                 match self {
                     #(
-                        #enum_name::#layer_names_4(layer) => layer.get_inputs_amount(),
+                        #enum_name::#layer_names_3(layer) => layer.get_inputs_amount(),
                     )*
                 }
             }
@@ -222,7 +233,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             fn get_outputs_amount(&self) -> usize {
                 match self {
                     #(
-                        #enum_name::#layer_names_5(layer) => layer.get_outputs_amount(),
+                        #enum_name::#layer_names_4(layer) => layer.get_outputs_amount(),
                     )*
                 }
             }
@@ -233,7 +244,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             ) -> Result<(), opencl3::error_codes::ClError> {
                 match self {
                     #(
-                        #enum_name::#layer_names_6(layer) => layer.init(opencl_state),
+                        #enum_name::#layer_names_5(layer) => layer.init(opencl_state),
                     )*
                 }
             }
@@ -241,15 +252,15 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             fn clean_up_gpu_state(&mut self) -> () {
                 match self {
                     #(
-                        #enum_name::#layer_names_7(layer) => layer.clean_up_gpu_state(),
+                        #enum_name::#layer_names_6(layer) => layer.clean_up_gpu_state(),
                     )*
                 }
             }
 
-            fn sync_data_from_buffers_to_host(&mut self) -> Result<(), opencl3::error_codes::ClError> {
+            fn sync_data_from_buffers_to_host(&mut self) -> Result<(), crate::layers::LayerSyncDataError> {
                 match self {
                     #(
-                        #enum_name::#layer_names_8(layer) => layer.sync_data_from_buffers_to_host(),
+                        #enum_name::#layer_names_7(layer) => layer.sync_data_from_buffers_to_host(),
                     )*
                 }
             }
@@ -259,11 +270,11 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
                 inputs: &opencl3::memory::Buffer<opencl3::device::cl_float>
             ) -> Result<
                 &opencl3::memory::Buffer<opencl3::device::cl_float>,
-                opencl3::error_codes::ClError
+                crate::layers::LayerPropagationError
             > {
                 match self {
                     #(
-                        #enum_name::#layer_names_9(layer) => layer.propagate(inputs),
+                        #enum_name::#layer_names_8(layer) => layer.propagate(inputs),
                     )*
                 }
             }
@@ -271,10 +282,10 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             fn compute_gradients(
                 &self,
                 layer_output_to_error_derivative: &opencl3::memory::Buffer<opencl3::device::cl_float>,
-            ) -> Result<LayerGradients, crate::layers::LayerGradientComputationError> {
+            ) -> Result<Vec<crate::layers::Gradient>, crate::layers::LayerGradientComputationError> {
                 match self {
                     #(
-                        #enum_name::#layer_names_10(layer) => layer.compute_gradients(
+                        #enum_name::#layer_names_9(layer) => layer.compute_gradients(
                             layer_output_to_error_derivative,
                         ),
                     )*
@@ -283,12 +294,12 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
 
             fn apply_gradients(
                 &mut self,
-                per_parameter_type_gradients: LayerGradients,
-                optimizer: dyn crate::optimizers::Optimizer,
+                per_parameter_type_gradients: &[crate::layers::Gradient],
+                optimizer: &crate::types::PossibleOptimizer,
             ) -> Result<(), crate::layers::LayerGradientApplicationError> {
                 match self {
                     #(
-                        #enum_name::#layer_names_11(layer) => layer.apply_gradients(
+                        #enum_name::#layer_names_10(layer) => layer.apply_gradients(
                             per_parameter_type_gradients,
                             optimizer
                         ),
@@ -302,7 +313,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             ) -> Result<opencl3::memory::Buffer<opencl3::device::cl_float>, crate::layers::LayerLossToInputDifferentiationError> {
                 match self {
                     #(
-                        #enum_name::#layer_names_12(layer) => layer.compute_loss_to_input_derivatives(
+                        #enum_name::#layer_names_11(layer) => layer.compute_loss_to_input_derivatives(
                             layer_output_to_error_derivative,
                         ),
                     )*
@@ -360,7 +371,9 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
             }
         }
 
-        pub(crate) fn #compile_activation(opencl_state: &mut OpenCLState) -> Result<(), crate::utils::opencl::EnsureKernelsAndProgramError> {
+        pub(crate) fn #compile_activation(
+            opencl_state: &mut OpenCLState
+        ) -> Result<(), crate::utils::opencl::EnsureKernelsAndProgramError> {
             let kernels = &[PROPAGATE_KERNEL_NAME.to_string(), BACK_PROPAGATE_KERNEL_NAME.to_string()];
 
             crate::utils::opencl::ensure_program(
@@ -375,8 +388,9 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
         }
 
         use opencl3::memory::ClMem;
+        use crate::utils::opencl::BufferOperations;
 
-        impl<'a> crate::layers::Layer<'a, crate::layers::NoGradients<'a>> for #activation_name<'a> {
+        impl<'a> crate::layers::Layer<'a> for #activation_name<'a> {
             fn init(
                 &mut self,
                 opencl_state: &'a crate::utils::OpenCLState,
@@ -412,56 +426,44 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                 }
             }
 
-            fn sync_data_from_buffers_to_host(&mut self) -> Result<(), opencl3::error_codes::ClError> {
+            fn sync_data_from_buffers_to_host(&mut self) -> Result<(), crate::layers::LayerSyncDataError> {
                 Ok(())
             }
 
-            fn propagate(&mut self, inputs: &opencl3::memory::Buffer<opencl3::device::cl_float>) -> Result<&opencl3::memory::Buffer<opencl3::device::cl_float>, opencl3::error_codes::ClError> {
-                assert!(self.opencl_state.is_some());
+            fn propagate(
+                &mut self, 
+                inputs: &opencl3::memory::Buffer<opencl3::device::cl_float>
+            ) -> Result<
+                &opencl3::memory::Buffer<opencl3::device::cl_float>, 
+                crate::layers::LayerPropagationError,
+                > {
+                if self.opencl_state.is_none() {
+                    return Err(crate::layers::LayerPropagationError::LayerNotInitialized);
+                }
 
                 let state = self.opencl_state.unwrap();
+
+                if state.queues.is_empty() {
+                    return Err(crate::layers::LayerPropagationError::NoCommandQueueFound);
+                }
+
                 let context = &state.context;
                 let queue = state.queues.first().unwrap();
 
                 let inputs_size = inputs.size()?;
                 let inputs_total_count = inputs_size / std::mem::size_of::<opencl3::device::cl_float>();
 
-                let mut copied_last_inputs_buffer = opencl3::memory::Buffer::<opencl3::device::cl_float>::create(
-                    context,
-                    opencl3::memory::CL_MEM_READ_ONLY,
-                    inputs_total_count,
-                    std::ptr::null_mut(),
-                )?;
-
-                // TODO: make copying this into the last inputs optional since this is only needed
-                // for fitting a model as to make everything more optimized both in RAM usage and computation
-                queue
-                    .enqueue_copy_buffer(
-                        inputs,
-                        &mut copied_last_inputs_buffer,
-                        0,
-                        0,
-                        inputs_size,
-                        &[],
-                    )?.wait()?;
+                let mut copied_last_inputs_buffer = inputs.clone(opencl3::memory::CL_MEM_READ_ONLY, state)?;
 
                 self.last_inputs_buffer = Some(copied_last_inputs_buffer);
 
                 let outputs_total_count = inputs.size()? / std::mem::size_of::<opencl3::device::cl_float>();
 
-                let outputs_buffer = opencl3::memory::Buffer::<opencl3::device::cl_float>::create(
-                    context,
-                    opencl3::memory::CL_MEM_READ_WRITE,
-                    outputs_total_count,
-                    std::ptr::null_mut(),
-                )?;
+                let program = state.get_prgm(PROGRAM_NAME)?;
 
-                let propagate_kernel = state.programs
-                    .get(PROGRAM_NAME)
-                    .unwrap()
-                    .kernels
-                    .get(PROPAGATE_KERNEL_NAME)
-                    .unwrap();
+                let propagate_kernel = program.get_krnl(PROPAGATE_KERNEL_NAME)?;
+
+                let outputs_buffer = crate::utils::opencl::empty_buffer(outputs_total_count, opencl3::memory::CL_MEM_READ_WRITE, state)?;
 
                 opencl3::kernel::ExecuteKernel::new(propagate_kernel)
                     .set_arg(inputs)
@@ -480,24 +482,24 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
             fn compute_gradients(
                 &self,
                 _: &opencl3::memory::Buffer<opencl3::device::cl_float>,
-            ) -> Result<crate::layers::NoGradients<'a>, crate::layers::LayerGradientComputationError> {
-                Ok(crate::layers::NoGradients)
+            ) -> Result<Vec<crate::layers::Gradient>, crate::layers::LayerGradientComputationError> {
+                Ok(Vec::default())
             }
 
             fn apply_gradients(
                 &mut self,
-                _per_parameter_type_gradients: crate::layers::NoGradients,
-                _optimizer: dyn crate::optimizers::Optimizer,
+                _per_parameter_type_gradients: &[crate::layers::Gradient],
+                _optimizer: &crate::types::PossibleOptimizer,
             ) -> Result<(), crate::layers::LayerGradientApplicationError> {
                 Ok(())
             }
 
             fn compute_loss_to_input_derivatives(
-                &mut self,
+                &self,
                 layer_output_to_error_derivative: &opencl3::memory::Buffer<opencl3::device::cl_float>,
             ) -> Result<opencl3::memory::Buffer<opencl3::device::cl_float>, crate::layers::LayerLossToInputDifferentiationError> {
                 if self.opencl_state.is_none() {
-                    return Err(crate::layers::LayerLossToInputDifferentiationError::LayerNotInitializedError);
+                    return Err(crate::layers::LayerLossToInputDifferentiationError::LayerNotInitialized);
                 }
 
                 let state = self.opencl_state.unwrap();
@@ -505,7 +507,7 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                 let context = &state.context;
 
                 if state.queues.len() == 0 {
-                    return Err(crate::layers::LayerLossToInputDifferentiationError::NoCommandQueue);
+                    return Err(crate::layers::LayerLossToInputDifferentiationError::NoCommandQueueFound);
                 }
 
                 let queue = state.queues.first().unwrap();
@@ -525,19 +527,9 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                     std::ptr::null_mut(),
                 )?;
 
-                if !state.programs.contains_key(PROGRAM_NAME) {
-                    return Err(crate::layers::LayerLossToInputDifferentiationError::ProgramNotFound(PROGRAM_NAME));
-                }
+                let program = state.get_prgm(PROGRAM_NAME)?;
 
-                let program = state.programs.get(PROGRAM_NAME).unwrap();
-
-                if !program.kernels.contains_key(BACK_PROPAGATE_KERNEL_NAME) {
-                    return Err(crate::layers::LayerLossToInputDifferentiationError::KernelNotFound(BACK_PROPAGATE_KERNEL_NAME));
-                }
-
-                let back_prop_kernel = program.kernels
-                    .get(BACK_PROPAGATE_KERNEL_NAME)
-                    .unwrap();
+                let back_prop_kernel = program.get_krnl(BACK_PROPAGATE_KERNEL_NAME)?;
 
                 opencl3::kernel::ExecuteKernel::new(back_prop_kernel)
                     .set_arg(layer_output_to_error_derivative)

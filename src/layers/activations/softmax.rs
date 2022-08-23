@@ -10,9 +10,13 @@ use opencl3::{
 use savefile_derive::Savefile;
 
 use crate::{
-    layers::Layer,
+    layers::{
+        Gradient, Layer, LayerLossToInputDifferentiationError, LayerPropagationError,
+        LayerSyncDataError,
+    },
+    types::PossibleOptimizer,
     utils::{
-        opencl::{ensure_program, EnsureKernelsAndProgramError},
+        opencl::{empty_buffer, ensure_program, BufferOperations, EnsureKernelsAndProgramError},
         OpenCLState,
     },
 };
@@ -92,10 +96,7 @@ impl<'a> SoftMax<'a> {
 }
 
 impl<'a> Layer<'a> for SoftMax<'a> {
-    fn init(
-        &mut self,
-        opencl_state: &'a OpenCLState,
-    ) -> Result<(), ClError> {
+    fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), ClError> {
         self.opencl_state = Some(opencl_state);
 
         Ok(())
@@ -127,15 +128,24 @@ impl<'a> Layer<'a> for SoftMax<'a> {
         }
     }
 
-    fn sync_data_from_buffers_to_host(&mut self) -> Result<(), ClError> {
+    fn sync_data_from_buffers_to_host(&mut self) -> Result<(), LayerSyncDataError> {
         Ok(())
     }
 
-    fn propagate(&mut self, inputs: &Buffer<cl_float>) -> Result<&Buffer<cl_float>, ClError> {
-        assert!(self.opencl_state.is_some());
-        assert!(!self.opencl_state.unwrap().queues.is_empty());
+    fn propagate(
+        &mut self,
+        inputs: &Buffer<cl_float>,
+    ) -> Result<&Buffer<cl_float>, LayerPropagationError> {
+        if self.opencl_state.is_none() {
+            return Err(LayerPropagationError::LayerNotInitialized);
+        }
 
         let state = self.opencl_state.unwrap();
+
+        if state.queues.len() == 0 {
+            return Err(LayerPropagationError::NoCommandQueueFound);
+        }
+
         let context = &state.context;
         let queue = state.queues.first().unwrap();
 
@@ -143,36 +153,16 @@ impl<'a> Layer<'a> for SoftMax<'a> {
         let inputs_total_count = inputs_size / std::mem::size_of::<cl_float>();
         let samples_amount = inputs_total_count / self.inputs_amount;
 
-        let mut copied_last_inputs_buffer = Buffer::<cl_float>::create(
-            context,
-            CL_MEM_READ_ONLY,
-            inputs_total_count,
-            std::ptr::null_mut(),
-        )?;
-
-        // TODO: make copying this into the last inputs optional since this is only needed
-        // for fitting a model as to make everything more optimized both in RAM usage and computation
-        queue.enqueue_copy_buffer(
-            inputs,
-            &mut copied_last_inputs_buffer,
-            0,
-            0,
-            inputs_size,
-            &[],
-        )?;
+        let mut copied_last_inputs_buffer = inputs.clone(CL_MEM_READ_ONLY, state)?;
 
         self.last_inputs_buffer = Some(copied_last_inputs_buffer);
 
-        let max_input_per_sample_buffer = Buffer::<cl_float>::create(
-            context,
-            CL_MEM_READ_WRITE,
-            samples_amount,
-            std::ptr::null_mut(),
-        )?;
+        let max_input_per_sample_buffer = empty_buffer(samples_amount, CL_MEM_READ_WRITE, state)?;
 
-        let program = state.programs.get(PROGRAM_NAME).unwrap();
+        let program = state.get_prgm(PROGRAM_NAME)?;
 
-        let max_input_per_sample_kernel = program.kernels.get(FIND_MAX_INPUT_PER_SAMPLE_KERNEL_NAME).unwrap();
+        let max_input_per_sample_kernel =
+            program.get_krnl(FIND_MAX_INPUT_PER_SAMPLE_KERNEL_NAME)?;
 
         let find_max_input_event = ExecuteKernel::new(max_input_per_sample_kernel)
             .set_arg(inputs)
@@ -182,17 +172,9 @@ impl<'a> Layer<'a> for SoftMax<'a> {
             .set_global_work_size(samples_amount)
             .enqueue_nd_range(queue)?;
 
-        let exponentials_buffer = Buffer::<cl_float>::create(
-            context,
-            CL_MEM_READ_WRITE,
-            inputs_total_count,
-            std::ptr::null_mut(),
-        )?;
+        let exponentials_buffer = empty_buffer(inputs_total_count, CL_MEM_READ_WRITE, state)?;
 
-        let calculate_exponentials_kernel = program
-            .kernels
-            .get(CALCULATE_EXPONENTIALS_KERNEL_NAME)
-            .unwrap();
+        let calculate_exponentials_kernel = program.get_krnl(CALCULATE_EXPONENTIALS_KERNEL_NAME)?;
 
         let calculate_exponentials_event = ExecuteKernel::new(calculate_exponentials_kernel)
             .set_arg(inputs)
@@ -204,17 +186,9 @@ impl<'a> Layer<'a> for SoftMax<'a> {
             .set_wait_event(&find_max_input_event)
             .enqueue_nd_range(queue)?;
 
-        let exponentials_sum_per_sample = Buffer::<cl_float>::create(
-            context,
-            CL_MEM_READ_WRITE,
-            samples_amount,
-            std::ptr::null_mut(),
-        )?;
+        let exponentials_sum_per_sample = empty_buffer(samples_amount, CL_MEM_READ_WRITE, state)?;
 
-        let sum_exponentials_kernel = program
-            .kernels
-            .get(SUM_EXPONENTIALS_PER_SAMPLE_KERNEL_NAME)
-            .unwrap();
+        let sum_exponentials_kernel = program.get_krnl(SUM_EXPONENTIALS_PER_SAMPLE_KERNEL_NAME)?;
 
         let sum_exponentials_event = ExecuteKernel::new(sum_exponentials_kernel)
             .set_arg(&exponentials_buffer)
@@ -225,14 +199,9 @@ impl<'a> Layer<'a> for SoftMax<'a> {
             .set_wait_event(&calculate_exponentials_event)
             .enqueue_nd_range(queue)?;
 
-        let outputs_buffer = Buffer::<cl_float>::create(
-            context,
-            CL_MEM_READ_WRITE,
-            inputs_total_count,
-            std::ptr::null_mut(),
-        )?;
+        let outputs_buffer = empty_buffer(inputs_total_count, CL_MEM_READ_WRITE, state)?;
 
-        let propagate_kernel = program.kernels.get(PROPAGATE_KERNEL_NAME).unwrap();
+        let propagate_kernel = program.get_krnl(PROPAGATE_KERNEL_NAME)?;
 
         ExecuteKernel::new(propagate_kernel)
             .set_arg(&exponentials_buffer)
@@ -251,59 +220,64 @@ impl<'a> Layer<'a> for SoftMax<'a> {
         Ok(self.last_outputs_buffer.as_ref().unwrap())
     }
 
-    fn back_propagate(
+    fn apply_gradients(
         &mut self,
-        should_calculate_input_to_error_derivative: bool,
-        layer_output_to_error_derivative: &opencl3::memory::Buffer<opencl3::device::cl_float>,
-        _: opencl3::device::cl_float,
-    ) -> Result<
-        Option<opencl3::memory::Buffer<opencl3::device::cl_float>>,
-        opencl3::error_codes::ClError,
-    > {
-        if should_calculate_input_to_error_derivative {
-            assert!(self.opencl_state.is_some());
-            assert!(!self.opencl_state.unwrap().queues.is_empty());
+        _per_parameter_type_gradients: &[Gradient],
+        _optimizer: &PossibleOptimizer,
+    ) -> Result<(), crate::layers::LayerGradientApplicationError> {
+        Ok(())
+    }
 
-            let state = self.opencl_state.unwrap();
-            let context = &state.context;
-            let queue = state.queues.first().unwrap();
+    fn compute_gradients(
+        &self,
+        _layer_output_to_error_derivative: &Buffer<cl_float>,
+    ) -> Result<Vec<Gradient>, crate::layers::LayerGradientComputationError> {
+        Ok(Vec::default())
+    }
 
-            let samples_amount = self.last_outputs_buffer.as_ref().unwrap().size()?
-                / self.inputs_amount
-                / std::mem::size_of::<opencl3::device::cl_float>();
-
-            let loss_to_input_derivatives_buffer =
-                opencl3::memory::Buffer::<opencl3::device::cl_float>::create(
-                    context,
-                    opencl3::memory::CL_MEM_READ_WRITE,
-                    self.inputs_amount * samples_amount,
-                    std::ptr::null_mut(),
-                )?;
-
-            let backprop_kernel = state
-                .programs
-                .get(PROGRAM_NAME)
-                .unwrap()
-                .kernels
-                .get(BACK_PROPAGATE_KERNEL_NAME)
-                .unwrap();
-
-            opencl3::kernel::ExecuteKernel::new(backprop_kernel)
-                .set_arg(layer_output_to_error_derivative)
-                .set_arg(self.last_outputs_buffer.as_ref().unwrap())
-                .set_arg(&loss_to_input_derivatives_buffer)
-                .set_arg(&(self.inputs_amount as opencl3::error_codes::cl_int))
-                .set_arg(&(samples_amount as opencl3::error_codes::cl_int))
-                .set_arg(&(self.inputs_amount as opencl3::error_codes::cl_int))
-                .set_global_work_sizes(&[samples_amount, self.inputs_amount])
-                .enqueue_nd_range(queue)?;
-
-            queue.finish()?;
-
-            Ok(Some(loss_to_input_derivatives_buffer))
-        } else {
-            Ok(None)
+    fn compute_loss_to_input_derivatives(
+        &self,
+        layer_output_to_error_derivative: &Buffer<cl_float>,
+    ) -> Result<Buffer<cl_float>, LayerLossToInputDifferentiationError> {
+        if self.opencl_state.is_none() {
+            return Err(LayerLossToInputDifferentiationError::LayerNotInitialized);
         }
+
+        let state = self.opencl_state.unwrap();
+
+        if state.queues.len() == 0 {
+            return Err(LayerLossToInputDifferentiationError::NoCommandQueueFound);
+        }
+
+        let context = &state.context;
+        let queue = state.queues.first().unwrap();
+
+        let samples_amount = self.last_outputs_buffer.as_ref().unwrap().size()?
+            / self.inputs_amount
+            / std::mem::size_of::<opencl3::device::cl_float>();
+
+        let loss_to_input_derivatives_buffer = empty_buffer(
+            self.inputs_amount * samples_amount,
+            CL_MEM_READ_WRITE,
+            state,
+        )?;
+
+        let program = state.get_prgm(PROGRAM_NAME)?;
+        let backprop_kernel = program.get_krnl(BACK_PROPAGATE_KERNEL_NAME)?;
+
+        opencl3::kernel::ExecuteKernel::new(backprop_kernel)
+            .set_arg(layer_output_to_error_derivative)
+            .set_arg(self.last_outputs_buffer.as_ref().unwrap())
+            .set_arg(&loss_to_input_derivatives_buffer)
+            .set_arg(&(self.inputs_amount as opencl3::error_codes::cl_int))
+            .set_arg(&(samples_amount as opencl3::error_codes::cl_int))
+            .set_arg(&(self.inputs_amount as opencl3::error_codes::cl_int))
+            .set_global_work_sizes(&[samples_amount, self.inputs_amount])
+            .enqueue_nd_range(queue)?;
+
+        queue.finish()?;
+
+        Ok(loss_to_input_derivatives_buffer)
     }
 }
 
@@ -430,8 +404,7 @@ mod softmax_tests {
             })
             .collect();
         let loss_to_input_derivatives_buffer = softmax
-            .back_propagate(true, &loss_to_output_derivatives_buffer, 0.0)
-            .unwrap()
+            .compute_loss_to_input_derivatives(&loss_to_output_derivatives_buffer)
             .unwrap();
 
         let mut loss_to_input_derivatives = vec![0.0; samples_amount * numbers_amount];

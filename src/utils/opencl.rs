@@ -3,10 +3,14 @@
 
 use std::{collections::HashMap, mem, ptr};
 
-use crate::{layers::compile_layers, loss_functions::compile_losses};
+use crate::{
+    layers::compile_layers,
+    loss_functions::compile_losses,
+    types::{KernelNotFoundError, ProgramNotFoundError},
+};
 
 use super::gcd;
-use intricate_macros::ErrorsEnum;
+use intricate_macros::FromForAllUnnamedVariants;
 use opencl3::{
     command_queue::{CommandQueue, CL_BLOCKING, CL_NON_BLOCKING},
     context::Context,
@@ -23,13 +27,17 @@ use opencl3::{
 
 const BUFFER_OPERATIONS_PROGRAM_SOURCE: &str = include_str!("buffer_operations.cl");
 const BUFFER_OPERATIONS_PROGRAM_NAME: &str = "BUFFER_OPERATIONS";
+
 const REDUCE_BUFFER_KERNEL_NAME: &str = "sum_all_values_in_workgroups";
+
+const SCALE_BUFFER_KERNEL_NAME: &str = "scale";
+
 const ADD_BUFFER_KERNEL_NAME: &str = "add";
 const SUBTRACT_BUFFER_KERNEL_NAME: &str = "subtract";
 const MULTIPLY_BUFFER_KERNEL_NAME: &str = "multiply";
 const DIVIDE_BUFFER_KERNEL_NAME: &str = "divide";
 
-#[derive(Debug, ErrorsEnum)]
+#[derive(Debug, FromForAllUnnamedVariants)]
 /// An error that happens in the `ensure_program` function, if either the compilation goes wrong of
 /// the program or one of the kernels could not be found inside of the program being compiled.
 #[allow(missing_docs)]
@@ -131,8 +139,7 @@ pub(crate) fn find_optimal_local_and_global_work_sizes(
 
 fn reduce_buffer_by_summation(
     buffer: &Buffer<cl_float>,
-    context: &Context,
-    queue: &CommandQueue,
+    opencl_state: &OpenCLState,
     max_local_size: usize,
     reduce_kernel: &Kernel,
 ) -> Result<Buffer<cl_float>, ClError> {
@@ -141,15 +148,10 @@ fn reduce_buffer_by_summation(
 
     let (local_size, global_size) =
         find_optimal_local_and_global_work_sizes(current_count, max_local_size);
-    dbg!(local_size);
-    dbg!(global_size);
 
-    let current_reduced_buffer = Buffer::<cl_float>::create(
-        context,
-        CL_MEM_READ_WRITE,
-        global_size / local_size,
-        ptr::null_mut(),
-    )?;
+    let current_reduced_buffer =
+        empty_buffer(global_size / local_size, CL_MEM_READ_WRITE, opencl_state)?;
+    let queue = opencl_state.queues.first().unwrap();
 
     ExecuteKernel::new(reduce_kernel)
         .set_arg(buffer)
@@ -158,8 +160,9 @@ fn reduce_buffer_by_summation(
         .set_arg(&(current_count as cl_int))
         .set_local_work_size(local_size)
         .set_global_work_size(global_size)
-        .enqueue_nd_range(queue)?
-        .wait()?;
+        .enqueue_nd_range(queue)?;
+
+    queue.finish()?;
 
     Ok(current_reduced_buffer)
 }
@@ -173,6 +176,7 @@ pub(crate) fn compile_buffer_operations_program(
         SUBTRACT_BUFFER_KERNEL_NAME.to_string(),
         MULTIPLY_BUFFER_KERNEL_NAME.to_string(),
         DIVIDE_BUFFER_KERNEL_NAME.to_string(),
+        SCALE_BUFFER_KERNEL_NAME.to_string(),
     ];
 
     ensure_program(
@@ -184,7 +188,7 @@ pub(crate) fn compile_buffer_operations_program(
     )
 }
 
-#[derive(Debug, ErrorsEnum)]
+#[derive(Debug, FromForAllUnnamedVariants)]
 /// All of the possible errors that may happen while trying to run any buffer operation on a
 /// certain buffer
 pub enum BufferOperationError {
@@ -192,11 +196,11 @@ pub enum BufferOperationError {
     OpenCLError(ClError),
     /// This means that the program for the buffer operations
     /// has not yet been compiled because it could not be found
-    ProgramNotFoundError(String),
+    ProgramNotFoundError(ProgramNotFoundError),
     /// This means that the Kernel (OpenCL's shader) for the operation in question was not found,
     /// that may mean there is a problem in Intricate's code, so you should report this as an
     /// issue.
-    KernelNotFoundError(String),
+    KernelNotFoundError(KernelNotFoundError),
     BuffersAreNotOfSameSize(usize, usize),
     /// This just means that the operation did ot find any device for it to run on.
     NoDeviceFoundError,
@@ -210,7 +214,7 @@ pub enum BufferOperationError {
 /// function.
 pub trait BufferOperations
 where
-    Self: ClMem,
+    Self: ClMem + Sized,
 {
     /// Sums all of the numbers inside of a buffer and returns an Result enum
     /// containing either the resulting number or an OpenCL error.
@@ -224,6 +228,13 @@ where
     /// - If the program for buffer operations was not compiled in **opencl_state**.
     /// - If the summation kernel was not foudn in the program for buffer operations.
     fn sum(&self, opencl_state: &OpenCLState) -> Result<f32, BufferOperationError>;
+
+    fn scale(
+        &self,
+        scaler: f32,
+        flags: cl_mem_flags,
+        opencl_state: &OpenCLState,
+    ) -> Result<Self, BufferOperationError>;
 
     fn add(
         &self,
@@ -279,6 +290,39 @@ impl BufferOperations for Buffer<cl_float> {
         }
     }
 
+    fn scale(
+        &self,
+        scaler: f32,
+        flags: cl_mem_flags,
+        opencl_state: &OpenCLState,
+    ) -> Result<Self, BufferOperationError> {
+        if opencl_state.queues.is_empty() {
+            return Err(BufferOperationError::NoCommandQueueFoundError);
+        }
+
+        let context = opencl_state.context;
+        let queue = opencl_state.queues.first().unwrap();
+
+        let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
+        let kernel = program.get_krnl(SCALE_BUFFER_KERNEL_NAME)?;
+
+        let size_self = self.size()?;
+        let count_self = size_self / mem::size_of::<cl_float>();
+
+        let result = Buffer::create(&context, flags, count_self, ptr::null_mut())?;
+
+        ExecuteKernel::new(kernel)
+            .set_arg(self)
+            .set_arg(&result)
+            .set_arg(&(scaler as cl_float))
+            .set_arg(&(count_self as cl_int))
+            .set_global_work_size(count_self)
+            .enqueue_nd_range(queue)?
+            .wait()?;
+
+        Ok(result)
+    }
+
     fn multiply(
         &self,
         other: &Self,
@@ -292,46 +336,32 @@ impl BufferOperations for Buffer<cl_float> {
         let context = opencl_state.context;
         let queue = opencl_state.queues.first().unwrap();
 
-        if let Some(program) = opencl_state
-            .programs
-            .get(&BUFFER_OPERATIONS_PROGRAM_NAME.to_string())
-        {
-            if let Some(kernel) = program
-                .kernels
-                .get(&MULTIPLY_BUFFER_KERNEL_NAME.to_string())
-            {
-                let size_self = self.size()?;
-                let size_other = other.size()?;
+        let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
 
-                let count_self = size_self / mem::size_of::<cl_float>();
-                let count_other = size_other / mem::size_of::<cl_float>();
-                if size_self == size_other {
-                    let result = Buffer::create(&context, flags, count_self, ptr::null_mut())?;
+        let kernel = program.get_krnl(MULTIPLY_BUFFER_KERNEL_NAME)?;
 
-                    ExecuteKernel::new(kernel)
-                        .set_arg(self)
-                        .set_arg(other)
-                        .set_arg(&result)
-                        .set_arg(&(count_self as cl_int))
-                        .set_global_work_size(count_self)
-                        .enqueue_nd_range(queue)?
-                        .wait()?;
+        let size_self = self.size()?;
+        let size_other = other.size()?;
 
-                    Ok(result)
-                } else {
-                    Err(BufferOperationError::BuffersAreNotOfSameSize(
-                        count_self,
-                        count_other,
-                    ))
-                }
-            } else {
-                Err(BufferOperationError::KernelNotFoundError(
-                    ADD_BUFFER_KERNEL_NAME.to_string(),
-                ))
-            }
+        let count_self = size_self / mem::size_of::<cl_float>();
+        let count_other = size_other / mem::size_of::<cl_float>();
+        if size_self == size_other {
+            let result = Buffer::create(&context, flags, count_self, ptr::null_mut())?;
+
+            ExecuteKernel::new(kernel)
+                .set_arg(self)
+                .set_arg(other)
+                .set_arg(&result)
+                .set_arg(&(count_self as cl_int))
+                .set_global_work_size(count_self)
+                .enqueue_nd_range(queue)?
+                .wait()?;
+
+            Ok(result)
         } else {
-            Err(BufferOperationError::ProgramNotFoundError(
-                BUFFER_OPERATIONS_PROGRAM_NAME.to_string(),
+            Err(BufferOperationError::BuffersAreNotOfSameSize(
+                count_self,
+                count_other,
             ))
         }
     }
@@ -349,43 +379,32 @@ impl BufferOperations for Buffer<cl_float> {
         let context = opencl_state.context;
         let queue = opencl_state.queues.first().unwrap();
 
-        if let Some(program) = opencl_state
-            .programs
-            .get(&BUFFER_OPERATIONS_PROGRAM_NAME.to_string())
-        {
-            if let Some(kernel) = program.kernels.get(&DIVIDE_BUFFER_KERNEL_NAME.to_string()) {
-                let size_self = self.size()?;
-                let size_other = other.size()?;
+        let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
 
-                let count_self = size_self / mem::size_of::<cl_float>();
-                let count_other = size_other / mem::size_of::<cl_float>();
-                if size_self == size_other {
-                    let result = Buffer::create(&context, flags, count_self, ptr::null_mut())?;
+        let kernel = program.get_krnl(DIVIDE_BUFFER_KERNEL_NAME)?;
 
-                    ExecuteKernel::new(kernel)
-                        .set_arg(self)
-                        .set_arg(other)
-                        .set_arg(&result)
-                        .set_arg(&(count_self as cl_int))
-                        .set_global_work_size(count_self)
-                        .enqueue_nd_range(queue)?
-                        .wait()?;
+        let size_self = self.size()?;
+        let size_other = other.size()?;
 
-                    Ok(result)
-                } else {
-                    Err(BufferOperationError::BuffersAreNotOfSameSize(
-                        count_self,
-                        count_other,
-                    ))
-                }
-            } else {
-                Err(BufferOperationError::KernelNotFoundError(
-                    ADD_BUFFER_KERNEL_NAME.to_string(),
-                ))
-            }
+        let count_self = size_self / mem::size_of::<cl_float>();
+        let count_other = size_other / mem::size_of::<cl_float>();
+        if size_self == size_other {
+            let result = Buffer::create(&context, flags, count_self, ptr::null_mut())?;
+
+            ExecuteKernel::new(kernel)
+                .set_arg(self)
+                .set_arg(other)
+                .set_arg(&result)
+                .set_arg(&(count_self as cl_int))
+                .set_global_work_size(count_self)
+                .enqueue_nd_range(queue)?
+                .wait()?;
+
+            Ok(result)
         } else {
-            Err(BufferOperationError::ProgramNotFoundError(
-                BUFFER_OPERATIONS_PROGRAM_NAME.to_string(),
+            Err(BufferOperationError::BuffersAreNotOfSameSize(
+                count_self,
+                count_other,
             ))
         }
     }
@@ -403,46 +422,32 @@ impl BufferOperations for Buffer<cl_float> {
         let context = opencl_state.context;
         let queue = opencl_state.queues.first().unwrap();
 
-        if let Some(program) = opencl_state
-            .programs
-            .get(&BUFFER_OPERATIONS_PROGRAM_NAME.to_string())
-        {
-            if let Some(kernel) = program
-                .kernels
-                .get(&SUBTRACT_BUFFER_KERNEL_NAME.to_string())
-            {
-                let size_self = self.size()?;
-                let size_other = other.size()?;
+        let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
 
-                let count_self = size_self / mem::size_of::<cl_float>();
-                let count_other = size_other / mem::size_of::<cl_float>();
-                if size_self == size_other {
-                    let result = Buffer::create(&context, flags, count_self, ptr::null_mut())?;
+        let kernel = program.get_krnl(SUBTRACT_BUFFER_KERNEL_NAME)?;
 
-                    ExecuteKernel::new(kernel)
-                        .set_arg(self)
-                        .set_arg(other)
-                        .set_arg(&result)
-                        .set_arg(&(count_self as cl_int))
-                        .set_global_work_size(count_self)
-                        .enqueue_nd_range(queue)?
-                        .wait()?;
+        let size_self = self.size()?;
+        let size_other = other.size()?;
 
-                    Ok(result)
-                } else {
-                    Err(BufferOperationError::BuffersAreNotOfSameSize(
-                        count_self,
-                        count_other,
-                    ))
-                }
-            } else {
-                Err(BufferOperationError::KernelNotFoundError(
-                    ADD_BUFFER_KERNEL_NAME.to_string(),
-                ))
-            }
+        let count_self = size_self / mem::size_of::<cl_float>();
+        let count_other = size_other / mem::size_of::<cl_float>();
+        if size_self == size_other {
+            let result = Buffer::create(&context, flags, count_self, ptr::null_mut())?;
+
+            ExecuteKernel::new(kernel)
+                .set_arg(self)
+                .set_arg(other)
+                .set_arg(&result)
+                .set_arg(&(count_self as cl_int))
+                .set_global_work_size(count_self)
+                .enqueue_nd_range(queue)?
+                .wait()?;
+
+            Ok(result)
         } else {
-            Err(BufferOperationError::ProgramNotFoundError(
-                BUFFER_OPERATIONS_PROGRAM_NAME.to_string(),
+            Err(BufferOperationError::BuffersAreNotOfSameSize(
+                count_self,
+                count_other,
             ))
         }
     }
@@ -460,43 +465,32 @@ impl BufferOperations for Buffer<cl_float> {
         let context = opencl_state.context;
         let queue = opencl_state.queues.first().unwrap();
 
-        if let Some(program) = opencl_state
-            .programs
-            .get(&BUFFER_OPERATIONS_PROGRAM_NAME.to_string())
-        {
-            if let Some(kernel) = program.kernels.get(&ADD_BUFFER_KERNEL_NAME.to_string()) {
-                let size_self = self.size()?;
-                let size_other = other.size()?;
+        let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
 
-                let count_self = size_self / mem::size_of::<cl_float>();
-                let count_other = size_other / mem::size_of::<cl_float>();
-                if size_self == size_other {
-                    let result = Buffer::create(&context, flags, count_self, ptr::null_mut())?;
+        let kernel = program.get_krnl(ADD_BUFFER_KERNEL_NAME)?;
 
-                    ExecuteKernel::new(kernel)
-                        .set_arg(self)
-                        .set_arg(other)
-                        .set_arg(&result)
-                        .set_arg(&(count_self as cl_int))
-                        .set_global_work_size(count_self)
-                        .enqueue_nd_range(queue)?
-                        .wait()?;
+        let size_self = self.size()?;
+        let size_other = other.size()?;
 
-                    Ok(result)
-                } else {
-                    Err(BufferOperationError::BuffersAreNotOfSameSize(
-                        count_self,
-                        count_other,
-                    ))
-                }
-            } else {
-                Err(BufferOperationError::KernelNotFoundError(
-                    ADD_BUFFER_KERNEL_NAME.to_string(),
-                ))
-            }
+        let count_self = size_self / mem::size_of::<cl_float>();
+        let count_other = size_other / mem::size_of::<cl_float>();
+        if size_self == size_other {
+            let result = Buffer::create(&context, flags, count_self, ptr::null_mut())?;
+
+            ExecuteKernel::new(kernel)
+                .set_arg(self)
+                .set_arg(other)
+                .set_arg(&result)
+                .set_arg(&(count_self as cl_int))
+                .set_global_work_size(count_self)
+                .enqueue_nd_range(queue)?
+                .wait()?;
+
+            Ok(result)
         } else {
-            Err(BufferOperationError::ProgramNotFoundError(
-                BUFFER_OPERATIONS_PROGRAM_NAME.to_string(),
+            Err(BufferOperationError::BuffersAreNotOfSameSize(
+                count_self,
+                count_other,
             ))
         }
     }
@@ -513,35 +507,9 @@ impl BufferOperations for Buffer<cl_float> {
         let device = opencl_state.devices.first().unwrap();
         let queue = opencl_state.queues.first().unwrap();
 
-        let operations_program;
-        if opencl_state
-            .programs
-            .contains_key(&BUFFER_OPERATIONS_PROGRAM_NAME.to_string())
-        {
-            operations_program = opencl_state
-                .programs
-                .get(&BUFFER_OPERATIONS_PROGRAM_NAME.to_string())
-                .unwrap();
-        } else {
-            return Err(BufferOperationError::ProgramNotFoundError(
-                BUFFER_OPERATIONS_PROGRAM_NAME.to_string(),
-            ));
-        }
+        let operations_program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
 
-        let reduce_kernel;
-        if operations_program
-            .kernels
-            .contains_key(&REDUCE_BUFFER_KERNEL_NAME.to_string())
-        {
-            reduce_kernel = operations_program
-                .kernels
-                .get(&REDUCE_BUFFER_KERNEL_NAME.to_string())
-                .unwrap();
-        } else {
-            return Err(BufferOperationError::KernelNotFoundError(
-                REDUCE_BUFFER_KERNEL_NAME.to_string(),
-            ));
-        }
+        let reduce_kernel = operations_program.get_krnl(REDUCE_BUFFER_KERNEL_NAME)?;
 
         let max_local_size = device.max_work_group_size()?;
 
@@ -560,14 +528,13 @@ impl BufferOperations for Buffer<cl_float> {
         } else {
             let context = &opencl_state.context;
             let mut current_buf =
-                reduce_buffer_by_summation(self, context, queue, max_local_size, reduce_kernel)?;
+                reduce_buffer_by_summation(self, opencl_state, max_local_size, reduce_kernel)?;
             current_count = current_buf.size()? / mem::size_of::<cl_float>();
 
             while current_count > 1 {
                 current_buf = reduce_buffer_by_summation(
                     &current_buf,
-                    context,
-                    queue,
+                    opencl_state,
                     max_local_size,
                     reduce_kernel,
                 )?;
@@ -597,6 +564,16 @@ pub struct IntricateProgram {
     pub kernels: HashMap<String, Kernel>,
 }
 
+impl IntricateProgram {
+    pub fn get_krnl(&self, kernel_name: &str) -> Result<&Kernel, KernelNotFoundError> {
+        if !self.kernels.contains_key(&kernel_name.to_string()) {
+            Err(kernel_name.to_string().into())
+        } else {
+            Ok(self.kernels.get(&kernel_name.to_string()).unwrap())
+        }
+    }
+}
+
 #[derive(Debug)]
 /// The state that contains useful OpenCL information that is necessary to keep track of the
 /// compilled OpenCL programs and kernels.
@@ -612,7 +589,17 @@ pub struct OpenCLState {
     pub programs: HashMap<String, IntricateProgram>,
 }
 
-#[derive(Debug, ErrorsEnum)]
+impl OpenCLState {
+    pub fn get_prgm(&self, program_name: &str) -> Result<&IntricateProgram, ProgramNotFoundError> {
+        if !self.programs.contains_key(&program_name.to_string()) {
+            Err(program_name.to_string().into())
+        } else {
+            Ok(self.programs.get(&program_name.to_string()).unwrap())
+        }
+    }
+}
+
+#[derive(Debug, FromForAllUnnamedVariants)]
 /// An error that happens when the `setup_opencl` function fails.
 #[allow(missing_docs)]
 pub enum UnableToSetupOpenCLError {
@@ -678,7 +665,10 @@ pub fn setup_opencl(device_type: DeviceType) -> Result<OpenCLState, UnableToSetu
     }
 }
 
-pub(crate) trait BufferLike<T> {
+pub(crate) trait BufferLike<T>
+where
+    Self: Sized,
+{
     fn to_buffer(
         &self,
         flags: cl_mem_flags,
@@ -693,7 +683,7 @@ pub(crate) trait BufferLike<T> {
     ) -> Result<Self, ConversionError>;
 }
 
-#[derive(Debug, ErrorsEnum)]
+#[derive(Debug, FromForAllUnnamedVariants)]
 pub(crate) enum ConversionError {
     OpenCL(ClError),
     NoCommandQueueFoundError,
@@ -865,7 +855,9 @@ mod test_opencl_utils {
             .unwrap();
 
         let actual = Vec::<f32>::from_buffer(
-            buff1.subtract(&buff2, true, &opencl_state),
+            &buff1
+                .subtract(&buff2, CL_MEM_READ_ONLY, &opencl_state)
+                .unwrap(),
             true,
             &opencl_state,
         )

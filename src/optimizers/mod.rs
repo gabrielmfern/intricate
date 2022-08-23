@@ -1,11 +1,18 @@
 //! The module that contains all of the implemented optimizers in Intricate
 
-use intricate_macros::ErrorsEnum;
+pub mod dummy;
+
+pub use dummy::Dummy;
+
+use intricate_macros::FromForAllUnnamedVariants;
 use opencl3::{device::cl_float, error_codes::ClError, memory::Buffer};
 
-#[derive(Debug, ErrorsEnum)]
+use crate::utils::opencl::BufferOperationError;
+
+#[derive(Debug, FromForAllUnnamedVariants)]
 pub enum OptimizationError {
     OpenCL(ClError),
+    BufferOperation(BufferOperationError),
     NoCommandQueueFound,
     UninitializedState,
 }

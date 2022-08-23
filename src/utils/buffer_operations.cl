@@ -54,6 +54,22 @@ kernel void sum_all_values_in_workgroups(
     }
 }
 
+kernel void scale(
+    global float *nums,
+    global float *result,
+    
+    float scaler,
+    int size
+) {
+    int index = get_global_id(0);
+
+    if (index >= size) {
+        return;
+    }
+
+    result[index] = (float)nums[index] * scaler;
+}
+
 kernel void add(
     global float *first,
     global float *second,
@@ -68,7 +84,7 @@ kernel void add(
         return;
     }
 
-    result[index] = first[index] + second[index]
+    result[index] = first[index] + second[index];
 }
 
 kernel void subtract(
@@ -85,7 +101,7 @@ kernel void subtract(
         return;
     }
 
-    result[index] = first[index] - second[index]
+    result[index] = first[index] - second[index];
 }
 
 kernel void multiply(
@@ -102,7 +118,7 @@ kernel void multiply(
         return;
     }
 
-    result[index] = first[index] * second[index]
+    result[index] = first[index] * second[index];
 }
 
 kernel void divide(
@@ -119,5 +135,5 @@ kernel void divide(
         return;
     }
 
-    result[index] = first[index] / second[index]
+    result[index] = first[index] / second[index];
 }
