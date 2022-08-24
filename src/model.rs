@@ -4,6 +4,8 @@
 use std::time::Instant;
 
 use super::utils::OpenCLState;
+use intricate_macros::FromForAllUnnamedVariants;
+use opencl3::memory::CL_MEM_READ_ONLY;
 #[allow(unused_imports)]
 use opencl3::{
     command_queue::{CommandQueue, CL_NON_BLOCKING},
@@ -15,12 +17,18 @@ use opencl3::{
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use savefile_derive::Savefile;
 use std::mem;
-use std::ptr;
 
 use crate::{
-    layers::Layer,
+    layers::{
+        Gradient, Layer, LayerGradientApplicationError, LayerGradientComputationError,
+        LayerLossToInputDifferentiationError, LayerPropagationError,
+    },
     loss_functions::LossFunction,
-    types::{CompilationOrOpenCLError, ModelLayer, ModelLossFunction, TrainingOptions},
+    types::{
+        CompilationOrOpenCLError, ModelLayer, ModelLossFunction, ModelOptimizer, SyncDataError,
+        TrainingOptions,
+    },
+    utils::opencl::{empty_buffer, BufferLike, ConversionError},
 };
 
 #[allow(dead_code)]
@@ -73,6 +81,52 @@ pub struct Model<'a> {
     pub opencl_state: Option<&'a OpenCLState>,
 }
 
+#[derive(Debug, FromForAllUnnamedVariants)]
+pub enum ModelPredictionError {
+    NotInitialized,
+    NoCommandQueue,
+
+    OpenCL(ClError),
+    LayerPropagation(LayerPropagationError),
+}
+
+#[derive(Debug, FromForAllUnnamedVariants)]
+pub enum ModelFittingError {
+    NotInitialized,
+    NoCommandQueue,
+    NoDevice,
+
+    OpenCL(ClError),
+    Conversion(ConversionError),
+    ModelGradientComputation(ModelGradientComputationError),
+    ModelGradientApplication(ModelGradientApplicationError),
+    LayerPropagation(LayerPropagationError),
+}
+
+#[derive(Debug, FromForAllUnnamedVariants)]
+pub enum ModelGradientComputationError {
+    NotInitialized,
+    NoCommandQueue,
+    NoDevice,
+
+    OpenCL(ClError),
+    LayerPropagation(LayerPropagationError),
+    LayerGradientComputation(LayerGradientComputationError),
+    LayerLossToInputDifferentiation(LayerLossToInputDifferentiationError),
+}
+
+#[derive(Debug, FromForAllUnnamedVariants)]
+pub enum ModelGradientApplicationError {
+    NotInitialized,
+    NoCommandQueue,
+    NoDevice,
+
+    OpenCL(ClError),
+    LayerPropagation(LayerPropagationError),
+    LayerGradientApllication(LayerGradientApplicationError),
+    LayerLossToInputDifferentiation(LayerLossToInputDifferentiationError),
+}
+
 impl<'a> Model<'a> {
     /// Creates a new Model from a Vec of layers with an empty OpenCLState.
     ///
@@ -91,7 +145,7 @@ impl<'a> Model<'a> {
     ///
     /// This function will return an error if something goes wrong
     /// while reading the buffers into the CPU.
-    pub fn sync_data_from_buffers_to_host(&mut self) -> Result<(), ClError> {
+    pub fn sync_data_from_buffers_to_host(&mut self) -> Result<(), SyncDataError> {
         for layer in self.layers.iter_mut() {
             layer.sync_data_from_buffers_to_host()?;
         }
@@ -108,10 +162,7 @@ impl<'a> Model<'a> {
     /// CompilationError (just a String with some stacktrace to the error).
     /// If the programs were compiled successfully don't put your guard down yet because OpenCL may
     /// yield some error if something it needs to do fails.
-    pub fn init(
-        &mut self,
-        opencl_state: &'a OpenCLState,
-    ) -> Result<(), CompilationOrOpenCLError> {
+    pub fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), CompilationOrOpenCLError> {
         for layer in self.layers.iter_mut() {
             layer.init(opencl_state)?;
         }
@@ -172,19 +223,30 @@ impl<'a> Model<'a> {
     /// # Panics
     ///
     /// Will panic if the `init` was not called on the Model, or if the model has no layers.
-    pub fn predict(&mut self, input_samples: &Vec<Vec<f32>>) -> Result<&Buffer<cl_float>, ClError> {
-        assert!(self.opencl_state.is_some());
-        assert!(!self.opencl_state.unwrap().queues.is_empty());
+    pub fn predict(
+        &mut self,
+        input_samples: &Vec<Vec<f32>>,
+    ) -> Result<&Buffer<cl_float>, ModelPredictionError> {
+        if self.opencl_state.is_none() {
+            return Err(ModelPredictionError::NotInitialized);
+        }
+
         let state = self.opencl_state.unwrap();
+
+        if state.queues.is_empty() {
+            return Err(ModelPredictionError::NoCommandQueue);
+        }
+
         let queue = state.queues.first().unwrap();
 
         let samples_amount = input_samples.len();
 
-        let mut first_input_samples_buffer = Buffer::<cl_float>::create(
-            &state.context,
-            CL_MEM_READ_WRITE,
+        assert!(samples_amount > 0);
+
+        let mut first_input_samples_buffer = empty_buffer(
             samples_amount * input_samples[0].len(),
-            ptr::null_mut(),
+            CL_MEM_READ_WRITE,
+            state,
         )?;
 
         queue
@@ -211,7 +273,7 @@ impl<'a> Model<'a> {
     fn predict_with_moved_buffer(
         &mut self,
         input_samples: Buffer<cl_float>,
-    ) -> Result<&Buffer<cl_float>, ClError> {
+    ) -> Result<&Buffer<cl_float>, LayerPropagationError> {
         assert!(!self.layers.is_empty());
 
         let mut current_value: Option<&Buffer<cl_float>> = None;
@@ -237,7 +299,7 @@ impl<'a> Model<'a> {
     pub fn predict_with_buffer<'b>(
         &'b mut self,
         input_samples: &'b Buffer<cl_float>,
-    ) -> Result<&'b Buffer<cl_float>, ClError> {
+    ) -> Result<&'b Buffer<cl_float>, LayerPropagationError> {
         assert!(!self.layers.is_empty());
 
         let mut current_values: &Buffer<cl_float> = input_samples;
@@ -265,142 +327,147 @@ impl<'a> Model<'a> {
         training_input_samples: &Vec<Vec<f32>>,
         training_expected_output_samples: &Vec<Vec<f32>>,
         training_options: &mut TrainingOptions<'a>,
-    ) -> Result<Option<f32>, CompilationOrOpenCLError> {
-        assert!(self.opencl_state.is_some());
-        assert!(!self.opencl_state.unwrap().queues.is_empty());
-        let state = self.opencl_state.unwrap();
-        let queue = state.queues.first().unwrap();
+    ) -> Result<Option<f32>, ModelFittingError> {
+        if self.opencl_state.is_none() {
+            return Err(ModelFittingError::NotInitialized);
+        }
 
-        let samples_amount = training_input_samples.len();
+        let state = self.opencl_state.unwrap();
+
+        if state.queues.is_empty() {
+            return Err(ModelFittingError::NoCommandQueue);
+        }
 
         training_options.loss_algorithm.init(state)?;
 
-        let mut input_samples_buffer = Buffer::<cl_float>::create(
-            &state.context,
-            CL_MEM_READ_WRITE,
-            samples_amount * training_input_samples[0].len(),
-            ptr::null_mut(),
-        )?;
+        let input_samples_buffer = training_input_samples
+            .par_iter()
+            .flatten()
+            .map(|x| *x)
+            .collect::<Vec<f32>>()
+            .to_buffer(CL_MEM_READ_ONLY, false, state)?;
 
-        let mut expected_output_samples_buffer = Buffer::<cl_float>::create(
-            &state.context,
-            CL_MEM_READ_WRITE,
-            samples_amount * training_expected_output_samples[0].len(),
-            ptr::null_mut(),
-        )?;
+        let expected_output_samples_buffer = training_expected_output_samples
+            .par_iter()
+            .flatten()
+            .map(|x| *x)
+            .collect::<Vec<f32>>()
+            .to_buffer(CL_MEM_READ_WRITE, false, state)?;
 
-        queue
-            .enqueue_write_buffer(
-                &mut input_samples_buffer,
-                CL_NON_BLOCKING,
-                0,
-                training_input_samples
-                    .par_iter()
-                    .map(|x| x.to_vec())
-                    .flatten()
-                    .collect::<Vec<f32>>()
-                    .as_slice(),
-                &[],
-            )?
-            .wait()?;
-        queue
-            .enqueue_write_buffer(
-                &mut expected_output_samples_buffer,
-                CL_NON_BLOCKING,
-                0,
-                training_expected_output_samples
-                    .par_iter()
-                    .map(|x| x.to_vec())
-                    .flatten()
-                    .collect::<Vec<f32>>()
-                    .as_slice(),
-                &[],
-            )?
-            .wait()?;
-
-        let mut loss = None;
+        let mut last_loss = None;
 
         for epoch_index in 0..training_options.epochs {
-            if training_options.should_print_information {
+            if training_options.verbose {
                 println!("epoch #{}", epoch_index + 1);
             }
 
-            loss = self.back_propagate(
-                samples_amount,
+            let start = Instant::now();
+
+            let inputs_amount = self.layers[0].get_inputs_amount();
+            let actual_outputs = self.predict_with_buffer(&input_samples_buffer)?;
+
+            let samples_amount =
+                input_samples_buffer.size()? / mem::size_of::<cl_float>() / inputs_amount;
+
+            let gradients = self.compute_gradients_with_last_outputs(
                 &input_samples_buffer,
+                actual_outputs,
                 &expected_output_samples_buffer,
-                &training_options.learning_rate,
                 &training_options.loss_algorithm,
-                &training_options.should_print_information,
+                &training_options.optimizer,
             )?;
+
+            self.apply_gradients(gradients.as_slice(), &training_options.optimizer)?;
+
+            if training_options.verbose || training_options.compute_loss {
+                last_loss = Some(training_options.loss_algorithm.compute_loss(
+                    actual_outputs,
+                    &expected_output_samples_buffer,
+                    samples_amount,
+                )?);
+
+                if training_options.verbose {
+                    println!(
+                        "epoch finished in {:?},\n after updating parameters loss found was {}",
+                        start.elapsed(),
+                        last_loss.unwrap()
+                    );
+                }
+            }
         }
 
-        Ok(loss)
+        Ok(last_loss)
     }
 
-    /// The base function for actually doing backprop in the whole Model, this only does it once
-    /// though. This function is also made to be fast in loops, so it receives as parameters the
-    /// actual buffers for the data instead of Vec's.
-    ///
-    /// # Errors
-    ///
-    /// This function will yield an error in case something goes wrong while executing OpenCL
-    /// kernels.
-    pub fn back_propagate(
+    pub fn apply_gradients(
         &mut self,
-        samples_amount: usize,
-        training_input_samples: &Buffer<cl_float>,
-        training_expected_output_samples: &Buffer<cl_float>,
-        learning_rate: &f32,
-        loss_function: &ModelLossFunction<'a>,
-        verbose: &bool,
-    ) -> Result<Option<f32>, ClError> {
-        let start_instant = Instant::now();
+        gradients_per_layer: &[Vec<Gradient>],
+        optimizer: &ModelOptimizer<'a>,
+    ) -> Result<(), ModelGradientApplicationError> {
+        if self.opencl_state.is_none() {
+            return Err(ModelGradientApplicationError::NotInitialized);
+        }
 
-        let training_actual_outputs = self.predict_with_buffer(training_input_samples)?;
+        let state = self.opencl_state.unwrap();
+
+        if state.queues.is_empty() {
+            return Err(ModelGradientApplicationError::NoCommandQueue);
+        }
+
+        for (layer, gradients) in self.layers.iter_mut().zip(gradients_per_layer.iter()) {
+            layer.apply_gradients(gradients.as_slice(), optimizer)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn compute_gradients_with_last_outputs(
+        &self,
+        training_input_samples: &Buffer<cl_float>,
+        training_actual_outputs: &Buffer<cl_float>,
+        training_expected_output_samples: &Buffer<cl_float>,
+        loss_function: &ModelLossFunction<'a>,
+        optimizer: &ModelOptimizer<'a>,
+    ) -> Result<Vec<Vec<Gradient>>, ModelGradientComputationError> {
+        if self.opencl_state.is_none() {
+            return Err(ModelGradientComputationError::NotInitialized);
+        }
+
+        let state = self.opencl_state.unwrap();
+
+        if state.queues.is_empty() {
+            return Err(ModelGradientComputationError::NoCommandQueue);
+        }
+
+        let queue = state.queues[0];
+
+        let first_layer = self.layers.first().unwrap();
+
+        let inputs_amount = first_layer.get_inputs_amount();
+        let samples_amount =
+            training_input_samples.size()? / mem::size_of::<cl_float>() / inputs_amount;
+
+        // let training_actual_outputs = self.predict_with_buffer(training_input_samples)?;
 
         let outputs_amount =
-            training_expected_output_samples.size()? / samples_amount / mem::size_of::<cl_float>();
+            training_expected_output_samples.size()? / mem::size_of::<cl_float>() / samples_amount;
 
-        let mut lost_to_outputs_derivatives = loss_function
+        let mut gradients: Vec<Vec<Gradient>> = Vec::with_capacity(self.layers.len());
+
+        let mut loss_to_output_derivatives = loss_function
             .compute_loss_derivative_with_respect_to_output_samples(
                 &training_actual_outputs,
                 &training_expected_output_samples,
                 samples_amount,
             )?;
 
-        for (layer_index, layer) in self.layers.iter_mut().enumerate().rev() {
-            if layer_index > 0 {
-                // always Some
-                lost_to_outputs_derivatives = layer
-                    .back_propagate(true, &lost_to_outputs_derivatives, *learning_rate)?
-                    .unwrap();
-            } else {
-                layer.back_propagate(
-                    // always None
-                    false,
-                    &lost_to_outputs_derivatives,
-                    *learning_rate,
-                )?;
-            }
+        let mut last_loss_to_outputs_derivatives = &loss_to_output_derivatives;
+        for layer in self.layers.iter() {
+            gradients.push(layer.compute_gradients(last_loss_to_outputs_derivatives)?);
+            last_loss_to_outputs_derivatives =
+                &layer.compute_loss_to_input_derivatives(last_loss_to_outputs_derivatives)?;
         }
 
-        let actual_sample_outputs = self.predict_with_buffer(training_input_samples)?;
-
-        if *verbose {
-            let new_loss = loss_function.compute_loss(
-                &actual_sample_outputs,
-                &training_expected_output_samples,
-                outputs_amount,
-            )?;
-            println!(
-                "{}s elapsed, now has loss of {}",
-                start_instant.elapsed().as_secs_f32(),
-                new_loss
-            );
-            Ok(Some(new_loss))
-        } else {
-            Ok(None)
-        }
+        Ok(gradients)
     }
 }

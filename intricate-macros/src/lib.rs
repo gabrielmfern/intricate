@@ -271,7 +271,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
                 }
             }
 
-            fn sync_data_from_buffers_to_host(&mut self) -> Result<(), crate::layers::LayerSyncDataError> {
+            fn sync_data_from_buffers_to_host(&mut self) -> Result<(), crate::types::SyncDataError> {
                 match self {
                     #(
                         #enum_name::#layer_names_7(layer) => layer.sync_data_from_buffers_to_host(),
@@ -309,7 +309,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             fn apply_gradients(
                 &mut self,
                 per_parameter_type_gradients: &[crate::layers::Gradient],
-                optimizer: &crate::types::PossibleOptimizer,
+                optimizer: &crate::types::ModelOptimizer,
             ) -> Result<(), crate::layers::LayerGradientApplicationError> {
                 match self {
                     #(
@@ -440,7 +440,9 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                 }
             }
 
-            fn sync_data_from_buffers_to_host(&mut self) -> Result<(), crate::layers::LayerSyncDataError> {
+            fn sync_data_from_buffers_to_host(
+                &mut self,
+            ) -> Result<(), crate::types::SyncDataError> {
                 Ok(())
             }
 
@@ -503,7 +505,7 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
             fn apply_gradients(
                 &mut self,
                 _per_parameter_type_gradients: &[crate::layers::Gradient],
-                _optimizer: &crate::types::PossibleOptimizer,
+                _optimizer: &crate::types::ModelOptimizer,
             ) -> Result<(), crate::layers::LayerGradientApplicationError> {
                 Ok(())
             }

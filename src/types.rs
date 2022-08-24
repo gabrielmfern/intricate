@@ -14,6 +14,16 @@ use crate::{
 #[derive(Debug)]
 pub struct ProgramNotFoundError(pub String);
 
+#[derive(Debug, FromForAllUnnamedVariants)]
+pub enum SyncDataError {
+    OpenCL(ClError),
+    NotInitialized,
+    NotAllocatedInDevice {
+        field_name: String
+    },
+    NoCommandQueue,
+}
+
 impl From<String> for ProgramNotFoundError {
     fn from(program: String) -> Self {
         ProgramNotFoundError(program)
@@ -70,20 +80,22 @@ pub enum ModelLayer<'a> {
 pub enum GradientDescent {}
 
 #[derive(Debug, OptimizerEnum, FromForAllUnnamedVariants)]
-pub enum PossibleOptimizer<'a> {
+pub enum ModelOptimizer<'a> {
     Dummy(Dummy<'a>),
 }
 
 /// A struct that defines the options for training a Model.
 pub struct TrainingOptions<'a> {
-    /// The amount at which the gradients should be multiplied as to have a
-/// gradual learning experience for the Model.
-    pub loss_algorithm: ModelLossFunction<'a>,
     /// The loss function that will be used for calculating how **wrong** the Model 
     /// was after some prediction over many samples.
-    pub initial_learning_rate: f32,
+    pub loss_algorithm: ModelLossFunction<'a>,
+    /// The graadient descent implementation that should be used for doing gradient descent
+    /// during fitting
     pub gradient_descent_method: GradientDescent,
-    pub optimizer: PossibleOptimizer<'a>,
+    /// The optimizer that will both optimize parameters before calculating gradients as well as
+    /// optimize gradients and compute update vectors that are going to be actually used when
+    /// applying the gradients
+    pub optimizer: ModelOptimizer<'a>,
     /// Weather or not the training process should be verbose, as to print the current epoch, 
     /// and the current loss after applying gradients.
     pub verbose: bool,

@@ -11,7 +11,7 @@ use opencl3::{
 
 use crate::{
     optimizers::{OptimizationError, Optimizer},
-    utils::{opencl::{EnsureKernelsAndProgramError, BufferOperationError}, OpenCLState, BufferOperations}, types::{KernelNotFoundError, ProgramNotFoundError, PossibleOptimizer},
+    utils::{opencl::{EnsureKernelsAndProgramError, BufferOperationError}, OpenCLState, BufferOperations}, types::{KernelNotFoundError, ProgramNotFoundError, ModelOptimizer, SyncDataError},
 };
 
 pub mod activations;
@@ -45,7 +45,7 @@ pub enum UpdateVectorsComputationError {
 }
 
 pub fn compute_update_vectors(
-    optimizer: &PossibleOptimizer,
+    optimizer: &ModelOptimizer,
     all_gradients: &[Gradient],
     state: &OpenCLState,
 ) -> Result<Vec<Buffer<cl_float>>, UpdateVectorsComputationError> {
@@ -113,16 +113,6 @@ pub enum LayerGradientApplicationError {
 }
 
 #[derive(Debug, FromForAllUnnamedVariants)]
-pub enum LayerSyncDataError {
-    OpenCL(ClError),
-    LayerNotInitialized,
-    NotAllocatedInDevice {
-        field_name: String
-    },
-    NoCommandQueue,
-}
-
-#[derive(Debug, FromForAllUnnamedVariants)]
 pub enum LayerLossToInputDifferentiationError {
     OpenCL(ClError),
     LayerNotInitialized,
@@ -184,7 +174,7 @@ pub trait Layer<'a> {
     ///
     /// This function will return an error if something goes wrong while triying to read the data
     /// from the buffers with OpenCL.
-    fn sync_data_from_buffers_to_host(&mut self) -> Result<(), LayerSyncDataError>;
+    fn sync_data_from_buffers_to_host(&mut self) -> Result<(), SyncDataError>;
 
     /// Sends the important information of the current layer to the GPU
     /// as to be used in the propagation and back propagation
@@ -232,7 +222,7 @@ pub trait Layer<'a> {
     fn apply_gradients(
         &mut self,
         per_parameter_type_gradients: &[Gradient],
-        optimizer: &PossibleOptimizer,
+        optimizer: &ModelOptimizer,
     ) -> Result<(), LayerGradientApplicationError>;
 
     fn compute_loss_to_input_derivatives(

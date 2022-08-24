@@ -14,7 +14,7 @@ use std::mem;
 use std::ptr;
 
 use crate::{
-    types::{ModelLayer, PossibleOptimizer},
+    types::{ModelLayer, ModelOptimizer, SyncDataError},
     utils::{
         opencl::{empty_buffer, ensure_program, EnsureKernelsAndProgramError},
         BufferOperations, OpenCLState,
@@ -24,7 +24,6 @@ use crate::{
 use super::{
     compute_update_vectors, Gradient, Layer, LayerGradientApplicationError,
     LayerGradientComputationError, LayerLossToInputDifferentiationError, LayerPropagationError,
-    LayerSyncDataError,
 };
 
 const DENSE_PROP_PROGRAM_NAME: &str = "DENSE_PROPAGATION";
@@ -201,25 +200,25 @@ impl<'a> Layer<'a> for Dense<'a> {
         }
     }
 
-    fn sync_data_from_buffers_to_host(&mut self) -> Result<(), LayerSyncDataError> {
+    fn sync_data_from_buffers_to_host(&mut self) -> Result<(), SyncDataError> {
         if self.weights_buffer.is_none() {
-            return Err(LayerSyncDataError::NotAllocatedInDevice {
+            return Err(SyncDataError::NotAllocatedInDevice {
                 field_name: "weights_buffer".to_string(),
             });
         }
 
         if self.biases_buffer.is_none() {
-            return Err(LayerSyncDataError::NotAllocatedInDevice {
+            return Err(SyncDataError::NotAllocatedInDevice {
                 field_name: "biases_buffer".to_string(),
             });
         }
 
         if self.opencl_state.is_none() {
-            return Err(LayerSyncDataError::LayerNotInitialized);
+            return Err(SyncDataError::NotInitialized);
         }
 
         if self.opencl_state.unwrap().queues.is_empty() {
-            return Err(LayerSyncDataError::NoCommandQueue);
+            return Err(SyncDataError::NoCommandQueue);
         }
 
         let mut weights_flat = vec![0.0; self.inputs_amount * self.outputs_amount];
@@ -433,7 +432,7 @@ impl<'a> Layer<'a> for Dense<'a> {
             .set_global_work_sizes(&[self.inputs_amount, self.outputs_amount])
             .enqueue_nd_range(queue)?;
 
-        let bias_gradients_event = ExecuteKernel::new(bias_gradient_computation_kernel)
+        ExecuteKernel::new(bias_gradient_computation_kernel)
             .set_arg(layer_output_to_error_derivative)
             .set_arg(&bias_gradients)
             .set_arg(&(samples_amount as cl_int))
@@ -459,7 +458,7 @@ impl<'a> Layer<'a> for Dense<'a> {
     fn apply_gradients(
         &mut self,
         per_parameter_type_gradients: &[Gradient],
-        optimizer: &PossibleOptimizer,
+        optimizer: &ModelOptimizer,
     ) -> Result<(), LayerGradientApplicationError> {
         if self.opencl_state.is_none() {
             return Err(LayerGradientApplicationError::LayerNotInitialized);
@@ -470,8 +469,8 @@ impl<'a> Layer<'a> for Dense<'a> {
         let update_vectors =
             compute_update_vectors(optimizer, per_parameter_type_gradients, state)?;
 
-        let weights_buffer = self.weights_buffer.unwrap();
-        let biases_buffer = self.biases_buffer.unwrap();
+        let weights_buffer = self.weights_buffer.as_ref().unwrap();
+        let biases_buffer = self.biases_buffer.as_ref().unwrap();
 
         weights_buffer.subtract(&update_vectors[0], CL_MEM_READ_ONLY, state)?;
         biases_buffer.subtract(&update_vectors[1], CL_MEM_READ_ONLY, state)?;

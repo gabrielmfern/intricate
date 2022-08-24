@@ -12,9 +12,9 @@ use savefile_derive::Savefile;
 use crate::{
     layers::{
         Gradient, Layer, LayerLossToInputDifferentiationError, LayerPropagationError,
-        LayerSyncDataError,
+        SyncDataError,
     },
-    types::PossibleOptimizer,
+    types::ModelOptimizer,
     utils::{
         opencl::{empty_buffer, ensure_program, BufferOperations, EnsureKernelsAndProgramError},
         OpenCLState,
@@ -128,7 +128,7 @@ impl<'a> Layer<'a> for SoftMax<'a> {
         }
     }
 
-    fn sync_data_from_buffers_to_host(&mut self) -> Result<(), LayerSyncDataError> {
+    fn sync_data_from_buffers_to_host(&mut self) -> Result<(), SyncDataError> {
         Ok(())
     }
 
@@ -223,7 +223,7 @@ impl<'a> Layer<'a> for SoftMax<'a> {
     fn apply_gradients(
         &mut self,
         _per_parameter_type_gradients: &[Gradient],
-        _optimizer: &PossibleOptimizer,
+        _optimizer: &ModelOptimizer,
     ) -> Result<(), crate::layers::LayerGradientApplicationError> {
         Ok(())
     }

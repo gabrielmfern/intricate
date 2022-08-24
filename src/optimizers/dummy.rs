@@ -1,7 +1,7 @@
 use opencl3::{memory::{Buffer, CL_MEM_READ_ONLY}, device::cl_float};
 
 use super::{Optimizer, OptimizationError};
-use crate::{utils::{BufferOperations, OpenCLState}, types::PossibleOptimizer};
+use crate::{utils::{BufferOperations, OpenCLState}, types::ModelOptimizer};
 
 
 #[derive(Debug)]
@@ -11,7 +11,7 @@ pub struct Dummy<'a> {
 }
 
 impl<'a> Dummy<'a> {
-    pub fn new(learning_rate: f32) -> PossibleOptimizer<'a> {
+    pub fn new(learning_rate: f32) -> ModelOptimizer<'a> {
         Self::new_raw(learning_rate).into()
     }
 

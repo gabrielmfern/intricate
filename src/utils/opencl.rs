@@ -300,7 +300,7 @@ impl BufferOperations for Buffer<cl_float> {
             return Err(BufferOperationError::NoCommandQueueFoundError);
         }
 
-        let context = opencl_state.context;
+        let context = &opencl_state.context;
         let queue = opencl_state.queues.first().unwrap();
 
         let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
@@ -309,7 +309,7 @@ impl BufferOperations for Buffer<cl_float> {
         let size_self = self.size()?;
         let count_self = size_self / mem::size_of::<cl_float>();
 
-        let result = Buffer::create(&context, flags, count_self, ptr::null_mut())?;
+        let result = Buffer::create(context, flags, count_self, ptr::null_mut())?;
 
         ExecuteKernel::new(kernel)
             .set_arg(self)
@@ -333,7 +333,7 @@ impl BufferOperations for Buffer<cl_float> {
             return Err(BufferOperationError::NoCommandQueueFoundError);
         }
 
-        let context = opencl_state.context;
+        let context = &opencl_state.context;
         let queue = opencl_state.queues.first().unwrap();
 
         let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
@@ -346,7 +346,7 @@ impl BufferOperations for Buffer<cl_float> {
         let count_self = size_self / mem::size_of::<cl_float>();
         let count_other = size_other / mem::size_of::<cl_float>();
         if size_self == size_other {
-            let result = Buffer::create(&context, flags, count_self, ptr::null_mut())?;
+            let result = Buffer::create(context, flags, count_self, ptr::null_mut())?;
 
             ExecuteKernel::new(kernel)
                 .set_arg(self)
@@ -376,7 +376,7 @@ impl BufferOperations for Buffer<cl_float> {
             return Err(BufferOperationError::NoCommandQueueFoundError);
         }
 
-        let context = opencl_state.context;
+        let context = &opencl_state.context;
         let queue = opencl_state.queues.first().unwrap();
 
         let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
@@ -389,7 +389,7 @@ impl BufferOperations for Buffer<cl_float> {
         let count_self = size_self / mem::size_of::<cl_float>();
         let count_other = size_other / mem::size_of::<cl_float>();
         if size_self == size_other {
-            let result = Buffer::create(&context, flags, count_self, ptr::null_mut())?;
+            let result = Buffer::create(context, flags, count_self, ptr::null_mut())?;
 
             ExecuteKernel::new(kernel)
                 .set_arg(self)
@@ -419,7 +419,7 @@ impl BufferOperations for Buffer<cl_float> {
             return Err(BufferOperationError::NoCommandQueueFoundError);
         }
 
-        let context = opencl_state.context;
+        let context = &opencl_state.context;
         let queue = opencl_state.queues.first().unwrap();
 
         let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
@@ -432,7 +432,7 @@ impl BufferOperations for Buffer<cl_float> {
         let count_self = size_self / mem::size_of::<cl_float>();
         let count_other = size_other / mem::size_of::<cl_float>();
         if size_self == size_other {
-            let result = Buffer::create(&context, flags, count_self, ptr::null_mut())?;
+            let result = Buffer::create(context, flags, count_self, ptr::null_mut())?;
 
             ExecuteKernel::new(kernel)
                 .set_arg(self)
@@ -462,7 +462,7 @@ impl BufferOperations for Buffer<cl_float> {
             return Err(BufferOperationError::NoCommandQueueFoundError);
         }
 
-        let context = opencl_state.context;
+        let context = &opencl_state.context;
         let queue = opencl_state.queues.first().unwrap();
 
         let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
@@ -475,7 +475,7 @@ impl BufferOperations for Buffer<cl_float> {
         let count_self = size_self / mem::size_of::<cl_float>();
         let count_other = size_other / mem::size_of::<cl_float>();
         if size_self == size_other {
-            let result = Buffer::create(&context, flags, count_self, ptr::null_mut())?;
+            let result = Buffer::create(context, flags, count_self, ptr::null_mut())?;
 
             ExecuteKernel::new(kernel)
                 .set_arg(self)
@@ -526,7 +526,6 @@ impl BufferOperations for Buffer<cl_float> {
         } else if current_count == 0 {
             Ok(0.0)
         } else {
-            let context = &opencl_state.context;
             let mut current_buf =
                 reduce_buffer_by_summation(self, opencl_state, max_local_size, reduce_kernel)?;
             current_count = current_buf.size()? / mem::size_of::<cl_float>();
@@ -731,8 +730,6 @@ impl BufferLike<cl_float> for Vec<f32> {
         opencl_state: &OpenCLState,
     ) -> Result<Vec<f32>, ConversionError> {
         if let Some(queue) = opencl_state.queues.first() {
-            let context = &opencl_state.context;
-
             let size = buffer.size()?;
             let count = size / mem::size_of::<cl_float>();
 
@@ -790,8 +787,12 @@ mod test_opencl_utils {
             .unwrap();
 
         let actual =
-            Vec::<f32>::from_buffer(buff1.add(&buff2, true, &opencl_state), true, &opencl_state)
-                .unwrap();
+            Vec::<f32>::from_buffer(
+                &buff1.add(&buff2, CL_MEM_READ_ONLY, &opencl_state).unwrap(), 
+                true, 
+                &opencl_state
+            )
+            .unwrap();
 
         expected.iter().zip(actual).for_each(|(expected, actual)| {
             assert!((expected - actual).abs() / expected.max(actual) <= 0.0001);
@@ -821,7 +822,7 @@ mod test_opencl_utils {
             .unwrap();
 
         let actual = Vec::<f32>::from_buffer(
-            buff1.subtract(&buff2, true, &opencl_state),
+            &buff1.subtract(&buff2, CL_MEM_READ_ONLY, &opencl_state).unwrap(),
             true,
             &opencl_state,
         )
@@ -891,7 +892,7 @@ mod test_opencl_utils {
             .unwrap();
 
         let actual = Vec::<f32>::from_buffer(
-            buff1.divide(&buff2, true, &opencl_state),
+            &buff1.divide(&buff2, CL_MEM_READ_ONLY, &opencl_state).unwrap(),
             true,
             &opencl_state,
         )
