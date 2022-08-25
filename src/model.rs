@@ -1,43 +1,5 @@
 //! The module that implements a sequential Model, that contains some layers, and forward passes
 //! some inputs over and over again from one layer to another.
-//! An Intricate Model can be defined as just an ordering
-//! of some layers with their inputs and outputs, the GPUModel receives
-//! the inputs for the first layer and results in the outputs of the last layer,
-//!
-//! the only difference from an ordinary Model is that thourgh its propagation and
-//! backprop process it just moves around GPU buffers instead of Vec's
-//!
-//! it also back_propagates returning the new loss for the Model based on the
-//! defined Loss Function and calls the back_propagate method on each layer
-//! going from the last to the first layer
-//!
-//! once it is instantiated using the `new` method, it will get the first GPU device
-//! it can find and use it for all the computations, in the future Intricate will
-//! support multiple GPU's here as well.
-//!
-//! # Example
-//!
-//! ```rust
-//! use intricate::{
-//!     types::ModelLayer,
-//!     layers::{
-//!         Dense,
-//!         activations::TanH,
-//!     },
-//!     Model,
-//! };
-//!
-//!let my_layers: Vec<ModelLayer> = vec![
-//!    Dense::new(768, 300), // make sure the outputs are the same as the inputs of the next
-//!                          // one or Intricate will panic when asserting these are of the
-//!                          // same shape
-//!    Dense::new(300, 100),
-//!    TanH::new(100), // Activations are layers by themselves, this makes all calculations
-//!                    // much simpler under the hood
-//!];
-//!
-//! let my_model: Model = Model::new(my_layers);
-//! ```
 
 use std::time::Instant;
 
@@ -62,11 +24,12 @@ use crate::{
         LayerLossToInputDifferentiationError, LayerPropagationError, ParametersOptimizationError,
     },
     loss_functions::LossFunction,
+    optimizers::Optimizer,
     types::{
         CompilationOrOpenCLError, ModelLayer, ModelLossFunction, ModelOptimizer, SyncDataError,
         TrainingOptions,
     },
-    utils::opencl::{BufferLike, BufferConversionError}, optimizers::Optimizer,
+    utils::opencl::{BufferConversionError, BufferLike},
 };
 
 #[allow(dead_code)]
@@ -100,8 +63,7 @@ use crate::{
 ///
 /// let my_layers: Vec<ModelLayer> = vec![
 ///     Dense::new(768, 300), // make sure the outputs are the same as the inputs of the next
-///                           // one or Intricate will panic when asserting these are of the
-///                           // same shape
+///                           // one or Intricate will yield an error
 ///     Dense::new(300, 100),
 ///     TanH::new(100), // Activations are layers by themselves, this makes all calculations
 ///                     // much simpler under the hood
@@ -199,6 +161,22 @@ pub enum ModelGradientApplicationError {
     LayerGradientApllication(LayerGradientApplicationError),
 }
 
+#[derive(Debug, FromForAllUnnamedVariants)]
+/// An enum contaning all of the possible errors that can happen when trying to get the last
+/// prediction of a Model as a Vec.
+pub enum ModelGetLastPredictionError {
+    /// Happens when the Model was not initialized
+    NotInitialized,
+    /// Happens only if something goes wrong while trying to get the size of the buffer
+    OpenCL(ClError),
+    /// Happens when something goes wrong while trying to convert from a buffer to a Vec
+    BufferConversion(BufferConversionError),
+    /// Happens when the Model has no layers inside of it
+    NoLayers,
+    /// Happens when the method was called before predicting with the Model
+    HasNotPredicted,
+}
+
 impl<'a> Model<'a> {
     /// Creates a new Model from a Vec of layers with an empty OpenCLState.
     ///
@@ -261,25 +239,28 @@ impl<'a> Model<'a> {
     ///
     /// Will panic if the 'init' method was not called setting the **opencl_state**, if there
     /// is no layers in the model or if there is not outputs in the last layer.
-    pub fn get_last_prediction(&self) -> Result<Vec<f32>, ClError> {
-        // TODO: get rid of all these unwraps and make a customized enum for errors in this
-        // function
-        assert!(self.opencl_state.is_some());
-        assert!(!self.opencl_state.unwrap().queues.is_empty());
-        let state = self.opencl_state.unwrap();
-        let queue = state.queues.first().unwrap();
+    pub fn get_last_prediction(&self) -> Result<Vec<f32>, ModelGetLastPredictionError> {
+        if self.opencl_state.is_none() {
+            return Err(ModelGetLastPredictionError::NotInitialized);
+        }
 
-        let buffer = self.layers.last().unwrap().get_last_outputs().unwrap();
+        let state = self.opencl_state.unwrap();
+
+        if self.layers.len() == 0 {
+            return Err(ModelGetLastPredictionError::NoLayers);
+        }
+
+        let last_layer = self.layers.last().unwrap();
+
+        if last_layer.get_last_outputs().is_none() {
+            return Err(ModelGetLastPredictionError::HasNotPredicted);
+        }
+
+        let buffer = last_layer.get_last_outputs().unwrap();
 
         let size = buffer.size()? / mem::size_of::<cl_float>();
-        let mut resulting_vec = vec![0.0; size];
-        let resulting_slice = resulting_vec.as_mut_slice();
 
-        queue
-            .enqueue_read_buffer(buffer, CL_NON_BLOCKING, 0, resulting_slice, &[])?
-            .wait()?;
-
-        Ok(resulting_vec)
+        Ok(Vec::<f32>::from_buffer(&buffer, false, state)?)
     }
 
     /// Plain old `predict` function, will receive the inputs for the model and will give out a
@@ -488,7 +469,7 @@ impl<'a> Model<'a> {
         Ok(())
     }
 
-    /// Computes the gradients for each one of the layers in the Model calling each layer's 
+    /// Computes the gradients for each one of the layers in the Model calling each layer's
     /// `compute_gradients` in conjuction with the `compute_loss_to_input_derivatives`.
     ///
     /// # Errors
