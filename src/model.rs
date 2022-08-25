@@ -481,7 +481,7 @@ impl<'a> Model<'a> {
             return Err(ModelGradientApplicationError::NoCommandQueue);
         }
 
-        for (layer, gradients) in self.layers.iter_mut().zip(gradients_per_layer.iter()) {
+        for (layer, gradients) in self.layers.iter_mut().zip(gradients_per_layer.iter().rev()) {
             layer.apply_gradients(gradients.as_slice(), optimizer)?;
         }
 
@@ -531,7 +531,7 @@ impl<'a> Model<'a> {
                 &training_expected_output_samples,
                 samples_amount,
             )?;
-        for layer in self.layers.iter() {
+        for layer in self.layers.iter().rev() {
             gradients.push(layer.compute_gradients(&last_loss_to_outputs_derivatives)?);
             last_loss_to_outputs_derivatives =
                 layer.compute_loss_to_input_derivatives(&last_loss_to_outputs_derivatives)?;

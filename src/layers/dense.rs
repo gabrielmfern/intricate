@@ -38,7 +38,7 @@ const BACK_PROPAGATION_PROGRAM_SOURCE: &str = include_str!("kernels/dense_back_p
 const PROPAGATION_KERNEL_NAME: &str = "dense_propagate";
 
 const WEIGHTS_GRADIENT_COMPUTATION_KERNEL_NAME: &str = "weights_gradient_calculation";
-const BIAS_GRADIENT_APPLICATION_KERNEL_NAME: &str = "bias_gradient_calculation";
+const BIAS_GRADIENT_COMPUTATION_KERNEL_NAME: &str = "bias_gradient_calculation";
 const LOSS_TO_INPUT_DIFFERENTIATION_KERNEL_NAME: &str =
     "compute_loss_derivative_with_respect_to_inputs";
 
@@ -48,7 +48,7 @@ pub(crate) fn compile_dense(
     let prop_kernels = &[PROPAGATION_KERNEL_NAME.to_string()];
     let backprop_kernels = &[
         WEIGHTS_GRADIENT_COMPUTATION_KERNEL_NAME.to_string(),
-        BIAS_GRADIENT_APPLICATION_KERNEL_NAME.to_string(),
+        BIAS_GRADIENT_COMPUTATION_KERNEL_NAME.to_string(),
         LOSS_TO_INPUT_DIFFERENTIATION_KERNEL_NAME.to_string(),
     ];
 
@@ -340,6 +340,10 @@ impl<'a> Layer<'a> for Dense<'a> {
         let inputs_size = input_samples.size()?;
         let inputs_total_count = inputs_size / mem::size_of::<cl_float>();
 
+        if inputs_total_count % self.inputs_amount != 0 {
+            return Err(LayerPropagationError::InputsDontMatchExpectedShape);
+        }
+
         let mut copied_last_inputs_buffer = Buffer::<cl_float>::create(
             context,
             CL_MEM_READ_ONLY,
@@ -361,7 +365,7 @@ impl<'a> Layer<'a> for Dense<'a> {
         self.last_inputs_buffer = Some(copied_last_inputs_buffer);
 
         let samples_amount =
-            input_samples.size()? / self.inputs_amount / mem::size_of::<cl_float>();
+             inputs_total_count / self.inputs_amount;
 
         let outputs_buffer = empty_buffer(
             self.outputs_amount * samples_amount,
@@ -405,13 +409,17 @@ impl<'a> Layer<'a> for Dense<'a> {
 
         let queue = state.queues.first().unwrap();
 
+        if layer_output_to_error_derivative.size()? / mem::size_of::<cl_float>() % self.outputs_amount != 0 {
+            return Err(LayerGradientComputationError::DerivativesDontMatchExpectedShape);
+        }
+
         let backprop_program = state.get_prgm(DENSE_BACKPROP_PROGRAM_NAME)?;
 
         let weights_gradient_computation_kernel =
             backprop_program.get_krnl(WEIGHTS_GRADIENT_COMPUTATION_KERNEL_NAME)?;
 
         let bias_gradient_computation_kernel =
-            backprop_program.get_krnl(BIAS_GRADIENT_APPLICATION_KERNEL_NAME)?;
+            backprop_program.get_krnl(BIAS_GRADIENT_COMPUTATION_KERNEL_NAME)?;
 
         let weights_gradients = empty_buffer(
             self.inputs_amount * self.outputs_amount,
@@ -424,7 +432,7 @@ impl<'a> Layer<'a> for Dense<'a> {
             / self.outputs_amount
             / mem::size_of::<cl_float>();
 
-        let weight_gradients_event = ExecuteKernel::new(weights_gradient_computation_kernel)
+        let weights_event = ExecuteKernel::new(weights_gradient_computation_kernel)
             .set_arg(layer_output_to_error_derivative)
             .set_arg(self.last_inputs_buffer.as_ref().unwrap())
             .set_arg(&weights_gradients)
@@ -439,8 +447,8 @@ impl<'a> Layer<'a> for Dense<'a> {
             .set_arg(&bias_gradients)
             .set_arg(&(samples_amount as cl_int))
             .set_arg(&(self.outputs_amount as cl_int))
-            .set_wait_event(&weight_gradients_event)
             .set_global_work_size(self.outputs_amount)
+            .set_wait_event(&weights_event)
             .enqueue_nd_range(queue)?;
 
         queue.finish()?;
@@ -468,14 +476,20 @@ impl<'a> Layer<'a> for Dense<'a> {
 
         let state = self.opencl_state.unwrap();
 
+        if per_parameter_type_gradients.len() != 2 {
+            return Err(LayerGradientApplicationError::GradientsDontMatchExpectedShape);
+        }
+
         let update_vectors =
             compute_update_vectors(optimizer, per_parameter_type_gradients, state)?;
 
         let weights_buffer = self.weights_buffer.as_ref().unwrap();
         let biases_buffer = self.biases_buffer.as_ref().unwrap();
 
-        self.weights_buffer = Some(weights_buffer.add(&update_vectors[0], CL_MEM_READ_ONLY, state)?);
-        self.biases_buffer = Some(biases_buffer.add(&update_vectors[1], CL_MEM_READ_ONLY, state)?);
+        self.weights_buffer =
+            Some(weights_buffer.subtract(&update_vectors[0], CL_MEM_READ_ONLY, state)?);
+        self.biases_buffer =
+            Some(biases_buffer.subtract(&update_vectors[1], CL_MEM_READ_ONLY, state)?);
 
         Ok(())
     }
@@ -524,8 +538,12 @@ impl<'a> Layer<'a> for Dense<'a> {
 
         let kernel = program.get_krnl(LOSS_TO_INPUT_DIFFERENTIATION_KERNEL_NAME)?;
 
-        let samples_amount = layer_output_to_error_derivative.size()? / mem::size_of::<cl_float>();
-        let loss_to_input_derivatives = empty_buffer(samples_amount, CL_MEM_READ_WRITE, state)?;
+        if layer_output_to_error_derivative.size()? % self.outputs_amount != 0 {
+            return Err(LayerLossToInputDifferentiationError::DerivativesDontMatchExpectedShape);
+        }
+
+        let samples_amount = layer_output_to_error_derivative.size()? / self.outputs_amount / mem::size_of::<cl_float>();
+        let loss_to_input_derivatives = empty_buffer(samples_amount * self.inputs_amount, CL_MEM_READ_WRITE, state)?;
 
         ExecuteKernel::new(kernel)
             .set_arg(self.weights_buffer.as_ref().unwrap())

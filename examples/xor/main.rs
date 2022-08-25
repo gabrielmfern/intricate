@@ -48,8 +48,8 @@ fn main() -> () {
                 loss_algorithm: MeanSquared::new(), // The Mean Squared loss function
                 verbose: true,     // Should be verbose
                 compute_loss: true,
-                optimizer: BasicOptimizer::new(0.5),
-                epochs: 10,
+                optimizer: BasicOptimizer::new(0.1),
+                epochs: 10000,
             },
         )
         .unwrap();

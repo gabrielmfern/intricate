@@ -82,6 +82,10 @@ pub enum LayerPropagationError {
     /// Happens when a buffer operation goes wrong.
     BufferOperation(BufferOperationError),
 
+    /// Happens if the amounts of inputs per sample is not equivalent to the amount of actual
+    /// inputs
+    InputsDontMatchExpectedShape,
+
     /// Happens when there is no command queue in the OpenCLState.
     NoCommandQueueFound,
     /// Happens when there is no device in the OpenCLState.
@@ -102,6 +106,10 @@ pub enum LayerGradientComputationError {
     ProgramNotFound(ProgramNotFoundError),
     /// Happens when a kernel could not be found inside of the program.
     KernelNotFound(KernelNotFoundError),
+
+    /// Happens when the derivatives do not match the expected shape based on the input_amount and
+    /// outputs_amount.
+    DerivativesDontMatchExpectedShape,
 
     /// Happens when there is no command queue in the OpenCLState.
     NoCommandQueueFound,
@@ -129,6 +137,10 @@ pub enum LayerGradientApplicationError {
     /// Happens when something goes wrong while trying to compute update vectors for each gradient.
     UpdateVectorsComputation(UpdateVectorsComputationError),
 
+    /// Happens when the gradients given to the gradient application method do not match the
+    /// expected amount of gradients
+    GradientsDontMatchExpectedShape,
+
     /// Happens when there is no command queue in the OpenCLState.
     NoCommandQueueFound,
     /// Happens when there is no device in the OpenCLState.
@@ -150,7 +162,11 @@ pub enum LayerLossToInputDifferentiationError {
     /// Happens when a kernel could not be found inside of the program.
     KernelNotFound(KernelNotFoundError),
 
-    /// Happens when the layer has not been propagated before trying to compute the derivatives.
+    /// Happens when the derivatives do not match the expected shape based on the input_amount and
+    /// outputs_amount.
+    DerivativesDontMatchExpectedShape,
+    /// Happens when the layer has not propagated before calculating the derivatives if the outputs
+    /// are necessary.
     HasNotPropagatedBeforeCalculation,
 
     /// Happens when there is no command queue in the OpenCLState.

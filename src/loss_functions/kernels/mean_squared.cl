@@ -8,7 +8,6 @@ kernel void compute_loss(
     int samples_amount
 ) {
     int sample_index = get_global_id(0);
-    // int samples_amount = get_global_size(0);
 
     if (sample_index >= samples_amount) {
         return;
@@ -36,15 +35,13 @@ kernel void compute_loss_to_output_derivatives(
     int outputs_amount
 ) {
     int sample_index = get_global_id(0);
-    // int samples_amount = get_global_size(0);
 
     int output_index = get_global_id(1);
-    // int outputs_amount = get_global_size(1);
 
     if (sample_index >= samples_amount) {
         return;
     }
-    if (output_index > outputs_amount) {
+    if (output_index >= outputs_amount) {
         return;
     }
 
