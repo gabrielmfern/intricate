@@ -487,9 +487,9 @@ impl<'a> Layer<'a> for Dense<'a> {
         let biases_buffer = self.biases_buffer.as_ref().unwrap();
 
         self.weights_buffer =
-            Some(weights_buffer.subtract(&update_vectors[0], CL_MEM_READ_ONLY, state)?);
+            Some(weights_buffer.subtract(&update_vectors[0], CL_MEM_READ_WRITE, state)?);
         self.biases_buffer =
-            Some(biases_buffer.subtract(&update_vectors[1], CL_MEM_READ_ONLY, state)?);
+            Some(biases_buffer.subtract(&update_vectors[1], CL_MEM_READ_WRITE, state)?);
 
         Ok(())
     }
@@ -510,10 +510,8 @@ impl<'a> Layer<'a> for Dense<'a> {
             ));
         }
 
-        self.weights_buffer =
-            Some(optimizer.optimize_parameters(self.weights_buffer.as_ref().unwrap())?);
-        self.biases_buffer =
-            Some(optimizer.optimize_parameters(self.biases_buffer.as_ref().unwrap())?);
+        optimizer.optimize_parameters(self.weights_buffer.as_mut().unwrap())?;
+        optimizer.optimize_parameters(self.biases_buffer.as_mut().unwrap())?;
 
         Ok(())
     }

@@ -39,8 +39,8 @@ pub trait Optimizer<'a> {
     /// paremeters are going to be.
     fn optimize_parameters(
         &self,
-        parameters: &Buffer<cl_float>,
-    ) -> Result<Buffer<cl_float>, OptimizationError>;
+        parameters: &mut Buffer<cl_float>,
+    ) -> Result<(), OptimizationError>;
 
     /// Computes the update vectors of some certain gradients.
     ///

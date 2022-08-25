@@ -377,7 +377,7 @@ impl<'a> Model<'a> {
             return Err(ModelFittingError::NoCommandQueue);
         }
 
-        training_options.loss_algorithm.init(state)?;
+        training_options.loss_fn.init(state)?;
         training_options.optimizer.init(state)?;
 
         let input_samples_buffer = training_input_samples
@@ -414,7 +414,7 @@ impl<'a> Model<'a> {
             let gradients = self.compute_gradients(
                 &input_samples_buffer,
                 &expected_output_samples_buffer,
-                training_options.loss_algorithm,
+                training_options.loss_fn,
             )?;
 
             self.apply_gradients(gradients.as_slice(), training_options.optimizer)?;
@@ -422,7 +422,7 @@ impl<'a> Model<'a> {
             let actual_outputs = self.layers.last().unwrap().get_last_outputs().unwrap();
 
             if training_options.verbose || training_options.compute_loss {
-                last_loss = Some(training_options.loss_algorithm.compute_loss(
+                last_loss = Some(training_options.loss_fn.compute_loss(
                     actual_outputs,
                     &expected_output_samples_buffer,
                     samples_amount,

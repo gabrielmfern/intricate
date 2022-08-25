@@ -33,15 +33,9 @@ impl<'a> Optimizer<'a> for BasicOptimizer<'a> {
 
     fn optimize_parameters(
         &self,
-        parameters: &Buffer<cl_float>,
-    ) -> Result<Buffer<cl_float>, OptimizationError> {
-        if self.opencl_state.is_none() {
-            return Err(OptimizationError::UninitializedState);
-        }
-
-        let state = self.opencl_state.unwrap();
-
-        Ok(parameters.clone(CL_MEM_READ_ONLY, state)?)
+        _parameters: &mut Buffer<cl_float>,
+    ) -> Result<(), OptimizationError> {
+        Ok(())
     } 
 
     fn compute_update_vectors(
