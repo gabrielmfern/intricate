@@ -217,6 +217,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
     let layer_names_9 = layer_variants.iter().map(|variant| &variant.ident);
     let layer_names_10 = layer_names_9.clone();
     let layer_names_11 = layer_names_9.clone();
+    let layer_names_12 = layer_names_9.clone();
 
     TokenStream::from(quote! {
         impl<'a> crate::layers::Layer<'a> for #enum_name<'a> {
@@ -333,6 +334,19 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
                     )*
                 }
             }
+
+            fn optimize_parameters(
+                &mut self,
+                optimizer: &crate::types::ModelOptimizer,
+            ) -> Result<(), crate::layers::ParametersOptimizationError> {
+                match self {
+                    #(
+                        #enum_name::#layer_names_12(layer) => layer.optimize_parameters(
+                            optimizer,
+                        ),
+                    )*
+                }
+            }
         }
     })
 }
@@ -348,13 +362,9 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
 /// Will also require that the struct has the following properties:
 ///
 /// - **inputs_amount**
-/// - **opencl_context**
-/// - **opencl_queue**
-/// - **opencl_program**
-/// - **opencl_propagate_kernel**
-/// - **opencl_back_propagate_kernel**
 /// - **last_outputs_buffer**
 /// - **last_inputs_buffer**
+/// - **opencl_state**
 pub fn activation_layer(_input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(_input as DeriveInput);
     let activation_name = &input.ident;
@@ -507,6 +517,13 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                 _per_parameter_type_gradients: &[crate::layers::Gradient],
                 _optimizer: &crate::types::ModelOptimizer,
             ) -> Result<(), crate::layers::LayerGradientApplicationError> {
+                Ok(())
+            }
+
+            fn optimize_parameters(
+                &mut self,
+                optimizer: &crate::types::ModelOptimizer,
+            ) -> Result<(), crate::layers::ParametersOptimizationError> {
                 Ok(())
             }
 

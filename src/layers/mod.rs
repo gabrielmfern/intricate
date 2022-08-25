@@ -31,95 +31,142 @@ pub(crate) fn compile_layers(
 }
 
 #[derive(Debug)]
+/// A simple struct that contains the gradients for a certain parameter and weather or not these
+/// gradients should be optimized.
 pub struct Gradient {
+    /// The actual gradients of the parameter.
     pub value: Buffer<cl_float>,
+    /// Weather or not the gradients should be optimized when computing the update vectors.
     pub optimizable: bool,
 }
 
 #[derive(Debug, FromForAllUnnamedVariants)]
+/// An enum that contains all errors that can happen while trying to compute update vectors.
 pub enum UpdateVectorsComputationError {
+    /// Happens when something goes wrong with OpenCL.
     OpenCL(ClError),
-    GradientOptimzation(OptimizationError),
+    /// Happens when the computation of the update vector made by the optimizer goes wrong.
+    Optimizer(OptimizationError),
+    /// Happens when a buffer operation goes wrong.
     BufferOperation(BufferOperationError),
-    NoCommandQueueFound,
 }
 
-pub fn compute_update_vectors(
+pub(crate) fn compute_update_vectors(
     optimizer: &ModelOptimizer,
     all_gradients: &[Gradient],
     state: &OpenCLState,
 ) -> Result<Vec<Buffer<cl_float>>, UpdateVectorsComputationError> {
-    if let Some(queue) = state.queues.first() {
-        let mut update_vectors: Vec<Buffer<cl_float>> = Vec::with_capacity(all_gradients.len());
+    let mut update_vectors: Vec<Buffer<cl_float>> = Vec::with_capacity(all_gradients.len());
 
-        let context = &state.context;
-
-        for (i, gradients) in all_gradients.iter().enumerate() {
-            if gradients.optimizable {
-                update_vectors[i] = optimizer.compute_update_vectors(&gradients.value)?;
-            } else {
-                update_vectors[i] = gradients.value.clone(CL_MEM_READ_ONLY, state)?;
-            }
+    for (i, gradients) in all_gradients.iter().enumerate() {
+        if gradients.optimizable {
+            update_vectors[i] = optimizer.compute_update_vectors(&gradients.value)?;
+        } else {
+            update_vectors[i] = gradients.value.clone(CL_MEM_READ_ONLY, state)?;
         }
-
-        Ok(update_vectors)
-    } else {
-        Err(UpdateVectorsComputationError::NoCommandQueueFound)
     }
+
+    Ok(update_vectors)
 }
 
 #[derive(Debug, FromForAllUnnamedVariants)]
+/// An enum containing all of the errors that can happen when trying to propagate a layer.
 pub enum LayerPropagationError {
+    /// Happens when something goes wrong with OpenCL.
     OpenCL(ClError),
 
+    /// Happens when a program could not be found inside of the OpenCLState.
     ProgramNotFound(ProgramNotFoundError),
+    /// Happens when a kernel could not be found inside of the program.
     KernelNotFound(KernelNotFoundError),
+    /// Happens when a buffer operation goes wrong.
     BufferOperation(BufferOperationError),
 
+    /// Happens when there is no command queue in the OpenCLState.
     NoCommandQueueFound,
+    /// Happens when there is no device in the OpenCLState.
     NoDeviceFound,
 
+    /// Happens when the layer being propagate was not initialized before propagating.
     LayerNotInitialized
 }
 
 #[derive(Debug, FromForAllUnnamedVariants)]
+/// An enum containing all of the errors that can happen when trying to compute gradients for a
+/// layer.
 pub enum LayerGradientComputationError {
+    /// Happens when something goes wrong with OpenCL.
     OpenCL(ClError),
 
+    /// Happens when a program could not be found inside of the OpenCLState.
     ProgramNotFound(ProgramNotFoundError),
+    /// Happens when a kernel could not be found inside of the program.
     KernelNotFound(KernelNotFoundError),
 
+    /// Happens when there is no command queue in the OpenCLState.
     NoCommandQueueFound,
+    /// Happens when there is no device in the OpenCLState.
     NoDeviceFound,
 
+    /// Happens when the layer being propagate was not initialized before propagating.
     LayerNotInitialized
 }
 
 #[derive(Debug, FromForAllUnnamedVariants)]
+/// An enum containing all of the errors that can happen when trying to apply some calculated
+/// gradients to a layer.
 pub enum LayerGradientApplicationError {
+    /// Happens when something goes wrong with OpenCL.
     OpenCL(ClError),
 
-    ComputeUpdateVectors(LayerGradientComputationError),
+    /// Happens when a program could not be found inside of the OpenCLState.
+    ProgramNotFound(ProgramNotFoundError),
+    /// Happens when a kernel could not be found inside of the program.
+    KernelNotFound(KernelNotFoundError),
+
+    /// Happens when a buffer operation goes wrong.
     BufferOperation(BufferOperationError),
+    /// Happens when something goes wrong while trying to compute update vectors for each gradient.
     UpdateVectorsComputation(UpdateVectorsComputationError),
 
-    ProgramNotFound(ProgramNotFoundError),
-    KernelNotFound(KernelNotFoundError),
-
+    /// Happens when there is no command queue in the OpenCLState.
     NoCommandQueueFound,
+    /// Happens when there is no device in the OpenCLState.
     NoDeviceFound,
 
+    /// Happens when the layer being propagate was not initialized before propagating.
     LayerNotInitialized
 }
 
 #[derive(Debug, FromForAllUnnamedVariants)]
+/// An enum containing all of the errors that can happen when trying compute the derivatives of the
+/// loss with respect to the inputs of a layer.
 pub enum LayerLossToInputDifferentiationError {
+    /// Happens when something goes wrong with OpenCL.
     OpenCL(ClError),
-    LayerNotInitialized,
-    NoCommandQueueFound,
-    HasNotPropagatedBeforeCalculation,
+
+    /// Happens when a program could not be found inside of the OpenCLState.
     ProgramNotFound(ProgramNotFoundError),
+    /// Happens when a kernel could not be found inside of the program.
     KernelNotFound(KernelNotFoundError),
+
+    /// Happens when the layer has not been propagated before trying to compute the derivatives.
+    HasNotPropagatedBeforeCalculation,
+
+    /// Happens when there is no command queue in the OpenCLState.
+    NoCommandQueueFound,
+    /// Happens when the layer being propagate was not initialized before propagating.
+    LayerNotInitialized
+}
+
+#[derive(Debug, FromForAllUnnamedVariants)]
+/// An enum containing all of the errors that can happen when trying to optimize the parameters of
+/// a layer using the `optimizer_parameters` function of a Optimizer.
+pub enum ParametersOptimizationError {
+    /// Happens when something goes wrong in optimization.
+    Optimization(OptimizationError),
+    /// Happens when an optimizable parameter is empty.
+    EmptyParameter(String),
 }
 
 /// A trait implemented by Intricate that is implemented in every struct that represents a Model
@@ -219,12 +266,49 @@ pub trait Layer<'a> {
         layer_output_to_error_derivative: &Buffer<cl_float>,
     ) -> Result<Vec<Gradient>, LayerGradientComputationError>;
 
+    /// Tweaks all of the parameters of the Layer based on the optimizer's choices.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the Optimizer is unable to do it's calculations or if
+    /// a parameter that is going to be optimized has no value.
+    fn optimize_parameters(
+        &mut self,
+        optimizer: &ModelOptimizer,
+    ) -> Result<(), ParametersOptimizationError>;
+
+    /// Applies all of the gradients given by **compute_gradients** of the current layer using a
+    /// certain optimizer.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if:
+    /// - Something goes wrong with OpenCL;
+    /// - Something goes wrong while computing update vectors;
+    /// - Something goes wrong inside a buffer operation;
+    /// - A required program was not found;
+    /// - A required kernel was not found;
+    /// - There is no command queue;
+    /// - There is no device;
+    /// - The layer was not initialized.
     fn apply_gradients(
         &mut self,
         per_parameter_type_gradients: &[Gradient],
         optimizer: &ModelOptimizer,
     ) -> Result<(), LayerGradientApplicationError>;
 
+    /// Computes the derivatives of the Model's loss with respect to all of the inputs in each
+    /// sample of the batch.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if:
+    /// - Something goes wrong in OpenCL.
+    /// - A required program was not found.
+    /// - A required kernel was not found in a program.
+    /// - The layer has not been propagated before this method was called.
+    /// - The layer was not initialized.
+    /// - There are no drivers for OpenCL.
     fn compute_loss_to_input_derivatives(
         &self,
         layer_output_to_error_derivative: &Buffer<cl_float>,

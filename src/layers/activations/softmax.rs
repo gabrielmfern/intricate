@@ -12,7 +12,7 @@ use savefile_derive::Savefile;
 use crate::{
     layers::{
         Gradient, Layer, LayerLossToInputDifferentiationError, LayerPropagationError,
-        SyncDataError,
+        SyncDataError, ParametersOptimizationError,
     },
     types::ModelOptimizer,
     utils::{
@@ -146,14 +146,13 @@ impl<'a> Layer<'a> for SoftMax<'a> {
             return Err(LayerPropagationError::NoCommandQueueFound);
         }
 
-        let context = &state.context;
         let queue = state.queues.first().unwrap();
 
         let inputs_size = inputs.size()?;
         let inputs_total_count = inputs_size / std::mem::size_of::<cl_float>();
         let samples_amount = inputs_total_count / self.inputs_amount;
 
-        let mut copied_last_inputs_buffer = inputs.clone(CL_MEM_READ_ONLY, state)?;
+        let copied_last_inputs_buffer = inputs.clone(CL_MEM_READ_ONLY, state)?;
 
         self.last_inputs_buffer = Some(copied_last_inputs_buffer);
 
@@ -235,6 +234,13 @@ impl<'a> Layer<'a> for SoftMax<'a> {
         Ok(Vec::default())
     }
 
+    fn optimize_parameters(
+        &mut self,
+        _optimizer: &ModelOptimizer,
+    ) -> Result<(), ParametersOptimizationError> {
+        Ok(())
+    }
+
     fn compute_loss_to_input_derivatives(
         &self,
         layer_output_to_error_derivative: &Buffer<cl_float>,
@@ -249,7 +255,6 @@ impl<'a> Layer<'a> for SoftMax<'a> {
             return Err(LayerLossToInputDifferentiationError::NoCommandQueueFound);
         }
 
-        let context = &state.context;
         let queue = state.queues.first().unwrap();
 
         let samples_amount = self.last_outputs_buffer.as_ref().unwrap().size()?

@@ -14,6 +14,7 @@ use std::mem;
 use std::ptr;
 
 use crate::{
+    optimizers::Optimizer,
     types::{ModelLayer, ModelOptimizer, SyncDataError},
     utils::{
         opencl::{empty_buffer, ensure_program, EnsureKernelsAndProgramError},
@@ -24,6 +25,7 @@ use crate::{
 use super::{
     compute_update_vectors, Gradient, Layer, LayerGradientApplicationError,
     LayerGradientComputationError, LayerLossToInputDifferentiationError, LayerPropagationError,
+    ParametersOptimizationError,
 };
 
 const DENSE_PROP_PROGRAM_NAME: &str = "DENSE_PROPAGATION";
@@ -415,8 +417,7 @@ impl<'a> Layer<'a> for Dense<'a> {
             CL_MEM_READ_WRITE,
             state,
         )?;
-        let bias_gradients =
-            empty_buffer(self.outputs_amount, CL_MEM_READ_WRITE, state)?;
+        let bias_gradients = empty_buffer(self.outputs_amount, CL_MEM_READ_WRITE, state)?;
 
         let samples_amount = layer_output_to_error_derivative.size()?
             / self.outputs_amount
@@ -478,6 +479,30 @@ impl<'a> Layer<'a> for Dense<'a> {
         Ok(())
     }
 
+    fn optimize_parameters(
+        &mut self,
+        optimizer: &ModelOptimizer,
+    ) -> Result<(), ParametersOptimizationError> {
+        if self.weights_buffer.is_none() {
+            return Err(ParametersOptimizationError::EmptyParameter(
+                "weights".to_string(),
+            ));
+        }
+
+        if self.biases_buffer.is_none() {
+            return Err(ParametersOptimizationError::EmptyParameter(
+                "biases".to_string(),
+            ));
+        }
+
+        self.weights_buffer =
+            Some(optimizer.optimize_parameters(self.weights_buffer.as_ref().unwrap())?);
+        self.biases_buffer =
+            Some(optimizer.optimize_parameters(self.biases_buffer.as_ref().unwrap())?);
+
+        Ok(())
+    }
+
     fn compute_loss_to_input_derivatives(
         &self,
         layer_output_to_error_derivative: &Buffer<cl_float>,
@@ -509,7 +534,7 @@ impl<'a> Layer<'a> for Dense<'a> {
             .set_arg(&(self.outputs_amount as cl_int))
             .set_arg(&(self.inputs_amount as cl_int))
             .set_global_work_sizes(&[samples_amount, self.inputs_amount])
-            .enqueue_nd_range(queue);
+            .enqueue_nd_range(queue)?;
 
         queue.finish()?;
 

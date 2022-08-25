@@ -1,5 +1,43 @@
 //! The module that implements a sequential Model, that contains some layers, and forward passes
 //! some inputs over and over again from one layer to another.
+//! An Intricate Model can be defined as just an ordering
+//! of some layers with their inputs and outputs, the GPUModel receives
+//! the inputs for the first layer and results in the outputs of the last layer,
+//!
+//! the only difference from an ordinary Model is that thourgh its propagation and
+//! backprop process it just moves around GPU buffers instead of Vec's
+//!
+//! it also back_propagates returning the new loss for the Model based on the
+//! defined Loss Function and calls the back_propagate method on each layer
+//! going from the last to the first layer
+//!
+//! once it is instantiated using the `new` method, it will get the first GPU device
+//! it can find and use it for all the computations, in the future Intricate will
+//! support multiple GPU's here as well.
+//!
+//! # Example
+//!
+//! ```rust
+//! use intricate::{
+//!     types::ModelLayer,
+//!     layers::{
+//!         Dense,
+//!         activations::TanH,
+//!     },
+//!     Model,
+//! };
+//!
+//!let my_layers: Vec<ModelLayer> = vec![
+//!    Dense::new(768, 300), // make sure the outputs are the same as the inputs of the next
+//!                          // one or Intricate will panic when asserting these are of the
+//!                          // same shape
+//!    Dense::new(300, 100),
+//!    TanH::new(100), // Activations are layers by themselves, this makes all calculations
+//!                    // much simpler under the hood
+//!];
+//!
+//! let my_model: Model = Model::new(my_layers);
+//! ```
 
 use std::time::Instant;
 
@@ -21,14 +59,14 @@ use std::mem;
 use crate::{
     layers::{
         Gradient, Layer, LayerGradientApplicationError, LayerGradientComputationError,
-        LayerLossToInputDifferentiationError, LayerPropagationError,
+        LayerLossToInputDifferentiationError, LayerPropagationError, ParametersOptimizationError,
     },
     loss_functions::LossFunction,
     types::{
         CompilationOrOpenCLError, ModelLayer, ModelLossFunction, ModelOptimizer, SyncDataError,
         TrainingOptions,
     },
-    utils::opencl::{empty_buffer, BufferLike, ConversionError},
+    utils::opencl::{BufferLike, BufferConversionError},
 };
 
 #[allow(dead_code)]
@@ -82,49 +120,83 @@ pub struct Model<'a> {
 }
 
 #[derive(Debug, FromForAllUnnamedVariants)]
+/// An enum containing all of the possible errors that can happen on a Vec Model prediction.
 pub enum ModelPredictionError {
+    /// Happens when the Model was not initialized before calling the method
     NotInitialized,
+    /// Happens mostly if there is no devide in the current OpenCLState.
     NoCommandQueue,
 
+    /// Happens if something goes wrong with OpenCL.
     OpenCL(ClError),
+    /// Happens when converting a Vec into a buffer.
+    Conversion(BufferConversionError),
+    /// Happens when something goes wrong inside of the propagation of a Layer.
     LayerPropagation(LayerPropagationError),
 }
 
 #[derive(Debug, FromForAllUnnamedVariants)]
+/// An enum containing all of the possible errors that can happen when fitting a Model.
 pub enum ModelFittingError {
+    /// Happens when the Model was not initialized before calling the method.
     NotInitialized,
+    /// Happens mostly if there is no device in the current OpenCLState.
     NoCommandQueue,
+    /// Happens if there is no device found by OpenCL
     NoDevice,
 
+    /// Happens if something goes wrong with OpenCL.
     OpenCL(ClError),
-    Conversion(ConversionError),
+    /// Happens when converting a Vec into a buffer.
+    Conversion(BufferConversionError),
+    /// Happens when something goes wrong in the gradient computations of the Model.
     ModelGradientComputation(ModelGradientComputationError),
+    /// Happens when something goes wrong in the gradient application of the Model.
     ModelGradientApplication(ModelGradientApplicationError),
+    /// Happens when something goes wrong when trying to optimize a Layer's parameters.
+    ParameterOptimization(ParametersOptimizationError),
+    /// Happens when something goes wrong in the propagation of the Model.
     LayerPropagation(LayerPropagationError),
 }
 
 #[derive(Debug, FromForAllUnnamedVariants)]
+/// An enum containing all of the possible errors that can happen while computing the Model's
+/// gradients.
 pub enum ModelGradientComputationError {
+    /// Happens when the Model was not initialized.
     NotInitialized,
+    /// Happens when there is no command queue in the current opencl state.
     NoCommandQueue,
+    /// Happens when there is no device in the current opencl state.
     NoDevice,
 
+    /// Happens when there goes something wrong with OpenCL.
     OpenCL(ClError),
+    /// Happens when the propagation of a layer goes wrong.
     LayerPropagation(LayerPropagationError),
+    /// Happens when the gradient computation of a layer goes wrong.
     LayerGradientComputation(LayerGradientComputationError),
+    /// Happens when the differentiation of the inputs of a layer with respect to the loss goes wrong.
     LayerLossToInputDifferentiation(LayerLossToInputDifferentiationError),
 }
 
 #[derive(Debug, FromForAllUnnamedVariants)]
+/// An enum containing all of the errors that can happen while applying particular gradients to a
+/// Model.
 pub enum ModelGradientApplicationError {
+    /// Happens when the Model was not initialized.
     NotInitialized,
+    /// Happens when there is no command queue in the current opencl state.
     NoCommandQueue,
+    /// Happens when there is no device in the current opencl state.
     NoDevice,
 
+    /// Happens when there goes something wrong with OpenCL.
     OpenCL(ClError),
+    /// Happens when the propagation of a layer goes wrong.
     LayerPropagation(LayerPropagationError),
+    /// Happens when the gradient application of a layer goes wrong.
     LayerGradientApllication(LayerGradientApplicationError),
-    LayerLossToInputDifferentiation(LayerLossToInputDifferentiationError),
 }
 
 impl<'a> Model<'a> {
@@ -237,32 +309,16 @@ impl<'a> Model<'a> {
             return Err(ModelPredictionError::NoCommandQueue);
         }
 
-        let queue = state.queues.first().unwrap();
-
         let samples_amount = input_samples.len();
 
         assert!(samples_amount > 0);
 
-        let mut first_input_samples_buffer = empty_buffer(
-            samples_amount * input_samples[0].len(),
-            CL_MEM_READ_WRITE,
-            state,
-        )?;
-
-        queue
-            .enqueue_write_buffer(
-                &mut first_input_samples_buffer,
-                CL_NON_BLOCKING,
-                0,
-                input_samples
-                    .par_iter()
-                    .map(|x| x.to_vec())
-                    .flatten()
-                    .collect::<Vec<f32>>()
-                    .as_slice(),
-                &[],
-            )?
-            .wait()?;
+        let first_input_samples_buffer = input_samples
+            .par_iter()
+            .map(|x| x.to_vec())
+            .flatten()
+            .collect::<Vec<f32>>()
+            .to_buffer(CL_MEM_READ_ONLY, false, state)?;
 
         let result = self.predict_with_moved_buffer(first_input_samples_buffer)?;
 
@@ -299,7 +355,7 @@ impl<'a> Model<'a> {
     pub fn predict_with_buffer<'b>(
         &'b mut self,
         input_samples: &'b Buffer<cl_float>,
-    ) -> Result<&'b Buffer<cl_float>, LayerPropagationError> {
+    ) -> Result<&Buffer<cl_float>, LayerPropagationError> {
         assert!(!self.layers.is_empty());
 
         let mut current_values: &Buffer<cl_float> = input_samples;
@@ -356,6 +412,10 @@ impl<'a> Model<'a> {
 
         let mut last_loss = None;
 
+        let inputs_amount = self.layers[0].get_inputs_amount();
+        let samples_amount =
+            input_samples_buffer.size()? / mem::size_of::<cl_float>() / inputs_amount;
+
         for epoch_index in 0..training_options.epochs {
             if training_options.verbose {
                 println!("epoch #{}", epoch_index + 1);
@@ -363,21 +423,19 @@ impl<'a> Model<'a> {
 
             let start = Instant::now();
 
-            let inputs_amount = self.layers[0].get_inputs_amount();
-            let actual_outputs = self.predict_with_buffer(&input_samples_buffer)?;
+            for layer in self.layers.iter_mut() {
+                layer.optimize_parameters(&training_options.optimizer)?;
+            }
 
-            let samples_amount =
-                input_samples_buffer.size()? / mem::size_of::<cl_float>() / inputs_amount;
-
-            let gradients = self.compute_gradients_with_last_outputs(
+            let gradients = self.compute_gradients(
                 &input_samples_buffer,
-                actual_outputs,
                 &expected_output_samples_buffer,
                 &training_options.loss_algorithm,
-                &training_options.optimizer,
             )?;
 
             self.apply_gradients(gradients.as_slice(), &training_options.optimizer)?;
+
+            let actual_outputs = self.layers.last().unwrap().get_last_outputs().unwrap();
 
             if training_options.verbose || training_options.compute_loss {
                 last_loss = Some(training_options.loss_algorithm.compute_loss(
@@ -399,6 +457,14 @@ impl<'a> Model<'a> {
         Ok(last_loss)
     }
 
+    /// Applies all the gradients calculated per layer calling each layer's respective
+    /// **apply_gradients** function.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the Model was not initialized, if there is no command
+    /// queue in the current `OpenCLState` and if the apply_gradients in any of the layers fails as
+    /// well.
     pub fn apply_gradients(
         &mut self,
         gradients_per_layer: &[Vec<Gradient>],
@@ -421,13 +487,20 @@ impl<'a> Model<'a> {
         Ok(())
     }
 
-    pub fn compute_gradients_with_last_outputs(
-        &self,
+    /// Computes the gradients for each one of the layers in the Model calling each layer's 
+    /// `compute_gradients` in conjuction with the `compute_loss_to_input_derivatives`.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the Model was not initialized, if there is no command
+    /// queue, if the prediction of the Model fails, if the computation of derivatives of inputs
+    /// with respect to the loss fail or if the computation of a Layer's gradients fails..
+    pub fn compute_gradients(
+        &mut self,
         training_input_samples: &Buffer<cl_float>,
-        training_actual_outputs: &Buffer<cl_float>,
+        // training_actual_outputs: &Buffer<cl_float>,
         training_expected_output_samples: &Buffer<cl_float>,
         loss_function: &ModelLossFunction<'a>,
-        optimizer: &ModelOptimizer<'a>,
     ) -> Result<Vec<Vec<Gradient>>, ModelGradientComputationError> {
         if self.opencl_state.is_none() {
             return Err(ModelGradientComputationError::NotInitialized);
@@ -439,33 +512,28 @@ impl<'a> Model<'a> {
             return Err(ModelGradientComputationError::NoCommandQueue);
         }
 
-        let queue = state.queues[0];
-
         let first_layer = self.layers.first().unwrap();
 
         let inputs_amount = first_layer.get_inputs_amount();
         let samples_amount =
             training_input_samples.size()? / mem::size_of::<cl_float>() / inputs_amount;
 
-        // let training_actual_outputs = self.predict_with_buffer(training_input_samples)?;
+        let layers_amount = self.layers.len();
 
-        let outputs_amount =
-            training_expected_output_samples.size()? / mem::size_of::<cl_float>() / samples_amount;
+        let training_actual_outputs = self.predict_with_buffer(training_input_samples)?;
 
-        let mut gradients: Vec<Vec<Gradient>> = Vec::with_capacity(self.layers.len());
+        let mut gradients: Vec<Vec<Gradient>> = Vec::with_capacity(layers_amount);
 
-        let mut loss_to_output_derivatives = loss_function
+        let mut last_loss_to_outputs_derivatives = loss_function
             .compute_loss_derivative_with_respect_to_output_samples(
                 &training_actual_outputs,
                 &training_expected_output_samples,
                 samples_amount,
             )?;
-
-        let mut last_loss_to_outputs_derivatives = &loss_to_output_derivatives;
         for layer in self.layers.iter() {
-            gradients.push(layer.compute_gradients(last_loss_to_outputs_derivatives)?);
+            gradients.push(layer.compute_gradients(&last_loss_to_outputs_derivatives)?);
             last_loss_to_outputs_derivatives =
-                &layer.compute_loss_to_input_derivatives(last_loss_to_outputs_derivatives)?;
+                layer.compute_loss_to_input_derivatives(&last_loss_to_outputs_derivatives)?;
         }
 
         Ok(gradients)

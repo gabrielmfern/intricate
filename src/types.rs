@@ -8,19 +8,29 @@ use intricate_macros::{EnumLayer, LossFunctionEnum, FromForAllUnnamedVariants, O
 use crate::{
     layers::{activations::{TanH, SoftMax, ReLU, Sigmoid}, Dense},
     loss_functions::{CategoricalCrossEntropy, MeanSquared},
-    utils::{opencl::UnableToSetupOpenCLError, OpenCLState}, optimizers::Dummy,
+    utils::{opencl::UnableToSetupOpenCLError, OpenCLState}, optimizers::Basic,
 };
 
 #[derive(Debug)]
+/// An error that happens when a program is not found. 
+///
+/// It contains a tuple that has the Program's name that was not found.
 pub struct ProgramNotFoundError(pub String);
 
 #[derive(Debug, FromForAllUnnamedVariants)]
+/// An enum that contains all the errors that can happen when trying to sync a buffer from a device
+/// to the host.
 pub enum SyncDataError {
+    /// Happens when something goes wrong with OpenCL.
     OpenCL(ClError),
+    /// Happens when the state was not setup or passed into the struct that is using it.
     NotInitialized,
+    /// Happens when the field trying to be synced is not in the device.
     NotAllocatedInDevice {
+        /// The name of the field trying to be synced.
         field_name: String
     },
+    /// Happens when there is no command queue to be used.
     NoCommandQueue,
 }
 
@@ -31,6 +41,9 @@ impl From<String> for ProgramNotFoundError {
 }
 
 #[derive(Debug)]
+/// An error that happens when a kernel is not found inside of a IntricateProgram.
+///
+/// It contains a tuple that has the Kernel's name that was not found.
 pub struct KernelNotFoundError(pub String);
 
 impl From<String> for KernelNotFoundError {
@@ -77,11 +90,15 @@ pub enum ModelLayer<'a> {
 }
 
 #[derive(Debug, FromForAllUnnamedVariants)]
+/// An enum that contains all of the possible Gradient Descent algorithms.
 pub enum GradientDescent {}
 
 #[derive(Debug, OptimizerEnum, FromForAllUnnamedVariants)]
+/// An enum that contains all of the current optimizers implemented in Intricate.
 pub enum ModelOptimizer<'a> {
-    Dummy(Dummy<'a>),
+    /// A very basic optimizer that does not change the parameters and just keeps scaling the
+    /// gradients by a fixed learning rate
+    Basic(Basic<'a>),
 }
 
 /// A struct that defines the options for training a Model.

@@ -201,6 +201,8 @@ pub enum BufferOperationError {
     /// that may mean there is a problem in Intricate's code, so you should report this as an
     /// issue.
     KernelNotFoundError(KernelNotFoundError),
+    /// An error that happens when doing an operation that requires two buffers and that requires
+    /// that both buffers are of the same size and count.
     BuffersAreNotOfSameSize(usize, usize),
     /// This just means that the operation did ot find any device for it to run on.
     NoDeviceFoundError,
@@ -229,6 +231,11 @@ where
     /// - If the summation kernel was not foudn in the program for buffer operations.
     fn sum(&self, opencl_state: &OpenCLState) -> Result<f32, BufferOperationError>;
 
+    /// Scales the buffer by a certain number or scaler. 
+    ///
+    /// As an example, if you had a buffer with
+    /// the number **[4, 5, 10]**, and you scaled it by **3** this method would give you ``[12, 15,
+    /// 30]`.
     fn scale(
         &self,
         scaler: f32,
@@ -236,24 +243,31 @@ where
         opencl_state: &OpenCLState,
     ) -> Result<Self, BufferOperationError>;
 
+    /// Will just add all of the numbers of two buffers together into a new one.
     fn add(
         &self,
         other: &Self,
         flags: cl_mem_flags,
         opencl_state: &OpenCLState,
     ) -> Result<Self, BufferOperationError>;
+
+    /// Will just subtract all of the numbers from the current buffer to the other.
     fn subtract(
         &self,
         other: &Self,
         flags: cl_mem_flags,
         opencl_state: &OpenCLState,
     ) -> Result<Self, BufferOperationError>;
+
+    /// Multiplies each respective number of the current buffer and another buffer.
     fn multiply(
         &self,
         other: &Self,
         flags: cl_mem_flags,
         opencl_state: &OpenCLState,
     ) -> Result<Self, BufferOperationError>;
+
+    /// Divides each respective number of the current buffer and another buffer.
     fn divide(
         &self,
         other: &Self,
@@ -261,6 +275,7 @@ where
         opencl_state: &OpenCLState,
     ) -> Result<Self, BufferOperationError>;
 
+    /// Clones the current buffer into another new buffer with a certain memory flag.
     fn clone(
         &self,
         flags: cl_mem_flags,
@@ -282,7 +297,7 @@ impl BufferOperations for Buffer<cl_float> {
 
             queue
                 .enqueue_copy_buffer(self, &mut copied_buff, 0, 0, size, &[])?
-                .wait();
+                .wait()?;
 
             Ok(copied_buff)
         } else {
@@ -564,6 +579,7 @@ pub struct IntricateProgram {
 }
 
 impl IntricateProgram {
+    /// Safely gets the kernel by name inside of the program.
     pub fn get_krnl(&self, kernel_name: &str) -> Result<&Kernel, KernelNotFoundError> {
         if !self.kernels.contains_key(&kernel_name.to_string()) {
             Err(kernel_name.to_string().into())
@@ -589,6 +605,7 @@ pub struct OpenCLState {
 }
 
 impl OpenCLState {
+    /// Safely gets a program by name inside of the OpenCLState.
     pub fn get_prgm(&self, program_name: &str) -> Result<&IntricateProgram, ProgramNotFoundError> {
         if !self.programs.contains_key(&program_name.to_string()) {
             Err(program_name.to_string().into())
@@ -673,19 +690,23 @@ where
         flags: cl_mem_flags,
         blocking: bool,
         opencl_state: &OpenCLState,
-    ) -> Result<Buffer<T>, ConversionError>;
+    ) -> Result<Buffer<T>, BufferConversionError>;
 
     fn from_buffer(
         buffer: &Buffer<T>,
         blocking: bool,
         opencl_state: &OpenCLState,
-    ) -> Result<Self, ConversionError>;
+    ) -> Result<Self, BufferConversionError>;
 }
 
 #[derive(Debug, FromForAllUnnamedVariants)]
-pub(crate) enum ConversionError {
+/// An enum containing all of the possible errors that may happen when trying to create a buffer
+/// from a flat Vec's content
+pub enum BufferConversionError {
+    /// Happens when something goes wrong with OpenCL.
     OpenCL(ClError),
-    NoCommandQueueFoundError,
+    /// Happens when there is no command queue inside of the OpenCLState.
+    NoCommandQueueFound,
 }
 
 pub(crate) fn empty_buffer(
@@ -702,7 +723,7 @@ impl BufferLike<cl_float> for Vec<f32> {
         flags: cl_mem_flags,
         blocking: bool,
         opencl_state: &OpenCLState,
-    ) -> Result<Buffer<cl_float>, ConversionError> {
+    ) -> Result<Buffer<cl_float>, BufferConversionError> {
         if let Some(queue) = opencl_state.queues.first() {
             let context = &opencl_state.context;
 
@@ -720,7 +741,7 @@ impl BufferLike<cl_float> for Vec<f32> {
 
             Ok(buffer)
         } else {
-            Err(ConversionError::NoCommandQueueFoundError)
+            Err(BufferConversionError::NoCommandQueueFound)
         }
     }
 
@@ -728,7 +749,7 @@ impl BufferLike<cl_float> for Vec<f32> {
         buffer: &Buffer<cl_float>,
         blocking: bool,
         opencl_state: &OpenCLState,
-    ) -> Result<Vec<f32>, ConversionError> {
+    ) -> Result<Vec<f32>, BufferConversionError> {
         if let Some(queue) = opencl_state.queues.first() {
             let size = buffer.size()?;
             let count = size / mem::size_of::<cl_float>();
@@ -747,7 +768,7 @@ impl BufferLike<cl_float> for Vec<f32> {
 
             Ok(vec)
         } else {
-            Err(ConversionError::NoCommandQueueFoundError)
+            Err(BufferConversionError::NoCommandQueueFound)
         }
     }
 }
