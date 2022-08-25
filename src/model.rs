@@ -26,7 +26,7 @@ use crate::{
     loss_functions::{LossFunction, LossComputationError, LossToModelOutputsDerivativesComputationError},
     optimizers::Optimizer,
     types::{
-        ModelLayer, ModelLossFunction, ModelOptimizer, SyncDataError,
+        ModelLayer, SyncDataError,
         TrainingOptions,
     },
     utils::opencl::{BufferConversionError, BufferLike},
@@ -408,16 +408,16 @@ impl<'a> Model<'a> {
             let start = Instant::now();
 
             for layer in self.layers.iter_mut() {
-                layer.optimize_parameters(&training_options.optimizer)?;
+                layer.optimize_parameters(training_options.optimizer)?;
             }
 
             let gradients = self.compute_gradients(
                 &input_samples_buffer,
                 &expected_output_samples_buffer,
-                &training_options.loss_algorithm,
+                training_options.loss_algorithm,
             )?;
 
-            self.apply_gradients(gradients.as_slice(), &training_options.optimizer)?;
+            self.apply_gradients(gradients.as_slice(), training_options.optimizer)?;
 
             let actual_outputs = self.layers.last().unwrap().get_last_outputs().unwrap();
 
@@ -452,7 +452,7 @@ impl<'a> Model<'a> {
     pub fn apply_gradients(
         &mut self,
         gradients_per_layer: &[Vec<Gradient>],
-        optimizer: &ModelOptimizer<'a>,
+        optimizer: &dyn Optimizer<'a>//ModelOptimizer<'a>,
     ) -> Result<(), ModelGradientApplicationError> {
         if self.opencl_state.is_none() {
             return Err(ModelGradientApplicationError::NotInitialized);
@@ -484,7 +484,7 @@ impl<'a> Model<'a> {
         training_input_samples: &Buffer<cl_float>,
         // training_actual_outputs: &Buffer<cl_float>,
         training_expected_output_samples: &Buffer<cl_float>,
-        loss_function: &ModelLossFunction<'a>,
+        loss_function: &dyn LossFunction, //ModelLossFunction<'a>,
     ) -> Result<Vec<Vec<Gradient>>, ModelGradientComputationError> {
         if self.opencl_state.is_none() {
             return Err(ModelGradientComputationError::NotInitialized);

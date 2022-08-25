@@ -14,11 +14,10 @@ use crate::{
         Gradient, Layer, LayerLossToInputDifferentiationError, LayerPropagationError,
         SyncDataError, ParametersOptimizationError,
     },
-    types::ModelOptimizer,
     utils::{
         opencl::{empty_buffer, ensure_program, BufferOperations, EnsureKernelsAndProgramError},
         OpenCLState,
-    },
+    }, optimizers::Optimizer,
 };
 
 const PROGRAM_NAME: &str = "SOFTMAX";
@@ -227,7 +226,7 @@ impl<'a> Layer<'a> for SoftMax<'a> {
     fn apply_gradients(
         &mut self,
         _per_parameter_type_gradients: &[Gradient],
-        _optimizer: &ModelOptimizer,
+        _optimizer: &dyn Optimizer<'a>,
     ) -> Result<(), crate::layers::LayerGradientApplicationError> {
         Ok(())
     }
@@ -241,7 +240,7 @@ impl<'a> Layer<'a> for SoftMax<'a> {
 
     fn optimize_parameters(
         &mut self,
-        _optimizer: &ModelOptimizer,
+        _optimizer: &dyn Optimizer<'a>,
     ) -> Result<(), ParametersOptimizationError> {
         Ok(())
     }

@@ -10,7 +10,6 @@ use opencl3::{
 };
 
 use crate::loss_functions::LossFunction;
-use crate::types::ModelLossFunction;
 use crate::utils::opencl::empty_buffer;
 use crate::utils::opencl::ensure_program;
 use crate::utils::opencl::EnsureKernelsAndProgramError;
@@ -53,21 +52,11 @@ pub struct MeanSquared<'a> {
 }
 
 impl<'a> MeanSquared<'a> {
-    /// Creates a new instance of the Mean Squared but as a ModelLossFunction variant
-    /// for using in the **TrainingOptions** when fitting a Model.
-    ///
-    /// Be aware that after creation this needs to be called the `init` method before computing the
-    /// loss or anything like that.`
-    /// But when it is being used a Model, the Model will call the init automatically.`
-    pub fn new() -> ModelLossFunction<'a> {
-        Self::new_raw().into()
-    }
-
     /// Crates a new instance of the Mean Squared but as a raw version of the struct.
     ///
     /// Be aware that after creation this needs to be called the `init` method before computing the
     /// loss or anything like that.`
-    pub fn new_raw() -> MeanSquared<'a> {
+    pub fn new() -> MeanSquared<'a> {
         MeanSquared { opencl_state: None }
     }
 }
@@ -197,7 +186,7 @@ mod mean_squared_tests {
     {
         let opencl_state: OpenCLState = setup_opencl(DeviceType::GPU).unwrap();
 
-        let mut gpu_loss = MeanSquared::new_raw();
+        let mut gpu_loss = MeanSquared::new();
         gpu_loss.init(&opencl_state).unwrap();
 
         let outputs_amount: usize = 61;

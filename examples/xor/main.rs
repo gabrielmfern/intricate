@@ -39,16 +39,19 @@ fn main() -> () {
     let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
     xor_model.init(&opencl_state).unwrap();
 
+    let mut loss = MeanSquared::new();
+    let mut optimizer = BasicOptimizer::new(0.1);
+
     // Fit the model however many times we want
     xor_model
         .fit(
             &training_inputs,
             &expected_outputs,
             &mut TrainingOptions {
-                loss_algorithm: MeanSquared::new(), // The Mean Squared loss function
+                loss_algorithm: &mut loss,
                 verbose: true,     // Should be verbose
                 compute_loss: true,
-                optimizer: BasicOptimizer::new(0.1),
+                optimizer: &mut optimizer,
                 epochs: 10000,
             },
         )

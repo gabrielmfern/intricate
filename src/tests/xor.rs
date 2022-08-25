@@ -11,7 +11,7 @@ use crate::{
     loss_functions::MeanSquared,
     loss_functions::LossFunction,
     model::Model,
-    types::{ModelLayer, ModelLossFunction, TrainingOptions},
+    types::{ModelLayer, TrainingOptions},
     utils::{setup_opencl, OpenCLState},
 };
 
@@ -46,20 +46,23 @@ fn should_decrease_error() -> () {
     ];
 
 
+    let mut loss = MeanSquared::new();
+    let mut optimizer = BasicOptimizer::new(0.1);
+
+    // Fit the model however many times we want
     let last_loss = model
         .fit(
             &training_input_samples,
             &training_output_samples,
             &mut TrainingOptions {
-                loss_algorithm: MeanSquared::new(), 
-                epochs: 1000,
-                // gradient_descent_method: (),
-                optimizer: BasicOptimizer::new(0.1),
-                verbose: true,
+                loss_algorithm: &mut loss,
+                verbose: true,     // Should be verbose
                 compute_loss: true,
+                optimizer: &mut optimizer,
+                epochs: 10000,
             },
-        ).unwrap()
-        .unwrap();
+        )
+        .unwrap().unwrap();
 
     let max_loss = 0.1;
 

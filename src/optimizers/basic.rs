@@ -3,7 +3,7 @@
 use opencl3::{memory::{Buffer, CL_MEM_READ_ONLY}, device::cl_float};
 
 use super::{Optimizer, OptimizationError};
-use crate::{utils::{BufferOperations, OpenCLState}, types::ModelOptimizer};
+use crate::utils::{BufferOperations, OpenCLState};
 
 
 #[derive(Debug)]
@@ -15,13 +15,8 @@ pub struct BasicOptimizer<'a> {
 }
 
 impl<'a> BasicOptimizer<'a> {
-    /// Creates a new instance of the Basic optimizer but as an instance of the ModelOptimizer enum
-    pub fn new(learning_rate: f32) -> ModelOptimizer<'a> {
-        Self::new_raw(learning_rate).into()
-    }
-
-    /// Creates a raw instance of the Basic optimizer.
-    pub fn new_raw(learning_rate: f32) -> Self {
+    /// Creates a new instance of the Basic Optimizer with a certain learning rate.
+    pub fn new(learning_rate: f32) -> Self {
         BasicOptimizer { learning_rate, opencl_state: None }
     }
 }

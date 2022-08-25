@@ -11,7 +11,7 @@ use opencl3::{
 
 use crate::{
     optimizers::{OptimizationError, Optimizer},
-    utils::{opencl::{EnsureKernelsAndProgramError, BufferOperationError}, OpenCLState, BufferOperations}, types::{KernelNotFoundError, ProgramNotFoundError, ModelOptimizer, SyncDataError},
+    utils::{opencl::{EnsureKernelsAndProgramError, BufferOperationError}, OpenCLState, BufferOperations}, types::{KernelNotFoundError, ProgramNotFoundError, SyncDataError},
 };
 
 pub mod activations;
@@ -51,8 +51,8 @@ pub enum UpdateVectorsComputationError {
     BufferOperation(BufferOperationError),
 }
 
-pub(crate) fn compute_update_vectors(
-    optimizer: &ModelOptimizer,
+pub(crate) fn compute_update_vectors<'a>(
+    optimizer: &dyn Optimizer<'a>,
     all_gradients: &[Gradient],
     state: &OpenCLState,
 ) -> Result<Vec<Buffer<cl_float>>, UpdateVectorsComputationError> {
@@ -290,7 +290,7 @@ pub trait Layer<'a> {
     /// a parameter that is going to be optimized has no value.
     fn optimize_parameters(
         &mut self,
-        optimizer: &ModelOptimizer,
+        optimizer: &dyn Optimizer<'a>,
     ) -> Result<(), ParametersOptimizationError>;
 
     /// Applies all of the gradients given by **compute_gradients** of the current layer using a
@@ -310,7 +310,7 @@ pub trait Layer<'a> {
     fn apply_gradients(
         &mut self,
         per_parameter_type_gradients: &[Gradient],
-        optimizer: &ModelOptimizer,
+        optimizer: &dyn Optimizer<'a>,
     ) -> Result<(), LayerGradientApplicationError>;
 
     /// Computes the derivatives of the Model's loss with respect to all of the inputs in each

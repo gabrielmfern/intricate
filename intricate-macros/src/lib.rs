@@ -57,136 +57,6 @@ pub fn from_for_all_variants(_input: TokenStream) -> TokenStream {
     .into()
 }
 
-#[proc_macro_derive(OptimizerEnum)]
-pub fn optimizer_enum(_input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(_input as DeriveInput);
-    let enum_name = &input.ident;
-
-    let variants = if let Data::Enum(enm) = input.data {
-        enm.variants
-    } else {
-        panic!("The 'OptimizerEnum' derive macro can only be used with enums!");
-    };
-
-    let variant = variants.iter().map(|variant| &variant.ident);
-    let variant_2 = variant.clone();
-    let variant_3 = variant.clone();
-
-    quote! {
-        impl<'a> crate::optimizers::Optimizer<'a> for #enum_name<'a> {
-            fn optimize_parameters(
-                &self,
-                parameters: &opencl3::memory::Buffer<opencl3::device::cl_float>,
-            ) -> Result<opencl3::memory::Buffer<opencl3::device::cl_float>, crate::optimizers::OptimizationError> {
-                match self {
-                #(
-                    #enum_name::#variant(v) => v.optimize_parameters(
-                        parameters
-                    ),
-                )*
-                }
-            }
-
-            fn compute_update_vectors(
-                &self,
-                gradients: &opencl3::memory::Buffer<opencl3::device::cl_float>,
-            ) -> Result<opencl3::memory::Buffer<opencl3::device::cl_float>, crate::optimizers::OptimizationError> {
-                match self {
-                #(
-                    #enum_name::#variant_2(v) => v.compute_update_vectors(
-                        gradients
-                    ),
-                )*
-                }
-            }
-
-            fn init(
-                &mut self,
-                opencl_state: &'a OpenCLState,
-            ) -> Result<(), ClError> {
-                match self {
-                #(
-                    #enum_name::#variant_3(v) => v.init(
-                        opencl_state
-                    ),
-                )*
-                }
-            }
-        }
-    }.into()
-}
-
-#[proc_macro_derive(LossFunctionEnum)]
-/// Derives the implementation of intricate::loss_functions::LossFunction for
-/// a enum contaning only variants that are loss functions, such as the Mean Squared and others.
-///
-/// This will also derive `From<...>` for every loss function in the enum.
-pub fn loss_function_enum(_input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(_input as DeriveInput);
-    let enum_name = &input.ident;
-
-    let variants = if let Data::Enum(enm) = input.data {
-        enm.variants
-    } else {
-        panic!("The 'LossFunctionEnum' derive macro can only be used with enums!");
-    };
-
-    let loss_function_names = variants.iter().map(|variant| &variant.ident);
-    let loss_function_names_2 = loss_function_names.clone();
-    let loss_function_names_3 = loss_function_names.clone();
-    let loss_function_names_4 = loss_function_names.clone();
-
-    quote! {
-        impl<'a> crate::loss_functions::LossFunction<'a> for #enum_name<'a> {
-            fn compute_loss(
-                &self,
-                output_samples: &opencl3::memory::Buffer<opencl3::device::cl_float>,
-                expected_outputs: &opencl3::memory::Buffer<opencl3::device::cl_float>,
-                samples_amount: usize,
-            ) -> Result<f32, crate::loss_functions::LossComputationError> {
-                match self {
-                #(
-                    #enum_name::#loss_function_names_2(lossfn) => lossfn.compute_loss(
-                        output_samples, 
-                        expected_outputs, 
-                        samples_amount
-                    ),
-                )*
-                }
-            }
-
-            fn init(
-                &mut self,
-                opencl_state: &'a OpenCLState,
-            ) -> Result<(), opencl3::error_codes::ClError> {
-                match self {
-                #(
-                    #enum_name::#loss_function_names_3(lossfn) => lossfn.init(opencl_state),
-                )*
-                }
-            }
-
-            fn compute_loss_derivative_with_respect_to_output_samples(
-                &self,
-                output_samples: &opencl3::memory::Buffer<opencl3::device::cl_float>,
-                expected_outputs: &opencl3::memory::Buffer<opencl3::device::cl_float>,
-                samples_amount: usize,
-            ) -> Result<opencl3::memory::Buffer<opencl3::device::cl_float>, crate::loss_functions::LossToModelOutputsDerivativesComputationError> {
-                match self {
-                #(
-                    #enum_name::#loss_function_names_4(lossfn) =>
-                        lossfn.compute_loss_derivative_with_respect_to_output_samples(
-                            output_samples,
-                            expected_outputs,
-                            samples_amount,
-                        ),
-                )*
-                }
-            }
-        }
-    }.into()
-}
-
 #[proc_macro_derive(EnumLayer)]
 /// Derives the implementation of intricate::layers::Layer for
 /// a enum containing layers, this is used as to not have to write
@@ -310,7 +180,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             fn apply_gradients(
                 &mut self,
                 per_parameter_type_gradients: &[crate::layers::Gradient],
-                optimizer: &crate::types::ModelOptimizer,
+                optimizer: &dyn crate::optimizers::Optimizer<'a>,
             ) -> Result<(), crate::layers::LayerGradientApplicationError> {
                 match self {
                     #(
@@ -337,7 +207,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
 
             fn optimize_parameters(
                 &mut self,
-                optimizer: &crate::types::ModelOptimizer,
+                optimizer: &dyn crate::optimizers::Optimizer<'a>,
             ) -> Result<(), crate::layers::ParametersOptimizationError> {
                 match self {
                     #(
@@ -519,14 +389,14 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
             fn apply_gradients(
                 &mut self,
                 _per_parameter_type_gradients: &[crate::layers::Gradient],
-                _optimizer: &crate::types::ModelOptimizer,
+                _optimizer: &dyn crate::optimizers::Optimizer<'a>,
             ) -> Result<(), crate::layers::LayerGradientApplicationError> {
                 Ok(())
             }
 
             fn optimize_parameters(
                 &mut self,
-                optimizer: &crate::types::ModelOptimizer,
+                _optimizer: &dyn crate::optimizers::Optimizer<'a>,
             ) -> Result<(), crate::layers::ParametersOptimizationError> {
                 Ok(())
             }

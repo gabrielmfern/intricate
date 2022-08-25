@@ -3,16 +3,15 @@
 use opencl3::error_codes::ClError;
 use savefile_derive::Savefile;
 
-use intricate_macros::{EnumLayer, FromForAllUnnamedVariants, LossFunctionEnum, OptimizerEnum};
+use intricate_macros::{EnumLayer, FromForAllUnnamedVariants};
 
 use crate::{
     layers::{
         activations::{ReLU, Sigmoid, SoftMax, TanH},
         Dense,
     },
-    loss_functions::{CategoricalCrossEntropy, MeanSquared},
-    optimizers::BasicOptimizer,
-    utils::OpenCLState,
+    loss_functions::LossFunction,
+    optimizers::Optimizer,
 };
 
 #[derive(Debug)]
@@ -56,14 +55,6 @@ impl From<String> for KernelNotFoundError {
     }
 }
 
-#[derive(Debug, LossFunctionEnum, FromForAllUnnamedVariants)]
-/// All of the loss functions implemented in Intricate that a usual sequential Model can use.
-#[allow(missing_docs)]
-pub enum ModelLossFunction<'a> {
-    MeanSquared(MeanSquared<'a>),
-    CategoricalCrossEntropy(CategoricalCrossEntropy<'a>),
-}
-
 #[derive(Debug, Savefile, EnumLayer, FromForAllUnnamedVariants)]
 /// All of the possible layers that a usual Sequential Model can have.
 #[allow(missing_docs)]
@@ -79,25 +70,19 @@ pub enum ModelLayer<'a> {
 /// An enum that contains all of the possible Gradient Descent algorithms.
 pub enum GradientDescent {}
 
-#[derive(Debug, OptimizerEnum, FromForAllUnnamedVariants)]
-/// An enum that contains all of the current optimizers implemented in Intricate.
-#[allow(missing_docs)]
-pub enum ModelOptimizer<'a> {
-    Basic(BasicOptimizer<'a>),
-}
-
 /// A struct that defines the options for training a Model.
 pub struct TrainingOptions<'a> {
     /// The loss function that will be used for calculating how **wrong** the Model
     /// was after some prediction over many samples.
-    pub loss_algorithm: ModelLossFunction<'a>,
+    pub loss_algorithm: &'a mut dyn LossFunction<'a>,
     /// The graadient descent implementation that should be used for doing gradient descent
     /// during fitting
     // pub gradient_descent_method: GradientDescent,
     /// The optimizer that will both optimize parameters before calculating gradients as well as
     /// optimize gradients and compute update vectors that are going to be actually used when
     /// applying the gradients
-    pub optimizer: ModelOptimizer<'a>,
+    pub optimizer: &'a mut dyn Optimizer<'a>, // this is mut because we need to init the optimizer
+                                              // when using it
     /// Weather or not the training process should be verbose, as to print the current epoch,
     /// and the current loss after applying gradients.
     pub verbose: bool,

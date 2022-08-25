@@ -16,7 +16,7 @@ use std::ptr;
 #[allow(unused_imports)]
 use crate::{
     optimizers::Optimizer,
-    types::{ModelLayer, ModelOptimizer, SyncDataError},
+    types::{ModelLayer, SyncDataError},
     utils::{
         opencl::{empty_buffer, ensure_program, EnsureKernelsAndProgramError},
         BufferOperations, OpenCLState,
@@ -468,7 +468,7 @@ impl<'a> Layer<'a> for Dense<'a> {
     fn apply_gradients(
         &mut self,
         per_parameter_type_gradients: &[Gradient],
-        optimizer: &ModelOptimizer,
+        optimizer: &dyn Optimizer<'a>,
     ) -> Result<(), LayerGradientApplicationError> {
         if self.opencl_state.is_none() {
             return Err(LayerGradientApplicationError::LayerNotInitialized);
@@ -496,7 +496,7 @@ impl<'a> Layer<'a> for Dense<'a> {
 
     fn optimize_parameters(
         &mut self,
-        optimizer: &ModelOptimizer,
+        optimizer: &dyn Optimizer<'a>,
     ) -> Result<(), ParametersOptimizationError> {
         if self.weights_buffer.is_none() {
             return Err(ParametersOptimizationError::EmptyParameter(
