@@ -150,6 +150,11 @@ impl<'a> Layer<'a> for SoftMax<'a> {
 
         let inputs_size = inputs.size()?;
         let inputs_total_count = inputs_size / std::mem::size_of::<cl_float>();
+
+        if inputs_total_count % self.inputs_amount != 0 {
+            return Err(LayerPropagationError::InputsDontMatchExpectedShape);
+        }
+
         let samples_amount = inputs_total_count / self.inputs_amount;
 
         let copied_last_inputs_buffer = inputs.clone(CL_MEM_READ_ONLY, state)?;
@@ -257,9 +262,12 @@ impl<'a> Layer<'a> for SoftMax<'a> {
 
         let queue = state.queues.first().unwrap();
 
-        let samples_amount = self.last_outputs_buffer.as_ref().unwrap().size()?
-            / self.inputs_amount
-            / std::mem::size_of::<opencl3::device::cl_float>();
+        let outputs_size = self.last_outputs_buffer.as_ref().unwrap().size()?;
+        let outputs_total_count = outputs_size / std::mem::size_of::<cl_float>();
+        if outputs_total_count % self.inputs_amount != 0 {
+            return Err(LayerLossToInputDifferentiationError::DerivativesDontMatchExpectedShape);
+        }
+        let samples_amount = outputs_total_count / self.inputs_amount;
 
         let loss_to_input_derivatives_buffer = empty_buffer(
             self.inputs_amount * samples_amount,
