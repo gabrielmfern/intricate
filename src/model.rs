@@ -23,12 +23,11 @@ use crate::{
         Gradient, Layer, LayerGradientApplicationError, LayerGradientComputationError,
         LayerLossToInputDifferentiationError, LayerPropagationError, ParametersOptimizationError,
     },
-    loss_functions::{LossFunction, LossComputationError, LossToModelOutputsDerivativesComputationError},
-    optimizers::Optimizer,
-    types::{
-        ModelLayer, SyncDataError,
-        TrainingOptions,
+    loss_functions::{
+        LossComputationError, LossFunction, LossToModelOutputsDerivativesComputationError,
     },
+    optimizers::Optimizer,
+    types::{GradientDescent, ModelLayer, SyncDataError, TrainingOptions},
     utils::opencl::{BufferConversionError, BufferLike},
 };
 
@@ -353,7 +352,7 @@ impl<'a> Model<'a> {
     /// fits the Model to best suit the training data
     /// using the back_propagate method of every layer
     /// and prints the loss, if it is computing the loss
-    /// it will return the loss in the last epoch.
+    /// it will return the losses after every single **training step**.
     ///
     /// # Errors
     ///
@@ -366,7 +365,7 @@ impl<'a> Model<'a> {
         training_input_samples: &Vec<Vec<f32>>,
         training_expected_output_samples: &Vec<Vec<f32>>,
         training_options: &mut TrainingOptions<'a>,
-    ) -> Result<Option<f32>, ModelFittingError> {
+    ) -> Result<Vec<f32>, ModelFittingError> {
         if self.opencl_state.is_none() {
             return Err(ModelFittingError::NotInitialized);
         }
@@ -394,9 +393,10 @@ impl<'a> Model<'a> {
             .collect::<Vec<f32>>()
             .to_buffer(CL_MEM_READ_WRITE, false, state)?;
 
-        let mut last_loss = None;
+        let mut losses = Vec::with_capacity(training_options.epochs);
 
         let inputs_amount = self.layers[0].get_inputs_amount();
+        let outputs_amount = self.layers.last().unwrap().get_outputs_amount();
         let samples_amount =
             input_samples_buffer.size()? / mem::size_of::<cl_float>() / inputs_amount;
 
@@ -405,40 +405,122 @@ impl<'a> Model<'a> {
                 println!("epoch #{}", epoch_index + 1);
             }
 
-            let start = Instant::now();
+            match training_options.gradient_descent_algorithm {
+                GradientDescent::Batch => {
+                    let optional_loss = self.do_training_step(
+                        &input_samples_buffer,
+                        &expected_output_samples_buffer,
+                        samples_amount,
+                        training_options,
+                    )?;
 
-            for layer in self.layers.iter_mut() {
-                layer.optimize_parameters(training_options.optimizer)?;
-            }
-
-            let gradients = self.compute_gradients(
-                &input_samples_buffer,
-                &expected_output_samples_buffer,
-                training_options.loss_fn,
-            )?;
-
-            self.apply_gradients(gradients.as_slice(), training_options.optimizer)?;
-
-            let actual_outputs = self.layers.last().unwrap().get_last_outputs().unwrap();
-
-            if training_options.verbose || training_options.compute_loss {
-                last_loss = Some(training_options.loss_fn.compute_loss(
-                    actual_outputs,
-                    &expected_output_samples_buffer,
-                    samples_amount,
-                )?);
-
-                if training_options.verbose {
-                    println!(
-                        "epoch finished in {:?},\n after updating parameters loss found was {}",
-                        start.elapsed(),
-                        last_loss.unwrap()
-                    );
+                    if let Some(loss) = optional_loss {
+                        losses.push(loss);
+                    }
                 }
-            }
+                GradientDescent::Stochastic => {
+                    for i_sample in 0..samples_amount {
+                        let sample_inputs = input_samples_buffer.create_sub_buffer(
+                            CL_MEM_READ_ONLY,
+                            i_sample * inputs_amount,
+                            inputs_amount,
+                        )?;
+                        let sample_outputs = expected_output_samples_buffer.create_sub_buffer(
+                            CL_MEM_READ_ONLY,
+                            i_sample * outputs_amount,
+                            outputs_amount,
+                        )?;
+
+                        let optional_loss = self.do_training_step(
+                            &sample_inputs,
+                            &sample_outputs,
+                            1,
+                            training_options,
+                        )?;
+
+                        if let Some(loss) = optional_loss {
+                            losses.push(loss);
+                        }
+                    }
+                }
+                GradientDescent::MiniBatchStochastic(batch_size) => {
+                    let steps_amount = (samples_amount as f32 / batch_size as f32).floor() as usize;
+
+                    for i_batch in 0..steps_amount {
+                        let batch_inputs = input_samples_buffer.create_sub_buffer(
+                            CL_MEM_READ_ONLY,
+                            i_batch * batch_size * inputs_amount,
+                            batch_size * inputs_amount,
+                        )?;
+                        let batch_outputs = expected_output_samples_buffer.create_sub_buffer(
+                            CL_MEM_READ_ONLY,
+                            i_batch * batch_size * outputs_amount,
+                            batch_size * outputs_amount,
+                        )?;
+
+                        let optional_loss = self.do_training_step(
+                            &batch_inputs,
+                            &batch_outputs,
+                            batch_size,
+                            training_options,
+                        )?;
+
+                        if let Some(loss) = optional_loss {
+                            losses.push(loss);
+                        }
+                    }
+                }
+            };
         }
 
-        Ok(last_loss)
+        Ok(losses)
+    }
+
+    fn do_training_step(
+        &mut self,
+        input_samples: &Buffer<cl_float>,
+        expected_output_samples: &Buffer<cl_float>,
+        samples_amount: usize,
+        training_options: &mut TrainingOptions<'a>,
+    ) -> Result<Option<f32>, ModelFittingError> {
+        let start = Instant::now();
+
+        for layer in self.layers.iter_mut() {
+            layer.optimize_parameters(training_options.optimizer)?;
+        }
+
+        let gradients = self.compute_gradients(
+            &input_samples,
+            &expected_output_samples,
+            training_options.loss_fn,
+        )?;
+
+        self.apply_gradients(gradients.as_slice(), training_options.optimizer)?;
+
+        let loss;
+
+        if training_options.verbose || training_options.compute_loss {
+            self.predict_with_buffer(input_samples)?;
+            let actual_outputs = self.layers.last().unwrap().get_last_outputs().unwrap();
+
+            loss = Some(training_options.loss_fn.compute_loss(
+                actual_outputs,
+                &expected_output_samples,
+                samples_amount,
+            )?);
+
+            if training_options.verbose {
+                println!(
+                    "step finished in {:?},\nafter updating parameters loss found was {}",
+                    start.elapsed(),
+                    loss.unwrap()
+                );
+            }
+        } else {
+            loss = None;
+        }
+
+        Ok(loss)
     }
 
     /// Applies all the gradients calculated per layer calling each layer's respective
@@ -452,7 +534,7 @@ impl<'a> Model<'a> {
     pub fn apply_gradients(
         &mut self,
         gradients_per_layer: &[Vec<Gradient>],
-        optimizer: &dyn Optimizer<'a>//ModelOptimizer<'a>,
+        optimizer: &dyn Optimizer<'a>, //ModelOptimizer<'a>,
     ) -> Result<(), ModelGradientApplicationError> {
         if self.opencl_state.is_none() {
             return Err(ModelGradientApplicationError::NotInitialized);
