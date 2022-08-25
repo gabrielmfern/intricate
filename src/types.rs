@@ -68,13 +68,38 @@ pub enum ModelLayer<'a> {
 
 #[derive(Debug, FromForAllUnnamedVariants)]
 /// An enum that contains all of the possible Gradient Descent algorithms.
-pub enum GradientDescent {}
+pub enum GradientDescent {
+    /// The `Vanilla Gradient Descent` or `Batch Gradient Descent`.
+    ///
+    /// Computes the gradients for each step over all of the dataset at once and goes to the next
+    /// epoch.
+    Batch,
+
+    /// The `Stochastic Gradient Descent`.
+    ///
+    /// Computes the gradients for each sample in the dataset as one whole step, and once it goes
+    /// through all of the dataset's samples goes to the next epoch.
+    Stochastic,
+
+    /// The `Mini-batch Gradient Descent`.
+    ///
+    /// Is sort of both **Stochastic** and **Batch** together.
+    /// Computes the gradients over a certain **mini-batch** size in each step and once it goes
+    /// through the whole dataset goes to the next epoch.
+    ///
+    /// The parameter given to it is the size of the mini-batch.
+    MiniBatchStochastic(usize),
+}
 
 /// A struct that defines the options for training a Model.
 pub struct TrainingOptions<'a> {
     /// The loss function that will be used for calculating how **wrong** the Model
     /// was after some prediction over many samples.
-    pub loss_algorithm: &'a mut dyn LossFunction<'a>,
+    pub loss_fn: &'a mut dyn LossFunction<'a>,
+
+    /// The type of Gradient Descent `algorithm` that is going to be used for training.
+    pub gradient_descent_algorithm: GradientDescent,
+
     /// The graadient descent implementation that should be used for doing gradient descent
     /// during fitting
     // pub gradient_descent_method: GradientDescent,
@@ -82,10 +107,12 @@ pub struct TrainingOptions<'a> {
     /// optimize gradients and compute update vectors that are going to be actually used when
     /// applying the gradients
     pub optimizer: &'a mut dyn Optimizer<'a>, // this is mut because we need to init the optimizer
-                                              // when using it
+                                              // before using it
+                                             
     /// Weather or not the training process should be verbose, as to print the current epoch,
     /// and the current loss after applying gradients.
     pub verbose: bool,
+
     /// Weather or not at the end of each backprop the Model should compute its own loss and
     /// return it.
     ///
@@ -94,6 +121,7 @@ pub struct TrainingOptions<'a> {
     ///
     /// This will be necessarily true if `verbose` is set to **true**.
     pub compute_loss: bool,
+
     /// The amount of epochs that the Model should train for.
     pub epochs: usize,
 }
