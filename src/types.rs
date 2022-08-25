@@ -8,7 +8,7 @@ use intricate_macros::{EnumLayer, LossFunctionEnum, FromForAllUnnamedVariants, O
 use crate::{
     layers::{activations::{TanH, SoftMax, ReLU, Sigmoid}, Dense},
     loss_functions::{CategoricalCrossEntropy, MeanSquared},
-    utils::{opencl::UnableToSetupOpenCLError, OpenCLState}, optimizers::Basic,
+    utils::{opencl::UnableToSetupOpenCLError, OpenCLState}, optimizers::BasicOptimizer,
 };
 
 #[derive(Debug)]
@@ -95,10 +95,9 @@ pub enum GradientDescent {}
 
 #[derive(Debug, OptimizerEnum, FromForAllUnnamedVariants)]
 /// An enum that contains all of the current optimizers implemented in Intricate.
+#[allow(missing_docs)]
 pub enum ModelOptimizer<'a> {
-    /// A very basic optimizer that does not change the parameters and just keeps scaling the
-    /// gradients by a fixed learning rate
-    Basic(Basic<'a>),
+    Basic(BasicOptimizer<'a>),
 }
 
 /// A struct that defines the options for training a Model.
@@ -108,7 +107,7 @@ pub struct TrainingOptions<'a> {
     pub loss_algorithm: ModelLossFunction<'a>,
     /// The graadient descent implementation that should be used for doing gradient descent
     /// during fitting
-    pub gradient_descent_method: GradientDescent,
+    // pub gradient_descent_method: GradientDescent,
     /// The optimizer that will both optimize parameters before calculating gradients as well as
     /// optimize gradients and compute update vectors that are going to be actually used when
     /// applying the gradients

@@ -2,6 +2,7 @@ use intricate::layers::activations::TanH;
 use intricate::layers::Dense;
 
 use intricate::loss_functions::MeanSquared;
+use intricate::optimizers::BasicOptimizer;
 use intricate::types::{ModelLayer, TrainingOptions};
 use intricate::utils::opencl::DeviceType;
 use intricate::utils::setup_opencl;
@@ -44,10 +45,11 @@ fn main() -> () {
             &training_inputs,
             &expected_outputs,
             &mut TrainingOptions {
-                learning_rate: 0.1,
                 loss_algorithm: MeanSquared::new(), // The Mean Squared loss function
-                should_print_information: true,     // Should be verbose
-                epochs: 5000,
+                verbose: true,     // Should be verbose
+                compute_loss: true,
+                optimizer: BasicOptimizer::new(0.5),
+                epochs: 10,
             },
         )
         .unwrap();

@@ -58,11 +58,11 @@ pub(crate) fn compute_update_vectors(
 ) -> Result<Vec<Buffer<cl_float>>, UpdateVectorsComputationError> {
     let mut update_vectors: Vec<Buffer<cl_float>> = Vec::with_capacity(all_gradients.len());
 
-    for (i, gradients) in all_gradients.iter().enumerate() {
+    for gradients in all_gradients.iter() {
         if gradients.optimizable {
-            update_vectors[i] = optimizer.compute_update_vectors(&gradients.value)?;
+            update_vectors.push(optimizer.compute_update_vectors(&gradients.value)?);
         } else {
-            update_vectors[i] = gradients.value.clone(CL_MEM_READ_ONLY, state)?;
+            update_vectors.push(gradients.value.clone(CL_MEM_READ_ONLY, state)?);
         }
     }
 

@@ -798,7 +798,7 @@ mod test_opencl_utils {
         let vec2: Vec<f32> = (0..numbers_amount)
             .map(|_| -> f32 { rng.gen_range(-1513_f32..12341_f32) })
             .collect();
-        let expected: Vec<f32> = vec1.iter().zip(vec2).map(|(a, b)| a + b).collect();
+        let expected: Vec<f32> = vec1.iter().zip(&vec2).map(|(a, b)| a + b).collect();
 
         let buff1 = vec1
             .to_buffer(CL_MEM_READ_ONLY, true, &opencl_state)
@@ -833,7 +833,7 @@ mod test_opencl_utils {
         let vec2: Vec<f32> = (0..numbers_amount)
             .map(|_| -> f32 { rng.gen_range(-1513_f32..12341_f32) })
             .collect();
-        let expected: Vec<f32> = vec1.iter().zip(vec2).map(|(a, b)| a - b).collect();
+        let expected: Vec<f32> = vec1.iter().zip(&vec2).map(|(a, b)| a - b).collect();
 
         let buff1 = vec1
             .to_buffer(CL_MEM_READ_ONLY, true, &opencl_state)
@@ -862,12 +862,12 @@ mod test_opencl_utils {
         let numbers_amount = 5123;
 
         let vec1: Vec<f32> = (0..numbers_amount)
-            .map(|_| -> f32 { rng.gen_range(-1513_f32..12341_f32) })
+            .map(|_| -> f32 { rng.gen_range(-153_f32..141_f32) })
             .collect();
         let vec2: Vec<f32> = (0..numbers_amount)
-            .map(|_| -> f32 { rng.gen_range(-1513_f32..12341_f32) })
+            .map(|_| -> f32 { rng.gen_range(-151_f32..121_f32) })
             .collect();
-        let expected: Vec<f32> = vec1.iter().zip(vec2).map(|(a, b)| a * b).collect();
+        let expected: Vec<f32> = vec1.iter().zip(&vec2).map(|(a, b)| a * b).collect();
 
         let buff1 = vec1
             .to_buffer(CL_MEM_READ_ONLY, true, &opencl_state)
@@ -878,7 +878,7 @@ mod test_opencl_utils {
 
         let actual = Vec::<f32>::from_buffer(
             &buff1
-                .subtract(&buff2, CL_MEM_READ_ONLY, &opencl_state)
+                .multiply(&buff2, CL_MEM_READ_ONLY, &opencl_state)
                 .unwrap(),
             true,
             &opencl_state,
@@ -903,7 +903,7 @@ mod test_opencl_utils {
         let vec2: Vec<f32> = (0..numbers_amount)
             .map(|_| -> f32 { rng.gen_range(-1513_f32..12341_f32) })
             .collect();
-        let expected: Vec<f32> = vec1.iter().zip(vec2).map(|(a, b)| a / b).collect();
+        let expected: Vec<f32> = vec1.iter().zip(&vec2).map(|(a, b)| a / b).collect();
 
         let buff1 = vec1
             .to_buffer(CL_MEM_READ_ONLY, true, &opencl_state)
@@ -914,6 +914,36 @@ mod test_opencl_utils {
 
         let actual = Vec::<f32>::from_buffer(
             &buff1.divide(&buff2, CL_MEM_READ_ONLY, &opencl_state).unwrap(),
+            true,
+            &opencl_state,
+        )
+        .unwrap();
+
+        expected.iter().zip(actual).for_each(|(expected, actual)| {
+            assert!((expected - actual).abs() / expected.max(actual) <= 0.0001);
+        });
+    }
+
+    #[test]
+    fn should_scale_buffers_correctly() {
+        let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
+
+        let mut rng = thread_rng();
+        let numbers_amount = 5123;
+
+        let vec1: Vec<f32> = (0..numbers_amount)
+            .map(|_| -> f32 { rng.gen_range(-1513_f32..12341_f32) })
+            .collect();
+
+        let scaler = 0.123;
+        let expected: Vec<f32> = vec1.iter().map(|a| a * scaler).collect();
+
+        let buff = vec1
+            .to_buffer(CL_MEM_READ_ONLY, true, &opencl_state)
+            .unwrap();
+
+        let actual = Vec::<f32>::from_buffer(
+            &buff.scale(scaler, CL_MEM_READ_ONLY, &opencl_state).unwrap(),
             true,
             &opencl_state,
         )

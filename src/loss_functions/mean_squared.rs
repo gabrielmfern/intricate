@@ -201,11 +201,11 @@ mod mean_squared_tests {
 
         let output_samples: Vec<f32> = (0..(samples_amount * outputs_amount))
             .into_iter()
-            .map(|_| rng.gen_range(-13123.0_f32..15413_f32))
+            .map(|_| rng.gen_range(-1123.0_f32..1543_f32))
             .collect();
         let expected_outputs: Vec<f32> = (0..(samples_amount * outputs_amount))
             .into_iter()
-            .map(|_| rng.gen_range(-13123.0_f32..15413_f32))
+            .map(|_| rng.gen_range(-1313.0_f32..1413_f32))
             .collect();
 
         let expected_derivatives: Vec<f32> = expected_outputs

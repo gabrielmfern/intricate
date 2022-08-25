@@ -9,12 +9,12 @@ use crate::{utils::{BufferOperations, OpenCLState}, types::ModelOptimizer};
 #[derive(Debug)]
 /// A very basic and archaic optimizer that does not alter the parameters and just scaled the
 /// gradients by a fixed learning rate to compute the update vectors.
-pub struct Basic<'a> {
+pub struct BasicOptimizer<'a> {
     learning_rate: f32,
     opencl_state: Option<&'a OpenCLState>,
 }
 
-impl<'a> Basic<'a> {
+impl<'a> BasicOptimizer<'a> {
     /// Creates a new instance of the Basic optimizer but as an instance of the ModelOptimizer enum
     pub fn new(learning_rate: f32) -> ModelOptimizer<'a> {
         Self::new_raw(learning_rate).into()
@@ -22,11 +22,11 @@ impl<'a> Basic<'a> {
 
     /// Creates a raw instance of the Basic optimizer.
     pub fn new_raw(learning_rate: f32) -> Self {
-        Basic { learning_rate, opencl_state: None }
+        BasicOptimizer { learning_rate, opencl_state: None }
     }
 }
 
-impl<'a> Optimizer<'a> for Basic<'a> {
+impl<'a> Optimizer<'a> for BasicOptimizer<'a> {
     fn init(
         &mut self,
         opencl_state: &'a OpenCLState,

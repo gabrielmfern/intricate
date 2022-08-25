@@ -2,7 +2,7 @@
 
 pub mod basic;
 
-pub use basic::Basic;
+pub use basic::BasicOptimizer;
 
 use intricate_macros::FromForAllUnnamedVariants;
 use opencl3::{device::cl_float, error_codes::ClError, memory::Buffer};

@@ -13,6 +13,7 @@ use savefile_derive::Savefile;
 use std::mem;
 use std::ptr;
 
+#[allow(unused_imports)]
 use crate::{
     optimizers::Optimizer,
     types::{ModelLayer, ModelOptimizer, SyncDataError},
@@ -473,8 +474,8 @@ impl<'a> Layer<'a> for Dense<'a> {
         let weights_buffer = self.weights_buffer.as_ref().unwrap();
         let biases_buffer = self.biases_buffer.as_ref().unwrap();
 
-        weights_buffer.subtract(&update_vectors[0], CL_MEM_READ_ONLY, state)?;
-        biases_buffer.subtract(&update_vectors[1], CL_MEM_READ_ONLY, state)?;
+        self.weights_buffer = Some(weights_buffer.add(&update_vectors[0], CL_MEM_READ_ONLY, state)?);
+        self.biases_buffer = Some(biases_buffer.add(&update_vectors[1], CL_MEM_READ_ONLY, state)?);
 
         Ok(())
     }
@@ -565,11 +566,8 @@ mod dense_tests {
     fn should_apply_gradients_correctly() -> () {
         let state = setup_opencl(DeviceType::GPU).unwrap();
 
-        let queue = state.queues.first().unwrap();
-        let context = &state.context;
-
-        let inputs_amount = 500;
-        let outputs_amount = 500;
+        let inputs_amount = 10;
+        let outputs_amount = 10;
 
         let mut gpu_dense = Dense::new_raw(inputs_amount, outputs_amount);
         gpu_dense.init(&state).unwrap();
@@ -598,10 +596,10 @@ mod dense_tests {
 
         let expected_bias_gradients: Vec<f32> = loss_to_output_derivatives.to_vec();
 
-        let mut input_samples_buffer = inputs.to_buffer(CL_MEM_READ_ONLY, true, &state).unwrap();
+        let input_samples_buffer = inputs.to_buffer(CL_MEM_READ_ONLY, true, &state).unwrap();
         gpu_dense.last_inputs_buffer = Some(input_samples_buffer);
 
-        let mut loss_to_output_derivatives_buffer = loss_to_output_derivatives
+        let loss_to_output_derivatives_buffer = loss_to_output_derivatives
             .to_buffer(CL_MEM_READ_ONLY, true, &state)
             .unwrap();
 
@@ -624,9 +622,10 @@ mod dense_tests {
             })
             .collect();
         let actual_bias_gradients =
-            Vec::<f32>::from_buffer(&actual_gradients[0].value, true, &state).unwrap();
+            Vec::<f32>::from_buffer(&actual_gradients[1].value, true, &state).unwrap();
 
-        let max_dist = 0.01;
+        // dbg!(&actual_weights_gradients);
+        // dbg!(&expected_gradients);
 
         {
             expected_gradients
@@ -647,6 +646,9 @@ mod dense_tests {
                     },
                 );
         };
+
+        // dbg!(&expected_bias_gradients);
+        // dbg!(&actual_bias_gradients);
 
         {
             expected_bias_gradients

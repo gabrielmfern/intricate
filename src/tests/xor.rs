@@ -10,7 +10,7 @@ use crate::{
 use crate::{
     layers::activations::TanH,
     layers::Dense,
-    optimizers::Basic,
+    optimizers::BasicOptimizer,
     loss_functions::MeanSquared,
     loss_functions::LossFunction,
     model::Model,
@@ -56,9 +56,9 @@ fn should_decrease_error() -> () {
             &mut TrainingOptions {
                 loss_algorithm: MeanSquared::new(), 
                 epochs: 1000,
-                gradient_descent_method: (),
-                optimizer: Basic::new(0.1),
-                verbose: false,
+                // gradient_descent_method: (),
+                optimizer: BasicOptimizer::new(0.1),
+                verbose: true,
                 compute_loss: true,
             },
         ).unwrap()

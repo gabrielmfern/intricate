@@ -66,7 +66,7 @@ use crate::{
         CompilationOrOpenCLError, ModelLayer, ModelLossFunction, ModelOptimizer, SyncDataError,
         TrainingOptions,
     },
-    utils::opencl::{BufferLike, BufferConversionError},
+    utils::opencl::{BufferLike, BufferConversionError}, optimizers::Optimizer,
 };
 
 #[allow(dead_code)]
@@ -395,6 +395,7 @@ impl<'a> Model<'a> {
         }
 
         training_options.loss_algorithm.init(state)?;
+        training_options.optimizer.init(state)?;
 
         let input_samples_buffer = training_input_samples
             .par_iter()
