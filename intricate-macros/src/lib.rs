@@ -65,7 +65,7 @@ pub fn optimizer_enum(_input: TokenStream) -> TokenStream {
     let variants = if let Data::Enum(enm) = input.data {
         enm.variants
     } else {
-        panic!("The 'LossFunctionEnum' derive macro can only be used with enums!");
+        panic!("The 'OptimizerEnum' derive macro can only be used with enums!");
     };
 
     let variant = variants.iter().map(|variant| &variant.ident);
@@ -143,7 +143,7 @@ pub fn loss_function_enum(_input: TokenStream) -> TokenStream {
                 output_samples: &opencl3::memory::Buffer<opencl3::device::cl_float>,
                 expected_outputs: &opencl3::memory::Buffer<opencl3::device::cl_float>,
                 samples_amount: usize,
-            ) -> Result<f32, opencl3::error_codes::ClError> {
+            ) -> Result<f32, crate::loss_functions::LossComputationError> {
                 match self {
                 #(
                     #enum_name::#loss_function_names_2(lossfn) => lossfn.compute_loss(
@@ -171,7 +171,7 @@ pub fn loss_function_enum(_input: TokenStream) -> TokenStream {
                 output_samples: &opencl3::memory::Buffer<opencl3::device::cl_float>,
                 expected_outputs: &opencl3::memory::Buffer<opencl3::device::cl_float>,
                 samples_amount: usize,
-            ) -> Result<opencl3::memory::Buffer<opencl3::device::cl_float>, opencl3::error_codes::ClError> {
+            ) -> Result<opencl3::memory::Buffer<opencl3::device::cl_float>, crate::loss_functions::LossToModelOutputsDerivativesComputationError> {
                 match self {
                 #(
                     #enum_name::#loss_function_names_4(lossfn) =>

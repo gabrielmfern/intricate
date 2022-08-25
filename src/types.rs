@@ -3,16 +3,20 @@
 use opencl3::error_codes::ClError;
 use savefile_derive::Savefile;
 
-use intricate_macros::{EnumLayer, LossFunctionEnum, FromForAllUnnamedVariants, OptimizerEnum};
+use intricate_macros::{EnumLayer, FromForAllUnnamedVariants, LossFunctionEnum, OptimizerEnum};
 
 use crate::{
-    layers::{activations::{TanH, SoftMax, ReLU, Sigmoid}, Dense},
+    layers::{
+        activations::{ReLU, Sigmoid, SoftMax, TanH},
+        Dense,
+    },
     loss_functions::{CategoricalCrossEntropy, MeanSquared},
-    utils::{opencl::UnableToSetupOpenCLError, OpenCLState}, optimizers::BasicOptimizer,
+    optimizers::BasicOptimizer,
+    utils::OpenCLState,
 };
 
 #[derive(Debug)]
-/// An error that happens when a program is not found. 
+/// An error that happens when a program is not found.
 ///
 /// It contains a tuple that has the Program's name that was not found.
 pub struct ProgramNotFoundError(pub String);
@@ -28,7 +32,7 @@ pub enum SyncDataError {
     /// Happens when the field trying to be synced is not in the device.
     NotAllocatedInDevice {
         /// The name of the field trying to be synced.
-        field_name: String
+        field_name: String,
     },
     /// Happens when there is no command queue to be used.
     NoCommandQueue,
@@ -49,24 +53,6 @@ pub struct KernelNotFoundError(pub String);
 impl From<String> for KernelNotFoundError {
     fn from(kernel: String) -> Self {
         KernelNotFoundError(kernel)
-    }
-}
-
-#[derive(Debug, FromForAllUnnamedVariants)]
-/// A simple type for initialization errors, since they can be either a straight up ClError
-/// or a compilation error for some kernel which yields a type of stacktrace.
-pub enum CompilationOrOpenCLError {
-    /// An error that happens when compilling a OpenCL program.
-    CompilationError(String),
-    /// An error that happens when doing some OpenCL procedure that fails.
-    OpenCLError(ClError),
-    /// An error that will happen when trying to setup OpenCL
-    UnableToSetupOpenCLError,
-}
-
-impl From<UnableToSetupOpenCLError> for CompilationOrOpenCLError {
-    fn from(_err: UnableToSetupOpenCLError) -> Self {
-        Self::UnableToSetupOpenCLError
     }
 }
 
@@ -102,7 +88,7 @@ pub enum ModelOptimizer<'a> {
 
 /// A struct that defines the options for training a Model.
 pub struct TrainingOptions<'a> {
-    /// The loss function that will be used for calculating how **wrong** the Model 
+    /// The loss function that will be used for calculating how **wrong** the Model
     /// was after some prediction over many samples.
     pub loss_algorithm: ModelLossFunction<'a>,
     /// The graadient descent implementation that should be used for doing gradient descent
@@ -112,7 +98,7 @@ pub struct TrainingOptions<'a> {
     /// optimize gradients and compute update vectors that are going to be actually used when
     /// applying the gradients
     pub optimizer: ModelOptimizer<'a>,
-    /// Weather or not the training process should be verbose, as to print the current epoch, 
+    /// Weather or not the training process should be verbose, as to print the current epoch,
     /// and the current loss after applying gradients.
     pub verbose: bool,
     /// Weather or not at the end of each backprop the Model should compute its own loss and

@@ -23,10 +23,10 @@ use crate::{
         Gradient, Layer, LayerGradientApplicationError, LayerGradientComputationError,
         LayerLossToInputDifferentiationError, LayerPropagationError, ParametersOptimizationError,
     },
-    loss_functions::LossFunction,
+    loss_functions::{LossFunction, LossComputationError, LossToModelOutputsDerivativesComputationError},
     optimizers::Optimizer,
     types::{
-        CompilationOrOpenCLError, ModelLayer, ModelLossFunction, ModelOptimizer, SyncDataError,
+        ModelLayer, ModelLossFunction, ModelOptimizer, SyncDataError,
         TrainingOptions,
     },
     utils::opencl::{BufferConversionError, BufferLike},
@@ -119,6 +119,9 @@ pub enum ModelFittingError {
     ParameterOptimization(ParametersOptimizationError),
     /// Happens when something goes wrong in the propagation of the Model.
     LayerPropagation(LayerPropagationError),
+
+    /// Happens when something goes wrong while computing the overall loss of the Model
+    LossComputation(LossComputationError),
 }
 
 #[derive(Debug, FromForAllUnnamedVariants)]
@@ -140,6 +143,9 @@ pub enum ModelGradientComputationError {
     LayerGradientComputation(LayerGradientComputationError),
     /// Happens when the differentiation of the inputs of a layer with respect to the loss goes wrong.
     LayerLossToInputDifferentiation(LayerLossToInputDifferentiationError),
+
+    /// Happens when something goes wrong
+    LossDerivativesComputation(LossToModelOutputsDerivativesComputationError),
 }
 
 #[derive(Debug, FromForAllUnnamedVariants)]
@@ -167,8 +173,6 @@ pub enum ModelGradientApplicationError {
 pub enum ModelGetLastPredictionError {
     /// Happens when the Model was not initialized
     NotInitialized,
-    /// Happens only if something goes wrong while trying to get the size of the buffer
-    OpenCL(ClError),
     /// Happens when something goes wrong while trying to convert from a buffer to a Vec
     BufferConversion(BufferConversionError),
     /// Happens when the Model has no layers inside of it
@@ -212,7 +216,7 @@ impl<'a> Model<'a> {
     /// CompilationError (just a String with some stacktrace to the error).
     /// If the programs were compiled successfully don't put your guard down yet because OpenCL may
     /// yield some error if something it needs to do fails.
-    pub fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), CompilationOrOpenCLError> {
+    pub fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), ClError> {
         for layer in self.layers.iter_mut() {
             layer.init(opencl_state)?;
         }
@@ -257,8 +261,6 @@ impl<'a> Model<'a> {
         }
 
         let buffer = last_layer.get_last_outputs().unwrap();
-
-        let size = buffer.size()? / mem::size_of::<cl_float>();
 
         Ok(Vec::<f32>::from_buffer(&buffer, false, state)?)
     }

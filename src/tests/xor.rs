@@ -1,10 +1,7 @@
 #[allow(unused_imports)]
 use opencl3::error_codes::ClError;
 #[allow(unused_imports)]
-use crate::{
-    types::CompilationOrOpenCLError,
-    utils::opencl::DeviceType
-};
+use crate::utils::opencl::DeviceType;
 
 #[allow(unused_imports)]
 use crate::{

@@ -8,9 +8,10 @@ pub mod categorical_cross_entropy;
 pub mod mean_squared;
 
 pub use categorical_cross_entropy::CategoricalCrossEntropy;
+use intricate_macros::FromForAllUnnamedVariants;
 pub use mean_squared::MeanSquared;
 
-use crate::utils::{OpenCLState, opencl::EnsureKernelsAndProgramError};
+use crate::{utils::{OpenCLState, opencl::{EnsureKernelsAndProgramError, BufferOperationError}}, types::{KernelNotFoundError, ProgramNotFoundError}};
 
 use opencl3::{device::cl_float, error_codes::ClError, memory::Buffer};
 
@@ -26,6 +27,60 @@ pub(crate) fn compile_losses(
     compile_categorical_cross_entropy(opencl_state)?;
 
     Ok(())
+}
+
+#[derive(Debug, FromForAllUnnamedVariants)]
+/// An enum containing all of the possible errors that can happen when trying to compute the
+/// overall loss of a Model from expected outputs with respect to actual outputs.
+pub enum LossComputationError {
+    /// Happens when the LossFunction trait object was not initialized.
+    NotInitialized,
+    /// Happens when there is no command queue in the OpenCLState.
+    NoCommandQueue,
+
+    /// Happens when something goes wrong with OpenCL.
+    OpenCL(ClError),
+
+    /// Happens when the **expected outputs** and the **actual outputs** do not match in size.
+    OutputsAndExpectedOutputsDoNotMatch,
+    /// Happens when the given training data does not have the amount of samples specified inside
+    /// of it.
+    TrainingDataDoesNotHaveExpectedSamplesAmount,
+
+    /// Happens when a required kernel was not found
+    KernelNotFound(KernelNotFoundError),
+    /// Happens when a required program was not found
+    ProgramNotFound(ProgramNotFoundError),
+
+    /// Happens when a buffer operation goes wrong
+    BufferOperation(BufferOperationError),
+}
+
+#[derive(Debug, FromForAllUnnamedVariants)]
+/// An enum containing all of the possible errors that can happen when trying to compute the
+/// derivatives of the loss of a Model with respect to its outputs to do gradient descent on it.
+pub enum LossToModelOutputsDerivativesComputationError {
+    /// Happens when the LossFunction trait object was not initialized.
+    NotInitialized,
+    /// Happens when there is no command queue in the OpenCLState.
+    NoCommandQueue,
+
+    /// Happens when something goes wrong with OpenCL.
+    OpenCL(ClError),
+
+    /// Happens when the **expected outputs** and the **actual outputs** do not match in size.
+    OutputsAndExpectedOutputsDoNotMatch,
+    /// Happens when the given training data does not have the amount of samples specified inside
+    /// of it.
+    TrainingDataDoesNotHaveExpectedSamplesAmount,
+
+    /// Happens when a required kernel was not found
+    KernelNotFound(KernelNotFoundError),
+    /// Happens when a required program was not found
+    ProgramNotFound(ProgramNotFoundError),
+
+    /// Happens when a buffer operation goes wrong
+    BufferOperation(BufferOperationError),
 }
 
 /// A simple trait implemented by Intricate that will define the base functions
@@ -46,7 +101,7 @@ where
         output_samples: &Buffer<cl_float>,
         expected_outputs: &Buffer<cl_float>,
         samples_amount: usize,
-    ) -> Result<f32, ClError>;
+    ) -> Result<f32, LossComputationError>;
 
     /// Sets the "almost" static reference to the OpenCL context and Command Queue.
     ///
@@ -67,5 +122,5 @@ where
         output_samples: &Buffer<cl_float>,
         expected_outputs: &Buffer<cl_float>,
         samples_amount: usize,
-    ) -> Result<Buffer<cl_float>, ClError>;
+    ) -> Result<Buffer<cl_float>, LossToModelOutputsDerivativesComputationError>;
 }

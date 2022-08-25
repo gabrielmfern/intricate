@@ -1,7 +1,6 @@
 //! The module that implements the Mean Squared loss function.
 
 use std::mem;
-use std::ptr;
 
 use opencl3::{
     device::cl_float,
@@ -12,10 +11,13 @@ use opencl3::{
 
 use crate::loss_functions::LossFunction;
 use crate::types::ModelLossFunction;
+use crate::utils::opencl::empty_buffer;
 use crate::utils::opencl::ensure_program;
 use crate::utils::opencl::EnsureKernelsAndProgramError;
 use crate::utils::BufferOperations;
 use crate::utils::OpenCLState;
+
+use super::{LossComputationError, LossToModelOutputsDerivativesComputationError};
 
 const PROGRAM_NAME: &str = "MEAN_SQUARED";
 const PROGRAM_SOURCE: &str = include_str!("kernels/mean_squared.cl");
@@ -82,32 +84,35 @@ impl<'a> LossFunction<'a> for MeanSquared<'a> {
         output_samples: &Buffer<cl_float>,
         expected_outputs: &Buffer<cl_float>,
         samples_amount: usize,
-    ) -> Result<f32, ClError> {
-        assert!(self.opencl_state.is_some());
-        assert!(!self.opencl_state.unwrap().queues.is_empty());
-        assert_eq!(output_samples.size()?, expected_outputs.size()?);
+    ) -> Result<f32, LossComputationError> {
+        if self.opencl_state.is_none() {
+            return Err(LossComputationError::NotInitialized);
+        }
 
         let state = self.opencl_state.unwrap();
-        let context = &state.context;
+
+        if state.queues.len() == 0 {
+            return Err(LossComputationError::NoCommandQueue);
+        }
+
+        if output_samples.size()? != expected_outputs.size()? {
+            return Err(LossComputationError::OutputsAndExpectedOutputsDoNotMatch);
+        }
+
         let queue = state.queues.first().unwrap();
 
-        let outputs_amount = output_samples.size()? / samples_amount / mem::size_of::<cl_float>();
+        let outputs_total_count = output_samples.size()? / mem::size_of::<cl_float>();
+        if outputs_total_count % samples_amount != 0 {
+            return Err(LossComputationError::TrainingDataDoesNotHaveExpectedSamplesAmount);
+        }
 
-        let sample_losses_buffer = Buffer::<cl_float>::create(
-            context,
-            CL_MEM_READ_WRITE,
-            samples_amount,
-            ptr::null_mut(),
-        )?;
+        let outputs_amount = outputs_total_count / samples_amount;
 
-        // TODO: treat this error cases
-        let compute_loss_kernel = state
-            .programs
-            .get(PROGRAM_NAME)
-            .unwrap()
-            .kernels
-            .get(COMPUTE_LOSS_KERNEL)
-            .unwrap();
+        let sample_losses_buffer = empty_buffer(samples_amount, CL_MEM_READ_WRITE, state)?;
+
+        let program = state.get_prgm(PROGRAM_NAME)?;
+
+        let compute_loss_kernel = program.get_krnl(COMPUTE_LOSS_KERNEL)?;
 
         ExecuteKernel::new(compute_loss_kernel)
             .set_arg(output_samples)
@@ -119,10 +124,8 @@ impl<'a> LossFunction<'a> for MeanSquared<'a> {
             .enqueue_nd_range(queue)?
             .wait()?;
 
-        // Ok(0.0)
         Ok(sample_losses_buffer
-            .sum(self.opencl_state.unwrap())
-            .unwrap() // TODO: treat this BufferOperationError instead of unwraping it here
+            .sum(self.opencl_state.unwrap())?
             / outputs_amount as f32
             / samples_amount as f32)
     }
@@ -132,30 +135,32 @@ impl<'a> LossFunction<'a> for MeanSquared<'a> {
         output_samples: &Buffer<cl_float>,
         expected_outputs: &Buffer<cl_float>,
         samples_amount: usize,
-    ) -> Result<Buffer<cl_float>, ClError> {
-        assert!(self.opencl_state.is_some());
-        assert!(!self.opencl_state.unwrap().queues.is_empty());
-        assert_eq!(output_samples.size()?, expected_outputs.size()?);
+    ) -> Result<Buffer<cl_float>, LossToModelOutputsDerivativesComputationError> {
+        if self.opencl_state.is_none() {
+            return Err(LossToModelOutputsDerivativesComputationError::NotInitialized);
+        }
 
         let state = self.opencl_state.unwrap();
-        let context = &state.context;
 
-        let outputs_amount = output_samples.size()? / samples_amount / mem::size_of::<cl_float>();
-        let derivatives_buffer = Buffer::<cl_float>::create(
-            context,
-            CL_MEM_READ_WRITE,
-            output_samples.size()? / mem::size_of::<cl_float>(),
-            ptr::null_mut(),
-        )?;
+        if state.queues.len() == 0 {
+            return Err(LossToModelOutputsDerivativesComputationError::NoCommandQueue);
+        }
 
-        // TODO: treat this error cases
-        let compute_loss_to_output_derivatives_kernel = state
-            .programs
-            .get(PROGRAM_NAME)
-            .unwrap()
-            .kernels
-            .get(COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL)
-            .unwrap();
+        if output_samples.size()? != expected_outputs.size()? {
+            return Err(LossToModelOutputsDerivativesComputationError::OutputsAndExpectedOutputsDoNotMatch);
+        }
+
+        let outputs_total_count = output_samples.size()? / mem::size_of::<cl_float>();
+        if outputs_total_count % samples_amount != 0 {
+            return Err(LossToModelOutputsDerivativesComputationError::TrainingDataDoesNotHaveExpectedSamplesAmount);
+        }
+
+        let outputs_amount = outputs_total_count / samples_amount;
+
+        let derivatives_buffer = empty_buffer(outputs_total_count, CL_MEM_READ_WRITE, state)?;
+
+        let program = state.get_prgm(PROGRAM_NAME)?;
+        let compute_loss_to_output_derivatives_kernel = program.get_krnl(COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL)?;
 
         ExecuteKernel::new(&compute_loss_to_output_derivatives_kernel)
             .set_arg(output_samples)
@@ -184,16 +189,16 @@ mod mean_squared_tests {
     use super::MeanSquared;
     use crate::utils::{approx_eq::assert_approx_equal_distance, setup_opencl, OpenCLState};
     use crate::{
-        loss_functions::LossFunction, types::CompilationOrOpenCLError, utils::opencl::DeviceType,
+        loss_functions::LossFunction, utils::opencl::DeviceType,
     };
 
     #[test]
-    fn should_compute_derivatives_up_to_a_certain_precision() -> Result<(), CompilationOrOpenCLError>
+    fn should_compute_derivatives_up_to_a_certain_precision()
     {
-        let opencl_state: OpenCLState = setup_opencl(DeviceType::GPU)?;
+        let opencl_state: OpenCLState = setup_opencl(DeviceType::GPU).unwrap();
 
         let mut gpu_loss = MeanSquared::new_raw();
-        gpu_loss.init(&opencl_state)?;
+        gpu_loss.init(&opencl_state).unwrap();
 
         let outputs_amount: usize = 61;
         let samples_amount: usize = 113;
@@ -213,11 +218,6 @@ mod mean_squared_tests {
             .zip(&output_samples)
             .map(|(expected_output, actual_output)| {
                 2.0 / outputs_amount as f32 * (actual_output - expected_output)
-                // normal_loss.compute_loss_derivative_with_respect_to_output(
-                //     outputs_amount,
-                //     *actual_output,
-                //     *expected_output,
-                // )
             })
             .collect();
 
@@ -226,13 +226,13 @@ mod mean_squared_tests {
             CL_MEM_READ_ONLY,
             samples_amount * outputs_amount,
             ptr::null_mut(),
-        )?;
+        ).unwrap();
         let mut expected_outputs_buf = Buffer::<cl_float>::create(
             &opencl_state.context,
             CL_MEM_READ_ONLY,
             samples_amount * outputs_amount,
             ptr::null_mut(),
-        )?;
+        ).unwrap();
 
         let queue = opencl_state.queues.first().unwrap();
 
@@ -243,8 +243,8 @@ mod mean_squared_tests {
                 0,
                 output_samples.as_slice(),
                 &[],
-            )?
-            .wait()?;
+            ).unwrap()
+            .wait().unwrap();
         queue
             .enqueue_write_buffer(
                 &mut expected_outputs_buf,
@@ -252,32 +252,30 @@ mod mean_squared_tests {
                 0,
                 expected_outputs.as_slice(),
                 &[],
-            )?
-            .wait()?;
+            ).unwrap()
+            .wait().unwrap();
 
         let buf = gpu_loss.compute_loss_derivative_with_respect_to_output_samples(
             &outputs_buf,
             &expected_outputs_buf,
             samples_amount,
-        )?;
+        ).unwrap();
         let mut derivatives_vec = vec![0.0; samples_amount * outputs_amount];
         let derivatives_slice = derivatives_vec.as_mut_slice();
 
         queue
-            .enqueue_read_buffer(&buf, CL_NON_BLOCKING, 0, derivatives_slice, &[])?
-            .wait()?;
+            .enqueue_read_buffer(&buf, CL_NON_BLOCKING, 0, derivatives_slice, &[]).unwrap()
+            .wait().unwrap();
 
         assert_approx_equal_distance(&expected_derivatives, &derivatives_vec, 0.01);
-
-        Ok(())
     }
 
     #[test]
-    fn should_compute_loss_up_to_a_certain_precision() -> Result<(), CompilationOrOpenCLError> {
-        let opencl_state: OpenCLState = setup_opencl(DeviceType::GPU)?;
+    fn should_compute_loss_up_to_a_certain_precision() {
+        let opencl_state: OpenCLState = setup_opencl(DeviceType::GPU).unwrap();
 
         let mut loss = MeanSquared::new();
-        loss.init(&opencl_state)?;
+        loss.init(&opencl_state).unwrap();
 
         let mut rng = thread_rng();
         let samples_amount = 27;
@@ -303,13 +301,13 @@ mod mean_squared_tests {
             CL_MEM_READ_ONLY,
             samples_amount * outputs_amount,
             ptr::null_mut(),
-        )?;
+        ).unwrap();
         let mut expected_outputs_buf = Buffer::<cl_float>::create(
             &opencl_state.context,
             CL_MEM_READ_ONLY,
             samples_amount * outputs_amount,
             ptr::null_mut(),
-        )?;
+        ).unwrap();
 
         let queue = opencl_state.queues.first().unwrap();
 
@@ -320,8 +318,8 @@ mod mean_squared_tests {
                 0,
                 outputs.as_slice(),
                 &[],
-            )?
-            .wait()?;
+            ).unwrap()
+            .wait().unwrap();
         queue
             .enqueue_write_buffer(
                 &mut expected_outputs_buf,
@@ -329,10 +327,10 @@ mod mean_squared_tests {
                 0,
                 expected_outputs.as_slice(),
                 &[],
-            )?
-            .wait()?;
+            ).unwrap()
+            .wait().unwrap();
 
-        let actual_loss = loss.compute_loss(&outputs_buf, &expected_outputs_buf, samples_amount)?;
+        let actual_loss = loss.compute_loss(&outputs_buf, &expected_outputs_buf, samples_amount).unwrap();
 
         println!(
             "|({} - {}) / {}| <= 0.1%",
@@ -341,7 +339,5 @@ mod mean_squared_tests {
             expected_loss.max(actual_loss)
         );
         assert!((expected_loss - actual_loss).abs() / expected_loss.max(actual_loss) <= 0.001);
-
-        Ok(())
     }
 }
