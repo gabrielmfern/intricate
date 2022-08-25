@@ -400,6 +400,53 @@ impl<'a> Model<'a> {
         let samples_amount =
             input_samples_buffer.size()? / mem::size_of::<cl_float>() / inputs_amount;
 
+        let mut per_step_inputs: Vec<Buffer<cl_float>> = Vec::default();
+        let mut per_step_outputs: Vec<Buffer<cl_float>> = Vec::default();
+
+        match training_options.gradient_descent_algorithm {
+            GradientDescent::Stochastic => {
+                per_step_inputs = Vec::with_capacity(samples_amount);
+                per_step_outputs = Vec::with_capacity(samples_amount);
+                for i_sample in 0..samples_amount {
+                    let sample_inputs = input_samples_buffer.create_sub_buffer(
+                        CL_MEM_READ_ONLY,
+                        i_sample * inputs_amount,
+                        inputs_amount,
+                    )?;
+                    let sample_outputs = expected_output_samples_buffer.create_sub_buffer(
+                        CL_MEM_READ_ONLY,
+                        i_sample * outputs_amount,
+                        outputs_amount,
+                    )?;
+
+                    per_step_inputs.push(sample_inputs);
+                    per_step_outputs.push(sample_outputs);
+                }
+            },
+            GradientDescent::MiniBatchStochastic(batch_size) => {
+                let steps_amount = (samples_amount as f32 / batch_size as f32).floor() as usize;
+                per_step_inputs = Vec::with_capacity(steps_amount);
+                per_step_outputs = Vec::with_capacity(steps_amount);
+
+                for i_batch in 0..steps_amount {
+                    let batch_inputs = input_samples_buffer.create_sub_buffer(
+                        CL_MEM_READ_ONLY,
+                        i_batch * batch_size * inputs_amount,
+                        batch_size * inputs_amount,
+                    )?;
+                    let batch_outputs = expected_output_samples_buffer.create_sub_buffer(
+                        CL_MEM_READ_ONLY,
+                        i_batch * batch_size * outputs_amount,
+                        batch_size * outputs_amount,
+                    )?;
+
+                    per_step_inputs.push(batch_inputs);
+                    per_step_outputs.push(batch_outputs);
+                }
+            },
+            _ => {},
+        };
+
         for epoch_index in 0..training_options.epochs {
             if training_options.verbose {
                 println!("epoch #{}", epoch_index + 1);
@@ -420,20 +467,12 @@ impl<'a> Model<'a> {
                 }
                 GradientDescent::Stochastic => {
                     for i_sample in 0..samples_amount {
-                        let sample_inputs = input_samples_buffer.create_sub_buffer(
-                            CL_MEM_READ_ONLY,
-                            i_sample * inputs_amount,
-                            inputs_amount,
-                        )?;
-                        let sample_outputs = expected_output_samples_buffer.create_sub_buffer(
-                            CL_MEM_READ_ONLY,
-                            i_sample * outputs_amount,
-                            outputs_amount,
-                        )?;
+                        let sample_inputs = &per_step_inputs[i_sample];
+                        let sample_outputs = &per_step_outputs[i_sample];
 
                         let optional_loss = self.do_training_step(
-                            &sample_inputs,
-                            &sample_outputs,
+                            sample_inputs,
+                            sample_outputs,
                             1,
                             training_options,
                         )?;
@@ -447,20 +486,12 @@ impl<'a> Model<'a> {
                     let steps_amount = (samples_amount as f32 / batch_size as f32).floor() as usize;
 
                     for i_batch in 0..steps_amount {
-                        let batch_inputs = input_samples_buffer.create_sub_buffer(
-                            CL_MEM_READ_ONLY,
-                            i_batch * batch_size * inputs_amount,
-                            batch_size * inputs_amount,
-                        )?;
-                        let batch_outputs = expected_output_samples_buffer.create_sub_buffer(
-                            CL_MEM_READ_ONLY,
-                            i_batch * batch_size * outputs_amount,
-                            batch_size * outputs_amount,
-                        )?;
+                        let batch_inputs = &per_step_inputs[i_batch];
+                        let batch_outputs = &per_step_outputs[i_batch];
 
                         let optional_loss = self.do_training_step(
-                            &batch_inputs,
-                            &batch_outputs,
+                            batch_inputs,
+                            batch_outputs,
                             batch_size,
                             training_options,
                         )?;
