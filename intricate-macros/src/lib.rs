@@ -473,17 +473,21 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                     return Err(crate::layers::LayerPropagationError::NoCommandQueueFound);
                 }
 
-                let context = &state.context;
                 let queue = state.queues.first().unwrap();
 
                 let inputs_size = inputs.size()?;
-                let inputs_total_count = inputs_size / std::mem::size_of::<opencl3::device::cl_float>();
+                let inputs_total_count = 
+                    inputs_size / std::mem::size_of::<opencl3::device::cl_float>();
+
+                if inputs_total_count % self.inputs_amount != 0 {
+                    return Err(crate::layers::LayerPropagationError::InputsDontMatchExpectedShape);
+                }
 
                 let mut copied_last_inputs_buffer = inputs.clone(opencl3::memory::CL_MEM_READ_ONLY, state)?;
 
                 self.last_inputs_buffer = Some(copied_last_inputs_buffer);
 
-                let outputs_total_count = inputs.size()? / std::mem::size_of::<opencl3::device::cl_float>();
+                let outputs_total_count = inputs_total_count;
 
                 let program = state.get_prgm(PROGRAM_NAME)?;
 
@@ -546,12 +550,22 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                 let queue = state.queues.first().unwrap();
 
                 if self.last_outputs_buffer.is_none() {
-                    return Err(crate::layers::LayerLossToInputDifferentiationError::HasNotPropagatedBeforeCalculation);
+                    return Err(
+                        crate::layers::LayerLossToInputDifferentiationError::HasNotPropagatedBeforeCalculation
+                    );
                 }
 
-                let samples_amount = self.last_outputs_buffer.as_ref().unwrap().size()?
-                    / self.inputs_amount
-                    / std::mem::size_of::<opencl3::device::cl_float>();
+                let outputs_size = self.last_outputs_buffer.as_ref().unwrap().size()?;
+                let outputs_total_count = 
+                    outputs_size / std::mem::size_of::<opencl3::device::cl_float>(); 
+
+                if outputs_total_count % self.inputs_amount != 0 {
+                    return Err(
+                        crate::layers::LayerLossToInputDifferentiationError::DerivativesDontMatchExpectedShape
+                    );
+                }
+
+                let samples_amount = outputs_total_count / self.inputs_amount;
 
                 let loss_to_input_derivatives_buffer = opencl3::memory::Buffer::<opencl3::device::cl_float>::create(
                     context,
