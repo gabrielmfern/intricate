@@ -115,13 +115,18 @@ For training our Model we just need to call the `fit`
 method and pass in some parameters as follows:
 
 ```rust
+use intricate::loss_functions::MeanSquared;
+use intricate::optimizers::BasicOptimizer;
+
 xor_model.fit(
     &training_inputs, 
     &expected_outputs, 
     TrainingOptions {
-        learning_rate: 0.1,
         loss_algorithm: MeanSquared::new(), // The Mean Squared loss function
-        should_print_information: true, // Should or not be verbose
+        verbose: true,     // Should be verbose
+        compute_loss: true, // Weather or not to compute and return the loss
+        optimizer: BasicOptimizer::new(0.1), // The parameter here is the learning rate for the
+                                             // BasicOptimizer
         epochs: 10000,
     },
 ).unwrap(); // Will return an Option containing the last loss after training
