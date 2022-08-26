@@ -60,7 +60,7 @@ fn main() -> () {
                     print_loss: true, // should print the loss after each epoch
                     halting_condition_warning: true,
                 },
-                //                 a condition for stopping the training if a min loss is reached
+                //                 a condition for stopping the training if a min accuracy is reached
                 halting_condition: Some(HaltingCondition::MinAccuracyReached(0.95)),
                 compute_accuracy: false, // if Intricate should compute the accuracy after each
                                          // training step
