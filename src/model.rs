@@ -572,7 +572,7 @@ impl<'a> Model<'a> {
 
                         let acc = accuracies.last().unwrap();
 
-                        if min_acc >= acc {
+                        if min_acc <= acc {
                             if training_options.verbosity.halting_condition_warning {
                                 println!("stopping training process due to MinAccuracyReached halting condition...");
                             }
