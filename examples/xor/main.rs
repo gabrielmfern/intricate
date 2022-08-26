@@ -36,7 +36,7 @@ fn main() -> () {
     // Actually instantiate the Model with the layers
     let mut xor_model = Model::new(layers);
     //            you can change this to DeviceType::GPU if you want
-    let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
+    let opencl_state = setup_opencl(DeviceType::CPU).unwrap();
     xor_model.init(&opencl_state).unwrap();
 
     let mut loss = MeanSquared::new();
@@ -57,12 +57,12 @@ fn main() -> () {
                     print_loss: false,
                     halting_condition_warning: true,
                 },
-                halting_condition: Some(HaltingCondition::MinAccuracyReached(0.1)),
+                halting_condition: Some(HaltingCondition::MinLossReached(0.1)),
                 compute_accuracy: true,
                 compute_loss: true,
                 optimizer: &mut optimizer,
                 batch_size: 4,
-                epochs: 3000,
+                epochs: 500,
             },
         )
         .unwrap();
