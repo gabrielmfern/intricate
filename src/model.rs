@@ -125,9 +125,19 @@ pub enum ModelFittingError {
     /// Happens if there is no device found by OpenCL
     NoDevice,
 
+    /// Happens when a required program was not found
     ProgramNotFound(ProgramNotFoundError),
+    /// Happens when a required kernel was not found in a program
     KernelNotFound(KernelNotFoundError),
 
+    /// Happens when the Halting Condition for the training process is the `MinLossReached` which
+    /// requires that the loss is computed in the training process
+    NoLossForHaltingCondition,
+    /// Happens when the Halting Condition for the training process is the `MinAccuracyReached` which
+    /// requires that the accuracy is computed in the training process
+    NoAccuracyForHaltingCondition,
+
+    /// Happens when something goes wrong in a predefined buffer operation
     BufferOperation(BufferOperationError),
 
     /// Happens if something goes wrong with OpenCL.
@@ -536,6 +546,41 @@ impl<'a> Model<'a> {
 
             if training_options.verbosity.show_epoch_elapsed {
                 println!("{:?} elapsed on epoch", start.elapsed());
+            }
+            
+            if let Some(halting_condition) = &training_options.halting_condition {
+                match halting_condition {
+                    HaltingCondition::MinLossReached(min_loss) => {
+                        if losses.is_empty() {
+                            return Err(ModelFittingError::NoLossForHaltingCondition);
+                        }
+
+                        let epoch_loss = losses.last().unwrap();
+
+                        if min_loss >= epoch_loss {
+                            if training_options.verbosity.halting_condition_warning {
+                                println!("stopping training process due to MinLossReached halting condition...");
+                            }
+
+                            break;
+                        }
+                    },
+                    HaltingCondition::MinAccuracyReached(min_acc) => {
+                        if accuracies.is_empty() {
+                            return Err(ModelFittingError::NoAccuracyForHaltingCondition);
+                        }
+
+                        let acc = accuracies.last().unwrap();
+
+                        if min_acc >= acc {
+                            if training_options.verbosity.halting_condition_warning {
+                                println!("stopping training process due to MinAccuracyReached halting condition...");
+                            }
+
+                            break;
+                        }
+                    },
+                };
             }
         }
 
