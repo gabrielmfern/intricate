@@ -11,7 +11,7 @@ use crate::{
     loss_functions::MeanSquared,
     loss_functions::LossFunction,
     model::Model,
-    types::{ModelLayer, TrainingOptions, GradientDescent},
+    types::{ModelLayer, TrainingOptions},
     utils::{setup_opencl, OpenCLState},
 };
 
@@ -58,7 +58,7 @@ fn should_decrease_error() -> () {
                 loss_fn: &mut loss,
                 verbose: true,     // Should be verbose
                 compute_loss: true,
-                gradient_descent_algorithm: GradientDescent::Batch,
+                batch_size: 4,
                 optimizer: &mut optimizer,
                 epochs: 10000,
             },

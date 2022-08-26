@@ -66,39 +66,17 @@ pub enum ModelLayer<'a> {
     Sigmoid(Sigmoid<'a>),
 }
 
-#[derive(Debug, FromForAllUnnamedVariants)]
-/// An enum that contains all of the possible Gradient Descent algorithms.
-pub enum GradientDescent {
-    /// The `Vanilla Gradient Descent` or `Batch Gradient Descent`.
-    ///
-    /// Computes the gradients for each step over all of the dataset at once and goes to the next
-    /// epoch.
-    Batch,
-
-    /// The `Stochastic Gradient Descent`.
-    ///
-    /// Computes the gradients for each sample in the dataset as one whole step, and once it goes
-    /// through all of the dataset's samples goes to the next epoch.
-    Stochastic,
-
-    /// The `Mini-batch Gradient Descent`.
-    ///
-    /// Is sort of both **Stochastic** and **Batch** together.
-    /// Computes the gradients over a certain **mini-batch** size in each step and once it goes
-    /// through the whole dataset goes to the next epoch.
-    ///
-    /// The parameter given to it is the size of the mini-batch.
-    MiniBatchStochastic(usize),
-}
-
 /// A struct that defines the options for training a Model.
 pub struct TrainingOptions<'a> {
     /// The loss function that will be used for calculating how **wrong** the Model
     /// was after some prediction over many samples.
     pub loss_fn: &'a mut dyn LossFunction<'a>,
 
-    /// The type of Gradient Descent `algorithm` that is going to be used for training.
-    pub gradient_descent_algorithm: GradientDescent,
+    /// The size of the batch given at once to the Model for training.
+    /// This is here because a Model will always run on mini batches, if you wish to do `Batch
+    /// Gradient Descent` you will need to just set this to the amount of training samples you
+    /// have and for `Stochastic Gradient Descent` you just need to set this to one.
+    pub batch_size: usize,
 
     /// The graadient descent implementation that should be used for doing gradient descent
     /// during fitting

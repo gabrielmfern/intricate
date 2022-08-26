@@ -1,9 +1,10 @@
 //! The module that implements a sequential Model, that contains some layers, and forward passes
 //! some inputs over and over again from one layer to another.
 
-use std::time::Instant;
+use std::{time::Instant, fmt::Write};
 
 use super::utils::OpenCLState;
+use indicatif::{ProgressBar, ProgressStyle, ProgressState};
 use intricate_macros::FromForAllUnnamedVariants;
 use opencl3::memory::CL_MEM_READ_ONLY;
 #[allow(unused_imports)]
@@ -27,7 +28,7 @@ use crate::{
         LossComputationError, LossFunction, LossToModelOutputsDerivativesComputationError,
     },
     optimizers::Optimizer,
-    types::{GradientDescent, ModelLayer, SyncDataError, TrainingOptions},
+    types::{ModelLayer, SyncDataError, TrainingOptions},
     utils::opencl::{BufferConversionError, BufferLike},
 };
 
@@ -379,6 +380,10 @@ impl<'a> Model<'a> {
         training_options.loss_fn.init(state)?;
         training_options.optimizer.init(state)?;
 
+        let inputs_amount = self.layers[0].get_inputs_amount();
+        let outputs_amount = self.layers.last().unwrap().get_outputs_amount();
+        let samples_amount = training_input_samples.len();
+
         let input_samples_buffer = training_input_samples
             .par_iter()
             .flatten()
@@ -393,115 +398,101 @@ impl<'a> Model<'a> {
             .collect::<Vec<f32>>()
             .to_buffer(CL_MEM_READ_WRITE, false, state)?;
 
-        let mut losses = Vec::with_capacity(training_options.epochs);
+        let steps_amount =
+            (samples_amount as f32 / training_options.batch_size as f32).ceil() as usize;
+        
+        let mut losses: Vec<f32> = Vec::with_capacity(steps_amount);
 
-        let inputs_amount = self.layers[0].get_inputs_amount();
-        let outputs_amount = self.layers.last().unwrap().get_outputs_amount();
-        let samples_amount =
-            input_samples_buffer.size()? / mem::size_of::<cl_float>() / inputs_amount;
+        let mut per_step_inputs: Vec<Buffer<cl_float>> = Vec::with_capacity(steps_amount);
+        let mut per_step_outputs: Vec<Buffer<cl_float>> = Vec::with_capacity(steps_amount);
 
-        let mut per_step_inputs: Vec<Buffer<cl_float>> = Vec::default();
-        let mut per_step_outputs: Vec<Buffer<cl_float>> = Vec::default();
+        for i_batch in 0..steps_amount {
+            let count;
+            let origin;
 
-        match training_options.gradient_descent_algorithm {
-            GradientDescent::Stochastic => {
-                per_step_inputs = Vec::with_capacity(samples_amount);
-                per_step_outputs = Vec::with_capacity(samples_amount);
-                for i_sample in 0..samples_amount {
-                    let sample_inputs = input_samples_buffer.create_sub_buffer(
-                        CL_MEM_READ_ONLY,
-                        i_sample * inputs_amount,
-                        inputs_amount,
-                    )?;
-                    let sample_outputs = expected_output_samples_buffer.create_sub_buffer(
-                        CL_MEM_READ_ONLY,
-                        i_sample * outputs_amount,
-                        outputs_amount,
-                    )?;
-
-                    per_step_inputs.push(sample_inputs);
-                    per_step_outputs.push(sample_outputs);
-                }
-            },
-            GradientDescent::MiniBatchStochastic(batch_size) => {
-                let steps_amount = (samples_amount as f32 / batch_size as f32).floor() as usize;
-                per_step_inputs = Vec::with_capacity(steps_amount);
-                per_step_outputs = Vec::with_capacity(steps_amount);
-
-                for i_batch in 0..steps_amount {
-                    let batch_inputs = input_samples_buffer.create_sub_buffer(
-                        CL_MEM_READ_ONLY,
-                        i_batch * batch_size * inputs_amount,
-                        batch_size * inputs_amount,
-                    )?;
-                    let batch_outputs = expected_output_samples_buffer.create_sub_buffer(
-                        CL_MEM_READ_ONLY,
-                        i_batch * batch_size * outputs_amount,
-                        batch_size * outputs_amount,
-                    )?;
-
-                    per_step_inputs.push(batch_inputs);
-                    per_step_outputs.push(batch_outputs);
-                }
-            },
-            _ => {},
-        };
-
-        for epoch_index in 0..training_options.epochs {
-            if training_options.verbose {
-                println!("epoch #{}", epoch_index + 1);
+            if i_batch == steps_amount - 1 && samples_amount % training_options.batch_size != 0 {
+                count = samples_amount % training_options.batch_size;
+                origin = steps_amount - 1;
+            } else {
+                count = training_options.batch_size;
+                origin = i_batch * count;
             }
 
-            match training_options.gradient_descent_algorithm {
-                GradientDescent::Batch => {
-                    let optional_loss = self.do_training_step(
-                        &input_samples_buffer,
-                        &expected_output_samples_buffer,
-                        samples_amount,
-                        training_options,
-                    )?;
+            let batch_inputs = input_samples_buffer.create_sub_buffer(
+                CL_MEM_READ_ONLY,
+                origin * inputs_amount,
+                count * inputs_amount,
+            )?;
+            let batch_outputs = expected_output_samples_buffer.create_sub_buffer(
+                CL_MEM_READ_ONLY,
+                origin * outputs_amount,
+                count * outputs_amount,
+            )?;
 
-                    if let Some(loss) = optional_loss {
-                        losses.push(loss);
-                    }
+            per_step_inputs.push(batch_inputs);
+            per_step_outputs.push(batch_outputs);
+        }
+
+        for epoch_index in 0..training_options.epochs {
+            let start = Instant::now();
+
+            let mut progress = None;
+            if training_options.verbose {
+                println!("epoch #{}", epoch_index + 1);
+                if training_options.batch_size < samples_amount {
+                    let pbar = ProgressBar::new((samples_amount as f32 / training_options.batch_size as f32).ceil() as u64);
+                    pbar.set_style(ProgressStyle::with_template("[{bar:10}] {pos}/{len} [{elapsed}] {eta) {msg}")
+                        .unwrap()
+                        .with_key("eta", |state: &ProgressState, w: &mut dyn Write| write!(w, "{:?}", state.eta()).unwrap())
+                        .progress_chars("=> "));
+                    progress = Some(pbar);
                 }
-                GradientDescent::Stochastic => {
-                    for i_sample in 0..samples_amount {
-                        let sample_inputs = &per_step_inputs[i_sample];
-                        let sample_outputs = &per_step_outputs[i_sample];
+            }
 
-                        let optional_loss = self.do_training_step(
-                            sample_inputs,
-                            sample_outputs,
-                            1,
-                            training_options,
-                        )?;
+            let steps_amount =
+                (samples_amount as f32 / training_options.batch_size as f32).ceil() as usize;
 
-                        if let Some(loss) = optional_loss {
-                            losses.push(loss);
-                        }
-                    }
+            for i_batch in 0..steps_amount {
+                let batch_inputs = &per_step_inputs[i_batch];
+                let batch_outputs = &per_step_outputs[i_batch];
+
+                let local_batch_size;
+                if i_batch == steps_amount - 1 && samples_amount % training_options.batch_size != 0 {
+                    local_batch_size = samples_amount % training_options.batch_size;
+                } else {
+                    local_batch_size = training_options.batch_size;
                 }
-                GradientDescent::MiniBatchStochastic(batch_size) => {
-                    let steps_amount = (samples_amount as f32 / batch_size as f32).floor() as usize;
 
-                    for i_batch in 0..steps_amount {
-                        let batch_inputs = &per_step_inputs[i_batch];
-                        let batch_outputs = &per_step_outputs[i_batch];
+                let optional_loss = self.do_training_step(
+                    batch_inputs,
+                    batch_outputs,
+                    local_batch_size,
+                    training_options,
+                )?;
 
-                        let optional_loss = self.do_training_step(
-                            batch_inputs,
-                            batch_outputs,
-                            batch_size,
-                            training_options,
-                        )?;
-
-                        if let Some(loss) = optional_loss {
-                            losses.push(loss);
-                        }
-                    }
+                if let Some(loss) = optional_loss {
+                    losses.push(loss);
                 }
-            };
+
+                if progress.is_some() {
+                    let pbar = progress.as_ref().unwrap();
+                    pbar.inc(1);
+                    pbar.set_message(format!("(loss: {})", losses.last().unwrap()));
+                }
+            }
+
+            if progress.is_some() {
+                progress.as_ref().unwrap().finish_and_clear();
+            }
+
+            if training_options.verbose {
+                println!(
+                    "got a loss of {} after training in the batch",
+                    losses.last().unwrap()
+                );
+                println!("took {:?}", start.elapsed());
+                println!("---");
+            }
         }
 
         Ok(losses)
@@ -514,8 +505,6 @@ impl<'a> Model<'a> {
         samples_amount: usize,
         training_options: &mut TrainingOptions<'a>,
     ) -> Result<Option<f32>, ModelFittingError> {
-        let start = Instant::now();
-
         for layer in self.layers.iter_mut() {
             layer.optimize_parameters(training_options.optimizer)?;
         }
@@ -540,13 +529,13 @@ impl<'a> Model<'a> {
                 samples_amount,
             )?);
 
-            if training_options.verbose {
-                println!(
-                    "step finished in {:?},\nafter updating parameters loss found was {}",
-                    start.elapsed(),
-                    loss.unwrap()
-                );
-            }
+            // if training_options.verbose {
+            //     println!(
+            //         "step finished in {:?},\nafter updating parameters loss found was {}",
+            //         start.elapsed(),
+            //         loss.unwrap()
+            //     );
+            // }
         } else {
             loss = None;
         }
