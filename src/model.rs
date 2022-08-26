@@ -1,12 +1,11 @@
 //! The module that implements a sequential Model, that contains some layers, and forward passes
 //! some inputs over and over again from one layer to another.
 
-use std::{time::Instant, fmt::Write};
+use std::{fmt::Write, time::Instant};
 
 use super::utils::OpenCLState;
-use indicatif::{ProgressBar, ProgressStyle, ProgressState};
+use indicatif::{ProgressBar, ProgressState, ProgressStyle};
 use intricate_macros::FromForAllUnnamedVariants;
-use opencl3::memory::CL_MEM_READ_ONLY;
 #[allow(unused_imports)]
 use opencl3::{
     command_queue::{CommandQueue, CL_NON_BLOCKING},
@@ -15,6 +14,7 @@ use opencl3::{
     error_codes::ClError,
     memory::{Buffer, ClMem, CL_MEM_READ_WRITE},
 };
+use opencl3::{error_codes::cl_int, kernel::ExecuteKernel, memory::CL_MEM_READ_ONLY};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use savefile_derive::Savefile;
 use std::mem;
@@ -28,26 +28,44 @@ use crate::{
         LossComputationError, LossFunction, LossToModelOutputsDerivativesComputationError,
     },
     optimizers::Optimizer,
-    types::{ModelLayer, SyncDataError, TrainingOptions},
-    utils::opencl::{BufferConversionError, BufferLike},
+    types::{
+        HaltingCondition, KernelNotFoundError, ModelLayer, ProgramNotFoundError, SyncDataError,
+        TrainingOptions, TrainingResults,
+    },
+    utils::{
+        opencl::{
+            empty_buffer, ensure_program, BufferConversionError, BufferLike, BufferOperationError,
+            EnsureKernelsAndProgramError,
+        },
+        BufferOperations,
+    },
 };
+
+const MODEL_PROGRAM_SOURCE: &str = include_str!("kernels/model.cl");
+const MODEL_PROGRAM_NAME: &str = "MODEL";
+const COMPUTE_ACCURACIES_KERNEL_NAME: &str = "compute_accuracy_per_output";
+
+pub(crate) fn compile_model(
+    opencl_state: &mut OpenCLState,
+) -> Result<(), EnsureKernelsAndProgramError> {
+    let kernels = &[COMPUTE_ACCURACIES_KERNEL_NAME.to_string()];
+
+    ensure_program(
+        opencl_state,
+        MODEL_PROGRAM_NAME.to_string(),
+        MODEL_PROGRAM_SOURCE.to_string(),
+        "".to_string(),
+        kernels,
+    )?;
+
+    Ok(())
+}
 
 #[allow(dead_code)]
 #[derive(Debug, Savefile)]
 /// An Intricate Model can be defined as just an ordering
-/// of some layers with their inputs and outputs, the GPUModel receives
-/// the inputs for the first layer and results in the outputs of the last layer,
-///
-/// the only difference from an ordinary Model is that thourgh its propagation and
-/// backprop process it just moves around GPU buffers instead of Vec's
-///
-/// it also back_propagates returning the new loss for the Model based on the
-/// defined Loss Function and calls the back_propagate method on each layer
-/// going from the last to the first layer
-///
-/// once it is instantiated using the `new` method, it will get the first GPU device
-/// it can find and use it for all the computations, in the future Intricate will
-/// support multiple GPU's here as well.
+/// of some layers with their inputs and outputs, the Model receives
+/// the inputs for the first layer and results in the outputs of the last layer.
 ///
 /// # Example
 ///
@@ -106,6 +124,11 @@ pub enum ModelFittingError {
     NoCommandQueue,
     /// Happens if there is no device found by OpenCL
     NoDevice,
+
+    ProgramNotFound(ProgramNotFoundError),
+    KernelNotFound(KernelNotFoundError),
+
+    BufferOperation(BufferOperationError),
 
     /// Happens if something goes wrong with OpenCL.
     OpenCL(ClError),
@@ -366,7 +389,7 @@ impl<'a> Model<'a> {
         training_input_samples: &Vec<Vec<f32>>,
         training_expected_output_samples: &Vec<Vec<f32>>,
         training_options: &mut TrainingOptions<'a>,
-    ) -> Result<Vec<f32>, ModelFittingError> {
+    ) -> Result<TrainingResults, ModelFittingError> {
         if self.opencl_state.is_none() {
             return Err(ModelFittingError::NotInitialized);
         }
@@ -400,8 +423,9 @@ impl<'a> Model<'a> {
 
         let steps_amount =
             (samples_amount as f32 / training_options.batch_size as f32).ceil() as usize;
-        
-        let mut losses: Vec<f32> = Vec::with_capacity(steps_amount);
+
+        let mut losses: Vec<f32> = Vec::with_capacity(training_options.epochs * steps_amount);
+        let mut accuracies: Vec<f32> = Vec::with_capacity(training_options.epochs * steps_amount);
 
         let mut per_step_inputs: Vec<Buffer<cl_float>> = Vec::with_capacity(steps_amount);
         let mut per_step_outputs: Vec<Buffer<cl_float>> = Vec::with_capacity(steps_amount);
@@ -442,12 +466,20 @@ impl<'a> Model<'a> {
                 println!("epoch #{}", epoch_index + 1);
             }
 
-            if training_options.verbosity.show_epoch_progress && training_options.batch_size < samples_amount {
-                let pbar = ProgressBar::new((samples_amount as f32 / training_options.batch_size as f32).ceil() as u64);
-                pbar.set_style(ProgressStyle::with_template("[{bar:10}] {pos}/{len} [{elapsed}] {eta) {msg}")
-                    .unwrap()
-                    .with_key("eta", |state: &ProgressState, w: &mut dyn Write| write!(w, "{:?}", state.eta()).unwrap())
-                    .progress_chars("=> "));
+            if training_options.verbosity.show_epoch_progress
+                && training_options.batch_size < samples_amount
+            {
+                let pbar = ProgressBar::new(
+                    (samples_amount as f32 / training_options.batch_size as f32).ceil() as u64,
+                );
+                pbar.set_style(
+                    ProgressStyle::with_template("[{bar:10}] {pos}/{len} [{elapsed}] {eta) {msg}")
+                        .unwrap()
+                        .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
+                            write!(w, "{:?}", state.eta()).unwrap()
+                        })
+                        .progress_chars("=> "),
+                );
                 progress = Some(pbar);
             }
 
@@ -459,13 +491,14 @@ impl<'a> Model<'a> {
                 let batch_outputs = &per_step_outputs[i_batch];
 
                 let local_batch_size;
-                if i_batch == steps_amount - 1 && samples_amount % training_options.batch_size != 0 {
+                if i_batch == steps_amount - 1 && samples_amount % training_options.batch_size != 0
+                {
                     local_batch_size = samples_amount % training_options.batch_size;
                 } else {
                     local_batch_size = training_options.batch_size;
                 }
 
-                let optional_loss = self.do_training_step(
+                let (optional_loss, optional_accuracy) = self.do_training_step(
                     batch_inputs,
                     batch_outputs,
                     local_batch_size,
@@ -474,6 +507,10 @@ impl<'a> Model<'a> {
 
                 if let Some(loss) = optional_loss {
                     losses.push(loss);
+                }
+
+                if let Some(accuracy) = optional_accuracy {
+                    accuracies.push(accuracy);
                 }
 
                 if progress.is_some() {
@@ -490,10 +527,11 @@ impl<'a> Model<'a> {
             }
 
             if training_options.verbosity.print_loss {
-                println!(
-                    "got a loss of {} after epoch",
-                    losses.last().unwrap()
-                );
+                println!("got a loss of {} after epoch", losses.last().unwrap());
+            }
+
+            if training_options.verbosity.print_accuracy {
+                println!("got a accuracy of {} after epoch", accuracies.last().unwrap());
             }
 
             if training_options.verbosity.show_epoch_elapsed {
@@ -501,7 +539,10 @@ impl<'a> Model<'a> {
             }
         }
 
-        Ok(losses)
+        Ok(TrainingResults {
+            loss_per_training_steps: losses,
+            accuracy_per_training_steps: accuracies,
+        })
     }
 
     fn do_training_step(
@@ -510,7 +551,19 @@ impl<'a> Model<'a> {
         expected_output_samples: &Buffer<cl_float>,
         samples_amount: usize,
         training_options: &mut TrainingOptions<'a>,
-    ) -> Result<Option<f32>, ModelFittingError> {
+    ) -> Result<(Option<f32>, Option<f32>), ModelFittingError> {
+        if self.opencl_state.is_none() {
+            return Err(ModelFittingError::NotInitialized);
+        }
+
+        let state = self.opencl_state.unwrap();
+
+        if state.queues.is_empty() {
+            return Err(ModelFittingError::NoCommandQueue);
+        }
+
+        let queue = &state.queues[0];
+
         for layer in self.layers.iter_mut() {
             layer.optimize_parameters(training_options.optimizer)?;
         }
@@ -524,9 +577,17 @@ impl<'a> Model<'a> {
         self.apply_gradients(gradients.as_slice(), training_options.optimizer)?;
 
         let loss;
+        let accuracy;
+
+        if training_options.verbosity.print_loss
+            || training_options.compute_loss
+            || training_options.verbosity.print_accuracy
+            || training_options.compute_accuracy
+        {
+            self.predict_with_buffer(input_samples)?;
+        }
 
         if training_options.verbosity.print_loss || training_options.compute_loss {
-            self.predict_with_buffer(input_samples)?;
             let actual_outputs = self.layers.last().unwrap().get_last_outputs().unwrap();
 
             loss = Some(training_options.loss_fn.compute_loss(
@@ -538,7 +599,32 @@ impl<'a> Model<'a> {
             loss = None;
         }
 
-        Ok(loss)
+        if training_options.verbosity.print_accuracy || training_options.compute_accuracy {
+            let actual_outputs = self.layers.last().unwrap().get_last_outputs().unwrap();
+
+            let program = state.get_prgm(MODEL_PROGRAM_NAME)?;
+            let accuracy_kernel = program.get_krnl(COMPUTE_ACCURACIES_KERNEL_NAME)?;
+
+            let outputs_total_count = actual_outputs.size()? / mem::size_of::<cl_float>();
+
+            let accuracies = empty_buffer(outputs_total_count, CL_MEM_READ_WRITE, state)?;
+
+            ExecuteKernel::new(accuracy_kernel)
+                .set_arg(actual_outputs)
+                .set_arg(expected_output_samples)
+                .set_arg(&accuracies)
+                .set_arg(&(outputs_total_count as cl_int))
+                .set_global_work_size(outputs_total_count)
+                .enqueue_nd_range(queue)?;
+
+            queue.finish()?;
+
+            accuracy = Some(accuracies.sum(state)? / outputs_total_count as f32);
+        } else {
+            accuracy = None;
+        }
+
+        Ok((loss, accuracy))
     }
 
     /// Applies all the gradients calculated per layer calling each layer's respective
