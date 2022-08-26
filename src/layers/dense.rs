@@ -2,25 +2,32 @@
 
 use opencl3::{
     command_queue::CL_NON_BLOCKING,
+    device::cl_float,
     error_codes::{cl_int, ClError},
     kernel::ExecuteKernel,
-    memory::{Buffer, ClMem, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE}, device::cl_float,
+    memory::{Buffer, ClMem, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE},
 };
 use rand::Rng;
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use savefile_derive::Savefile;
-use std::ptr;
 use std::mem;
+use std::ptr;
 
+#[allow(unused_imports)]
 use crate::{
-    types::ModelLayer,
+    optimizers::Optimizer,
+    types::{ModelLayer, SyncDataError},
     utils::{
-        opencl::{ensure_program, EnsureKernelsAndProgramError},
-        OpenCLState,
+        opencl::{empty_buffer, ensure_program, EnsureKernelsAndProgramError},
+        BufferOperations, OpenCLState,
     },
 };
 
-use super::Layer;
+use super::{
+    compute_update_vectors, Gradient, Layer, LayerGradientApplicationError,
+    LayerGradientComputationError, LayerLossToInputDifferentiationError, LayerPropagationError,
+    ParametersOptimizationError,
+};
 
 const DENSE_PROP_PROGRAM_NAME: &str = "DENSE_PROPAGATION";
 const DENSE_BACKPROP_PROGRAM_NAME: &str = "DENSE_BACKPROPAGATION";
@@ -30,8 +37,8 @@ const BACK_PROPAGATION_PROGRAM_SOURCE: &str = include_str!("kernels/dense_back_p
 
 const PROPAGATION_KERNEL_NAME: &str = "dense_propagate";
 
-const WEIGHTS_GRADIENT_APPLICATION_KERNEL_NAME: &str = "weights_gradient_application";
-const BIAS_GRADIENT_APPLICATION_KERNEL_NAME: &str = "bias_gradient_application";
+const WEIGHTS_GRADIENT_COMPUTATION_KERNEL_NAME: &str = "weights_gradient_calculation";
+const BIAS_GRADIENT_COMPUTATION_KERNEL_NAME: &str = "bias_gradient_calculation";
 const LOSS_TO_INPUT_DIFFERENTIATION_KERNEL_NAME: &str =
     "compute_loss_derivative_with_respect_to_inputs";
 
@@ -40,8 +47,8 @@ pub(crate) fn compile_dense(
 ) -> Result<(), EnsureKernelsAndProgramError> {
     let prop_kernels = &[PROPAGATION_KERNEL_NAME.to_string()];
     let backprop_kernels = &[
-        WEIGHTS_GRADIENT_APPLICATION_KERNEL_NAME.to_string(),
-        BIAS_GRADIENT_APPLICATION_KERNEL_NAME.to_string(),
+        WEIGHTS_GRADIENT_COMPUTATION_KERNEL_NAME.to_string(),
+        BIAS_GRADIENT_COMPUTATION_KERNEL_NAME.to_string(),
         LOSS_TO_INPUT_DIFFERENTIATION_KERNEL_NAME.to_string(),
     ];
 
@@ -162,6 +169,22 @@ impl<'a> Dense<'a> {
 }
 
 impl<'a> Layer<'a> for Dense<'a> {
+    fn get_last_inputs(&self) -> Option<&Buffer<cl_float>> {
+        self.last_inputs_buffer.as_ref()
+    }
+
+    fn get_last_outputs(&self) -> Option<&Buffer<cl_float>> {
+        self.last_outputs_buffer.as_ref()
+    }
+
+    fn get_inputs_amount(&self) -> usize {
+        self.inputs_amount
+    }
+
+    fn get_outputs_amount(&self) -> usize {
+        self.outputs_amount
+    }
+
     fn clean_up_gpu_state(&mut self) -> () {
         if self.weights_buffer.is_some() {
             drop(self.weights_buffer.as_ref().unwrap());
@@ -180,17 +203,29 @@ impl<'a> Layer<'a> for Dense<'a> {
         }
     }
 
-    fn sync_data_from_buffers_to_host(&mut self) -> Result<(), ClError> {
-        assert!(self.weights_buffer.is_some());
-        assert!(self.biases_buffer.is_some());
-        assert!(self.opencl_state.is_some());
-        assert!(!self.opencl_state.unwrap().queues.is_empty());
+    fn sync_data_from_buffers_to_host(&mut self) -> Result<(), SyncDataError> {
+        if self.weights_buffer.is_none() {
+            return Err(SyncDataError::NotAllocatedInDevice {
+                field_name: "weights_buffer".to_string(),
+            });
+        }
 
-        let mut weights_flat_vec = vec![0.0; self.inputs_amount * self.outputs_amount];
-        let weights_flat_slice = weights_flat_vec.as_mut_slice();
+        if self.biases_buffer.is_none() {
+            return Err(SyncDataError::NotAllocatedInDevice {
+                field_name: "biases_buffer".to_string(),
+            });
+        }
 
-        let mut biases_vec = vec![0.0; self.outputs_amount];
-        let biases_slice = biases_vec.as_mut_slice();
+        if self.opencl_state.is_none() {
+            return Err(SyncDataError::NotInitialized);
+        }
+
+        if self.opencl_state.unwrap().queues.is_empty() {
+            return Err(SyncDataError::NoCommandQueue);
+        }
+
+        let mut weights_flat = vec![0.0; self.inputs_amount * self.outputs_amount];
+        let mut biases = vec![0.0; self.outputs_amount];
 
         let queue = self.opencl_state.unwrap().queues.first().unwrap();
 
@@ -198,7 +233,7 @@ impl<'a> Layer<'a> for Dense<'a> {
             self.weights_buffer.as_ref().unwrap(),
             CL_NON_BLOCKING,
             0,
-            weights_flat_slice,
+            weights_flat.as_mut_slice(),
             &[],
         )?;
 
@@ -206,14 +241,14 @@ impl<'a> Layer<'a> for Dense<'a> {
             self.biases_buffer.as_ref().unwrap(),
             CL_NON_BLOCKING,
             0,
-            biases_slice,
+            biases.as_mut_slice(),
             &[],
         )?;
 
         read_weights_event.wait()?;
         read_biases_event.wait()?;
 
-        self.biases = biases_vec;
+        self.biases = biases;
         self.weights = (0..self.inputs_amount)
             .into_par_iter()
             .map(|i| {
@@ -222,7 +257,7 @@ impl<'a> Layer<'a> for Dense<'a> {
                     .into_iter()
                     .map(|j| {
                         let flat_index = row_part + j;
-                        weights_flat_vec[flat_index]
+                        weights_flat[flat_index]
                     })
                     .collect::<Vec<f32>>()
             })
@@ -285,34 +320,29 @@ impl<'a> Layer<'a> for Dense<'a> {
         Ok(())
     }
 
-    fn get_last_inputs(&self) -> Option<&Buffer<cl_float>> {
-        self.last_inputs_buffer.as_ref()
-    }
-
-    fn get_last_outputs(&self) -> Option<&Buffer<cl_float>> {
-        self.last_outputs_buffer.as_ref()
-    }
-
-    fn get_inputs_amount(&self) -> usize {
-        self.inputs_amount
-    }
-
-    fn get_outputs_amount(&self) -> usize {
-        self.outputs_amount
-    }
-
     fn propagate(
         &mut self,
         input_samples: &Buffer<cl_float>,
-    ) -> Result<&Buffer<cl_float>, ClError> {
-        assert!(self.opencl_state.is_some());
+    ) -> Result<&Buffer<cl_float>, LayerPropagationError> {
+        if self.opencl_state.is_none() {
+            return Err(LayerPropagationError::LayerNotInitialized);
+        }
 
         let state = self.opencl_state.unwrap();
+
+        if state.queues.first().is_none() {
+            return Err(LayerPropagationError::NoCommandQueueFound);
+        }
+
         let queue = state.queues.first().unwrap();
         let context = &state.context;
 
         let inputs_size = input_samples.size()?;
         let inputs_total_count = inputs_size / mem::size_of::<cl_float>();
+
+        if inputs_total_count % self.inputs_amount != 0 {
+            return Err(LayerPropagationError::InputsDontMatchExpectedShape);
+        }
 
         let mut copied_last_inputs_buffer = Buffer::<cl_float>::create(
             context,
@@ -335,17 +365,16 @@ impl<'a> Layer<'a> for Dense<'a> {
         self.last_inputs_buffer = Some(copied_last_inputs_buffer);
 
         let samples_amount =
-            input_samples.size()? / self.inputs_amount / mem::size_of::<cl_float>();
+             inputs_total_count / self.inputs_amount;
 
-        let outputs_buffer = Buffer::<cl_float>::create(
-            context,
-            CL_MEM_READ_WRITE,
+        let outputs_buffer = empty_buffer(
             self.outputs_amount * samples_amount,
-            ptr::null_mut(),
+            CL_MEM_READ_WRITE,
+            state,
         )?;
 
-        let program = state.programs.get(DENSE_PROP_PROGRAM_NAME).unwrap();
-        let kernel = program.kernels.get(PROPAGATION_KERNEL_NAME).unwrap();
+        let program = state.get_prgm(DENSE_PROP_PROGRAM_NAME)?;
+        let kernel = program.get_krnl(PROPAGATION_KERNEL_NAME)?;
 
         ExecuteKernel::new(kernel)
             .set_arg(input_samples)
@@ -364,105 +393,169 @@ impl<'a> Layer<'a> for Dense<'a> {
         Ok(self.last_outputs_buffer.as_ref().unwrap())
     }
 
-    fn back_propagate(
-        &mut self,
-        should_calculate_input_to_error_derivative: bool,
+    fn compute_gradients(
+        &self,
         layer_output_to_error_derivative: &Buffer<cl_float>,
-        learning_rate: cl_float,
-    ) -> Result<Option<Buffer<cl_float>>, ClError> {
-        assert!(self.last_inputs_buffer.is_some());
-        assert!(self.opencl_state.is_some());
+    ) -> Result<Vec<Gradient>, LayerGradientComputationError> {
+        if self.opencl_state.is_none() {
+            return Err(LayerGradientComputationError::LayerNotInitialized);
+        }
 
         let state = self.opencl_state.unwrap();
+
+        if state.queues.first().is_none() {
+            return Err(LayerGradientComputationError::NoCommandQueueFound);
+        }
+
+        let queue = state.queues.first().unwrap();
+
+        if layer_output_to_error_derivative.size()? / mem::size_of::<cl_float>() % self.outputs_amount != 0 {
+            return Err(LayerGradientComputationError::DerivativesDontMatchExpectedShape);
+        }
+
+        let backprop_program = state.get_prgm(DENSE_BACKPROP_PROGRAM_NAME)?;
+
+        let weights_gradient_computation_kernel =
+            backprop_program.get_krnl(WEIGHTS_GRADIENT_COMPUTATION_KERNEL_NAME)?;
+
+        let bias_gradient_computation_kernel =
+            backprop_program.get_krnl(BIAS_GRADIENT_COMPUTATION_KERNEL_NAME)?;
+
+        let weights_gradients = empty_buffer(
+            self.inputs_amount * self.outputs_amount,
+            CL_MEM_READ_WRITE,
+            state,
+        )?;
+        let bias_gradients = empty_buffer(self.outputs_amount, CL_MEM_READ_WRITE, state)?;
 
         let samples_amount = layer_output_to_error_derivative.size()?
             / self.outputs_amount
             / mem::size_of::<cl_float>();
-        let queue = state.queues.first().unwrap();
-        let context = &state.context;
-        let mut layer_input_to_error_derivatives_buffer = None;
 
-        let program = state.programs.get(DENSE_BACKPROP_PROGRAM_NAME).unwrap();
-
-        if should_calculate_input_to_error_derivative {
-            layer_input_to_error_derivatives_buffer = Some(Buffer::<cl_float>::create(
-                &context,
-                CL_MEM_READ_WRITE,
-                samples_amount * self.inputs_amount,
-                ptr::null_mut(),
-            )?);
-
-            let loss_to_input_diff_kernel = program
-                .kernels
-                .get(LOSS_TO_INPUT_DIFFERENTIATION_KERNEL_NAME)
-                .unwrap();
-
-            ExecuteKernel::new(loss_to_input_diff_kernel)
-                .set_arg(self.weights_buffer.as_ref().unwrap())
-                .set_arg(layer_output_to_error_derivative)
-                .set_arg(layer_input_to_error_derivatives_buffer.as_ref().unwrap())
-                .set_arg(&(self.outputs_amount as cl_int))
-                .set_arg(&(samples_amount as cl_int))
-                .set_arg(&(self.inputs_amount as cl_int))
-                .set_global_work_sizes(&[samples_amount, self.inputs_amount])
-                .enqueue_nd_range(queue)?;
-
-            queue.finish()?
-        }
-
-        let new_weights_buffer = Buffer::<cl_float>::create(
-            context,
-            CL_MEM_READ_WRITE,
-            self.inputs_amount * self.outputs_amount,
-            ptr::null_mut(),
-        )?;
-
-        let weights_gradient_application_kernel = program
-            .kernels
-            .get(WEIGHTS_GRADIENT_APPLICATION_KERNEL_NAME)
-            .unwrap();
-
-        let weight_gradient_event = ExecuteKernel::new(weights_gradient_application_kernel)
+        let weights_event = ExecuteKernel::new(weights_gradient_computation_kernel)
             .set_arg(layer_output_to_error_derivative)
             .set_arg(self.last_inputs_buffer.as_ref().unwrap())
-            .set_arg(self.weights_buffer.as_ref().unwrap())
-            .set_arg(&new_weights_buffer)
+            .set_arg(&weights_gradients)
             .set_arg(&(samples_amount as cl_int))
             .set_arg(&(self.outputs_amount as cl_int))
             .set_arg(&(self.inputs_amount as cl_int))
-            .set_arg(&(learning_rate as cl_float))
             .set_global_work_sizes(&[self.inputs_amount, self.outputs_amount])
             .enqueue_nd_range(queue)?;
 
-        let new_biases_buffer = Buffer::<cl_float>::create(
-            &context,
-            CL_MEM_READ_WRITE,
-            self.outputs_amount,
-            ptr::null_mut(),
-        )?;
-
-        let bias_gradient_application_kernel = program
-            .kernels
-            .get(BIAS_GRADIENT_APPLICATION_KERNEL_NAME)
-            .unwrap();
-
-        ExecuteKernel::new(bias_gradient_application_kernel)
+        ExecuteKernel::new(bias_gradient_computation_kernel)
             .set_arg(layer_output_to_error_derivative)
-            .set_arg(self.biases_buffer.as_ref().unwrap())
-            .set_arg(&new_biases_buffer)
+            .set_arg(&bias_gradients)
             .set_arg(&(samples_amount as cl_int))
             .set_arg(&(self.outputs_amount as cl_int))
-            .set_arg(&(learning_rate as cl_float))
             .set_global_work_size(self.outputs_amount)
-            .set_wait_event(&weight_gradient_event)
+            .set_wait_event(&weights_event)
             .enqueue_nd_range(queue)?;
 
         queue.finish()?;
 
-        self.weights_buffer = Some(new_weights_buffer);
-        self.biases_buffer = Some(new_biases_buffer);
+        Ok(vec![
+            Gradient {
+                value: weights_gradients,
+                optimizable: true,
+            },
+            Gradient {
+                value: bias_gradients,
+                optimizable: true,
+            },
+        ])
+    }
 
-        Ok(layer_input_to_error_derivatives_buffer)
+    fn apply_gradients(
+        &mut self,
+        per_parameter_type_gradients: &[Gradient],
+        optimizer: &dyn Optimizer<'a>,
+    ) -> Result<(), LayerGradientApplicationError> {
+        if self.opencl_state.is_none() {
+            return Err(LayerGradientApplicationError::LayerNotInitialized);
+        }
+
+        let state = self.opencl_state.unwrap();
+
+        if per_parameter_type_gradients.len() != 2 {
+            return Err(LayerGradientApplicationError::GradientsDontMatchExpectedShape);
+        }
+
+        let update_vectors =
+            compute_update_vectors(optimizer, per_parameter_type_gradients, state)?;
+
+        let weights_buffer = self.weights_buffer.as_ref().unwrap();
+        let biases_buffer = self.biases_buffer.as_ref().unwrap();
+
+        self.weights_buffer =
+            Some(weights_buffer.subtract(&update_vectors[0], CL_MEM_READ_WRITE, state)?);
+        self.biases_buffer =
+            Some(biases_buffer.subtract(&update_vectors[1], CL_MEM_READ_WRITE, state)?);
+
+        Ok(())
+    }
+
+    fn optimize_parameters(
+        &mut self,
+        optimizer: &dyn Optimizer<'a>,
+    ) -> Result<(), ParametersOptimizationError> {
+        if self.weights_buffer.is_none() {
+            return Err(ParametersOptimizationError::EmptyParameter(
+                "weights".to_string(),
+            ));
+        }
+
+        if self.biases_buffer.is_none() {
+            return Err(ParametersOptimizationError::EmptyParameter(
+                "biases".to_string(),
+            ));
+        }
+
+        optimizer.optimize_parameters(self.weights_buffer.as_mut().unwrap())?;
+        optimizer.optimize_parameters(self.biases_buffer.as_mut().unwrap())?;
+
+        Ok(())
+    }
+
+    fn compute_loss_to_input_derivatives(
+        &self,
+        layer_output_to_error_derivative: &Buffer<cl_float>,
+    ) -> Result<Buffer<cl_float>, LayerLossToInputDifferentiationError> {
+        if self.opencl_state.is_none() {
+            return Err(LayerLossToInputDifferentiationError::LayerNotInitialized);
+        }
+
+        let state = self.opencl_state.unwrap();
+
+        if state.queues.len() == 0 {
+            return Err(LayerLossToInputDifferentiationError::NoCommandQueueFound);
+        }
+
+        let queue = state.queues.first().unwrap();
+
+        let program = state.get_prgm(DENSE_BACKPROP_PROGRAM_NAME)?;
+
+        let kernel = program.get_krnl(LOSS_TO_INPUT_DIFFERENTIATION_KERNEL_NAME)?;
+
+        if layer_output_to_error_derivative.size()? % self.outputs_amount != 0 {
+            return Err(LayerLossToInputDifferentiationError::DerivativesDontMatchExpectedShape);
+        }
+
+        let samples_amount = layer_output_to_error_derivative.size()? / self.outputs_amount / mem::size_of::<cl_float>();
+        let loss_to_input_derivatives = empty_buffer(samples_amount * self.inputs_amount, CL_MEM_READ_WRITE, state)?;
+
+        ExecuteKernel::new(kernel)
+            .set_arg(self.weights_buffer.as_ref().unwrap())
+            .set_arg(layer_output_to_error_derivative)
+            .set_arg(&loss_to_input_derivatives)
+            .set_arg(&(samples_amount as cl_int))
+            .set_arg(&(self.outputs_amount as cl_int))
+            .set_arg(&(self.inputs_amount as cl_int))
+            .set_global_work_sizes(&[samples_amount, self.inputs_amount])
+            .enqueue_nd_range(queue)?;
+
+        queue.finish()?;
+
+        Ok(loss_to_input_derivatives)
     }
 }
 
@@ -479,183 +572,112 @@ mod dense_tests {
 
     use crate::{
         layers::{dense::Dense, Layer},
-        types::CompilationOrOpenCLError,
-        utils::{opencl::DeviceType, setup_opencl},
+        utils::{
+            opencl::{BufferLike, DeviceType},
+            setup_opencl,
+        },
     };
 
     #[test]
     fn should_apply_gradients_correctly() -> () {
         let state = setup_opencl(DeviceType::GPU).unwrap();
 
-        let queue = state.queues.first().unwrap();
-        let context = &state.context;
-
-        let samples_amount = 100;
-        let inputs_amount = 500;
-        let outputs_amount = 500;
+        let inputs_amount = 10;
+        let outputs_amount = 10;
 
         let mut gpu_dense = Dense::new_raw(inputs_amount, outputs_amount);
         gpu_dense.init(&state).unwrap();
 
         let mut rng = thread_rng();
-        let loss_to_output_derivatives: Vec<Vec<f32>> = (0..samples_amount)
-            .map(|_| {
+        let loss_to_output_derivatives: Vec<f32> = (0..outputs_amount)
+            .map(|_| rng.gen_range(-134_f32..314_f32))
+            .collect();
+
+        let inputs: Vec<f32> = (0..inputs_amount)
+            .map(|_| rng.gen_range(-134_f32..314_f32))
+            .collect();
+
+        let expected_gradients: Vec<Vec<f32>> = (0..inputs_amount)
+            .map(|input_index| {
                 (0..outputs_amount)
-                    .map(|_| rng.gen_range(-134_f32..314_f32))
-                    .collect()
-            })
-            .collect();
+                    .map(|output_index| {
+                        let loss_to_output_derivative = loss_to_output_derivatives[output_index];
+                        let input = inputs[input_index];
 
-        let input_samples: Vec<Vec<f32>> = (0..samples_amount)
-            .map(|_| {
-                (0..inputs_amount)
-                    .map(|_| rng.gen_range(-134_f32..314_f32))
-                    .collect()
-            })
-            .collect();
-
-        // println!("inputs: {:?}", input_samples);
-        // println!("dE/dO: {:?}", loss_to_output_derivatives);
-
-        let learning_rate = 0.1;
-
-        let expected_new_weights: Vec<Vec<f32>> = gpu_dense
-            .weights
-            .iter()
-            .enumerate()
-            .map(|(input_index, input_to_outputs)| {
-                input_to_outputs
-                    .iter()
-                    .enumerate()
-                    .map(|(output_index, weight)| {
-                        weight
-                            - input_samples
-                                .iter()
-                                .zip(&loss_to_output_derivatives)
-                                .map(|(inputs, output_derivatives)| {
-                                    let input = inputs[input_index];
-                                    let loss_to_output_deriv = output_derivatives[output_index];
-
-                                    loss_to_output_deriv * input
-                                })
-                                .sum::<f32>()
-                                * learning_rate
-                                / samples_amount as f32
+                        loss_to_output_derivative * input
                     })
                     .collect()
             })
             .collect();
 
-        let expected_new_biases: Vec<f32> = gpu_dense
-            .biases
-            .iter()
-            .enumerate()
-            .map(|(output_index, bias)| {
-                bias - (0..samples_amount)
-                    .map(|sample_index| loss_to_output_derivatives[sample_index][output_index])
-                    .sum::<f32>()
-                    * learning_rate
-                    / samples_amount as f32
-            })
-            .collect();
+        let expected_bias_gradients: Vec<f32> = loss_to_output_derivatives.to_vec();
 
-        let mut input_samples_buffer = Buffer::<cl_float>::create(
-            &context,
-            CL_MEM_READ_ONLY,
-            samples_amount * inputs_amount,
-            ptr::null_mut(),
-        )
-        .unwrap();
-
-        queue
-            .enqueue_write_buffer(
-                &mut input_samples_buffer,
-                CL_BLOCKING,
-                0,
-                input_samples
-                    .iter()
-                    .map(|x| x.to_vec())
-                    .flatten()
-                    .collect::<Vec<f32>>()
-                    .as_slice(),
-                &[],
-            )
-            .unwrap()
-            .wait()
-            .unwrap();
-
+        let input_samples_buffer = inputs.to_buffer(CL_MEM_READ_ONLY, true, &state).unwrap();
         gpu_dense.last_inputs_buffer = Some(input_samples_buffer);
 
-        let mut loss_to_output_derivatives_buffer = Buffer::<cl_float>::create(
-            context,
-            CL_MEM_READ_ONLY,
-            samples_amount * outputs_amount,
-            ptr::null_mut(),
-        )
-        .unwrap();
-
-        queue
-            .enqueue_write_buffer(
-                &mut loss_to_output_derivatives_buffer,
-                CL_BLOCKING,
-                0,
-                loss_to_output_derivatives
-                    .iter()
-                    .map(|x| x.to_vec())
-                    .flatten()
-                    .collect::<Vec<f32>>()
-                    .as_slice(),
-                &[],
-            )
-            .unwrap()
-            .wait()
+        let loss_to_output_derivatives_buffer = loss_to_output_derivatives
+            .to_buffer(CL_MEM_READ_ONLY, true, &state)
             .unwrap();
 
-        gpu_dense
-            .back_propagate(false, &loss_to_output_derivatives_buffer, learning_rate)
+        let actual_gradients = gpu_dense
+            .compute_gradients(&loss_to_output_derivatives_buffer)
             .unwrap();
 
-        gpu_dense.sync_data_from_buffers_to_host().unwrap();
+        let flat_actual_weights_gradients =
+            Vec::<f32>::from_buffer(&actual_gradients[0].value, true, &state).unwrap();
 
-        let max_dist = 0.01;
+        let actual_weights_gradients: Vec<Vec<f32>> = (0..inputs_amount)
+            .map(|input_index| {
+                (0..outputs_amount)
+                    .map(|output_index| {
+                        let i = input_index * outputs_amount + output_index;
 
-        // println!("new weights GPU: {:?}", gpu_dense.weights);
-        // println!("new weights CPU: {:?}", expected_new_weights);
+                        flat_actual_weights_gradients[i]
+                    })
+                    .collect()
+            })
+            .collect();
+        let actual_bias_gradients =
+            Vec::<f32>::from_buffer(&actual_gradients[1].value, true, &state).unwrap();
+
+        // dbg!(&actual_weights_gradients);
+        // dbg!(&expected_gradients);
 
         {
-            assert_eq!(gpu_dense.weights.len(), expected_new_weights.len());
-
-            gpu_dense
-                .weights
+            expected_gradients
                 .iter()
-                .flatten()
-                .zip(expected_new_weights.iter().flatten())
-                .for_each(|(weight, expected_weight)| {
-                    assert!(
-                        (weight - expected_weight).abs() / weight.max(*expected_weight) <= max_dist
-                    );
-                })
+                .zip(actual_weights_gradients)
+                .for_each(
+                    |(input_to_output_gradients, actual_input_to_output_gradients)| {
+                        input_to_output_gradients
+                            .iter()
+                            .zip(actual_input_to_output_gradients)
+                            .for_each(|(expected_gradient, gradient)| {
+                                assert!(
+                                    (expected_gradient - gradient).abs()
+                                        / expected_gradient.max(gradient)
+                                        <= 0.0001
+                                );
+                            });
+                    },
+                );
         };
 
-        // println!("new biases GPU: {:?}", gpu_dense.biases);
-        // println!("new biases CPU: {:?}", expected_new_biases);
+        // dbg!(&expected_bias_gradients);
+        // dbg!(&actual_bias_gradients);
 
         {
-            assert_eq!(gpu_dense.biases.len(), expected_new_biases.len());
-
-            gpu_dense
-                .biases
+            expected_bias_gradients
                 .iter()
-                .zip(&expected_new_biases)
-                .for_each(|(x, y)| {
-                    // println!("x:{}\ny:{}", x, y);
-                    assert!((x - y).abs() / x.max(*y) <= max_dist);
-                });
+                .zip(actual_bias_gradients)
+                .for_each(|(expected_bias, bias)| {
+                    assert!((expected_bias - bias).abs() / expected_bias.max(bias) <= 0.0001);
+                })
         };
     }
 
     #[test]
-    fn should_propagate_to_correct_value() -> Result<(), CompilationOrOpenCLError> {
+    fn should_propagate_to_correct_value() {
         let state = setup_opencl(DeviceType::GPU).unwrap();
 
         let queue = state.queues.first().unwrap();
@@ -666,7 +688,7 @@ mod dense_tests {
         let outputs_amount = 5;
 
         let mut gpu_dense: Dense = Dense::new_raw(inputs_amount, outputs_amount);
-        gpu_dense.init(&state)?;
+        gpu_dense.init(&state).unwrap();
 
         let mut rng = thread_rng();
         let input_samples: Vec<Vec<f32>> = (0..samples_amount)
@@ -696,37 +718,42 @@ mod dense_tests {
             CL_MEM_READ_ONLY,
             samples_amount * inputs_amount,
             ptr::null_mut(),
-        )?;
+        )
+        .unwrap();
 
-        let input_samples_gpu_write_event = queue.enqueue_write_buffer(
-            &mut input_samples_buffer,
-            CL_BLOCKING,
-            0,
-            input_samples
-                .iter()
-                .map(|x| x.to_vec())
-                .flatten()
-                .collect::<Vec<f32>>()
-                .as_slice(),
-            &[],
-        )?;
+        let input_samples_gpu_write_event = queue
+            .enqueue_write_buffer(
+                &mut input_samples_buffer,
+                CL_BLOCKING,
+                0,
+                input_samples
+                    .iter()
+                    .map(|x| x.to_vec())
+                    .flatten()
+                    .collect::<Vec<f32>>()
+                    .as_slice(),
+                &[],
+            )
+            .unwrap();
 
-        input_samples_gpu_write_event.wait()?;
+        input_samples_gpu_write_event.wait().unwrap();
 
-        let gpu_outputs_buffer = gpu_dense.propagate(&input_samples_buffer)?;
+        let gpu_outputs_buffer = gpu_dense.propagate(&input_samples_buffer).unwrap();
 
         let mut outputs_vec = vec![0.0; samples_amount * outputs_amount];
         let gpu_flattend_outputs = outputs_vec.as_mut_slice();
 
-        let read_flattened_outputs_gpu = queue.enqueue_read_buffer(
-            &gpu_outputs_buffer,
-            CL_NON_BLOCKING,
-            0,
-            gpu_flattend_outputs,
-            &[],
-        )?;
+        let read_flattened_outputs_gpu = queue
+            .enqueue_read_buffer(
+                &gpu_outputs_buffer,
+                CL_NON_BLOCKING,
+                0,
+                gpu_flattend_outputs,
+                &[],
+            )
+            .unwrap();
 
-        read_flattened_outputs_gpu.wait()?;
+        read_flattened_outputs_gpu.wait().unwrap();
 
         let flattened_expected_outputs: Vec<f32> = expected_outputs
             .iter()
@@ -748,7 +775,5 @@ mod dense_tests {
                 assert!((x - y).abs() / x.max(*y) <= max_dist);
             });
         };
-
-        Ok(())
     }
 }

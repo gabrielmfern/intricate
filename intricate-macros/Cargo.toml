@@ -1,6 +1,6 @@
 [package]
 name = "intricate-macros"
-version = "0.3.10"
+version = "0.4.0"
 edition = "2021"
 license = "MIT"
 authors = ["Gabriel Miranda"]
@@ -15,13 +15,6 @@ proc-macro = true
 [[test]]
 name = "tests"
 path = "tests/all.rs"
-
-[dev-dependencies]
-trybuild = { version = "1.0.49", features = ["diff"] }
-opencl3="0.8.1"
-savefile-derive="0.10"
-savefile="0.10"
-intricate = { path = "../" }
 
 [dependencies]
 syn = "1.0.98"

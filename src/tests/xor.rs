@@ -1,19 +1,17 @@
 #[allow(unused_imports)]
 use opencl3::error_codes::ClError;
 #[allow(unused_imports)]
-use crate::{
-    types::CompilationOrOpenCLError,
-    utils::opencl::DeviceType
-};
+use crate::utils::opencl::DeviceType;
 
 #[allow(unused_imports)]
 use crate::{
     layers::activations::TanH,
     layers::Dense,
+    optimizers::BasicOptimizer,
     loss_functions::MeanSquared,
     loss_functions::LossFunction,
     model::Model,
-    types::{ModelLayer, ModelLossFunction, TrainingOptions},
+    types::{ModelLayer, TrainingVerbosity, TrainingOptions},
     utils::{setup_opencl, OpenCLState},
 };
 
@@ -48,20 +46,32 @@ fn should_decrease_error() -> () {
     ];
 
 
-    let last_loss = model
+    let mut loss = MeanSquared::new();
+    let mut optimizer = BasicOptimizer::new(0.1);
+
+    // Fit the model however many times we want
+    let losses = model
         .fit(
             &training_input_samples,
             &training_output_samples,
             &mut TrainingOptions {
-                loss_algorithm: MeanSquared::new(), 
-                learning_rate: 0.1,
-                should_print_information: true,
-                epochs: 1000,
+                loss_fn: &mut loss,
+                verbosity: TrainingVerbosity {
+                    print_loss: false,
+                    show_current_epoch: false,
+                    show_epoch_progress: false,
+                    show_epoch_elapsed: false,
+                },
+                compute_loss: true,
+                batch_size: 4,
+                optimizer: &mut optimizer,
+                epochs: 3000,
             },
-        ).unwrap()
+        )
         .unwrap();
 
     let max_loss = 0.1;
+    let last_loss = losses.last().unwrap();
 
-    assert!(last_loss <= max_loss);
+    assert!(last_loss <= &max_loss);
 }

@@ -62,15 +62,15 @@ mod sigmoid_tests {
     use rand::{thread_rng, Rng};
 
     use crate::{
-        layers::Layer, types::CompilationOrOpenCLError,
+        layers::Layer,
         utils::{approx_eq::assert_approx_equal_distance, setup_opencl, opencl::DeviceType},
     };
 
     use super::Sigmoid;
 
     #[test]
-    fn should_propagate_to_correct_values() -> Result<(), CompilationOrOpenCLError> {
-        let state = setup_opencl(DeviceType::GPU)?;
+    fn should_propagate_to_correct_values() {
+        let state = setup_opencl(DeviceType::GPU).unwrap();
 
         let context = &state.context;
         let queue = state.queues.first().unwrap();
@@ -79,7 +79,7 @@ mod sigmoid_tests {
         let numbers_amount = 141;
 
         let mut sigmoid = Sigmoid::new(numbers_amount);
-        sigmoid.init(&state)?;
+        sigmoid.init(&state).unwrap();
 
         let mut rng = thread_rng();
         let input_samples: Vec<f32> = (0..(samples_amount * numbers_amount))
@@ -94,7 +94,7 @@ mod sigmoid_tests {
             CL_MEM_READ_ONLY,
             numbers_amount * samples_amount,
             ptr::null_mut(),
-        )?;
+        ).unwrap();
 
         queue
             .enqueue_write_buffer(
@@ -103,10 +103,10 @@ mod sigmoid_tests {
                 0,
                 input_samples.as_slice(),
                 &[],
-            )?
-            .wait()?;
+            ).unwrap()
+            .wait().unwrap();
 
-        let actual_outputs_buffer = sigmoid.propagate(&input_samples_buffer)?;
+        let actual_outputs_buffer = sigmoid.propagate(&input_samples_buffer).unwrap();
 
         let mut actual_outputs = vec![0.0; numbers_amount * samples_amount];
         let actual_outputs_slice = actual_outputs.as_mut_slice();
@@ -117,18 +117,16 @@ mod sigmoid_tests {
                 0,
                 actual_outputs_slice,
                 &[],
-            )?
-            .wait()?;
+            ).unwrap()
+            .wait().unwrap();
 
         assert_approx_equal_distance(&expected_outputs, &actual_outputs, 0.01);
-
-        Ok(())
     }
 
     #[test]
     fn should_back_propagate_returning_the_correct_derivatives(
-    ) -> Result<(), CompilationOrOpenCLError> {
-        let state = setup_opencl(DeviceType::GPU)?;
+    ) {
+        let state = setup_opencl(DeviceType::GPU).unwrap();
 
         let context = &state.context;
         let queue = state.queues.first().unwrap();
@@ -137,7 +135,7 @@ mod sigmoid_tests {
         let numbers_amount = 331;
 
         let mut tanh = Sigmoid::new(numbers_amount);
-        tanh.init(&state)?;
+        tanh.init(&state).unwrap();
 
         let mut rng = thread_rng();
         let input_samples: Vec<f32> = (0..(samples_amount * numbers_amount))
@@ -154,13 +152,13 @@ mod sigmoid_tests {
             CL_MEM_READ_ONLY,
             numbers_amount * samples_amount,
             ptr::null_mut(),
-        )?;
+        ).unwrap();
         let mut first_derivatives_buffer = Buffer::<cl_float>::create(
             &context,
             CL_MEM_READ_ONLY,
             numbers_amount * samples_amount,
             ptr::null_mut(),
-        )?;
+        ).unwrap();
 
         queue
             .enqueue_write_buffer(
@@ -169,8 +167,8 @@ mod sigmoid_tests {
                 0,
                 first_derivatives.as_slice(),
                 &[],
-            )?
-            .wait()?;
+            ).unwrap()
+            .wait().unwrap();
 
         queue
             .enqueue_write_buffer(
@@ -179,10 +177,10 @@ mod sigmoid_tests {
                 0,
                 input_samples.as_slice(),
                 &[],
-            )?
-            .wait()?;
+            ).unwrap()
+            .wait().unwrap();
 
-        tanh.propagate(&input_samples_buffer)?;
+        tanh.propagate(&input_samples_buffer).unwrap();
 
         let expected_loss_to_input_derivatives: Vec<Vec<f32>> = (0..samples_amount)
             .into_iter()
@@ -204,8 +202,7 @@ mod sigmoid_tests {
             .collect();
 
         let actual_loss_to_input_derivatives_buffer = tanh
-            .back_propagate(true, &first_derivatives_buffer, 0.0)?
-            .unwrap();
+            .compute_loss_to_input_derivatives(&first_derivatives_buffer).unwrap();
         let mut actual_loss_to_input_derivatives = vec![0.0; numbers_amount * samples_amount];
         let actual_loss_to_input_derivatives_slice =
             actual_loss_to_input_derivatives.as_mut_slice();
@@ -216,8 +213,8 @@ mod sigmoid_tests {
                 0,
                 actual_loss_to_input_derivatives_slice,
                 &[],
-            )?
-            .wait()?;
+            ).unwrap()
+            .wait().unwrap();
 
         println!("derivatives CPU: {:?}", &expected_loss_to_input_derivatives,);
         println!("\nderivatives GPU: {:?}", &actual_loss_to_input_derivatives);
@@ -231,7 +228,5 @@ mod sigmoid_tests {
                 .collect(),
             0.01,
         );
-
-        Ok(())
     }
 }

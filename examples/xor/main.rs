@@ -2,7 +2,8 @@ use intricate::layers::activations::TanH;
 use intricate::layers::Dense;
 
 use intricate::loss_functions::MeanSquared;
-use intricate::types::{ModelLayer, TrainingOptions};
+use intricate::optimizers::BasicOptimizer;
+use intricate::types::{ModelLayer, TrainingOptions, TrainingVerbosity};
 use intricate::utils::opencl::DeviceType;
 use intricate::utils::setup_opencl;
 use intricate::Model;
@@ -38,16 +39,26 @@ fn main() -> () {
     let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
     xor_model.init(&opencl_state).unwrap();
 
+    let mut loss = MeanSquared::new();
+    let mut optimizer = BasicOptimizer::new(0.1);
+
     // Fit the model however many times we want
     xor_model
         .fit(
             &training_inputs,
             &expected_outputs,
             &mut TrainingOptions {
-                learning_rate: 0.1,
-                loss_algorithm: MeanSquared::new(), // The Mean Squared loss function
-                should_print_information: true,     // Should be verbose
-                epochs: 5000,
+                loss_fn: &mut loss,
+                verbosity: TrainingVerbosity {
+                    show_current_epoch: true,
+                    show_epoch_progress: false,
+                    show_epoch_elapsed: true,
+                    print_loss: true,
+                },
+                compute_loss: true,
+                optimizer: &mut optimizer,
+                batch_size: 4,
+                epochs: 500,
             },
         )
         .unwrap();

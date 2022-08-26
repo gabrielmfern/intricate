@@ -18,7 +18,7 @@ kernel void dense_propagate(
     if (sample_index >= samples_amount) {
         return;
     }
-    if (output_index > outputs_amount) {
+    if (output_index >= outputs_amount) {
         return;
     }
 

@@ -53,3 +53,87 @@ kernel void sum_all_values_in_workgroups(
         reduced[get_group_id(0)] = workgroup_state[0];
     }
 }
+
+kernel void scale(
+    global float *nums,
+    global float *result,
+    
+    float scaler,
+    int size
+) {
+    int index = get_global_id(0);
+
+    if (index >= size) {
+        return;
+    }
+
+    result[index] = (float)nums[index] * scaler;
+}
+
+kernel void add(
+    global float *first,
+    global float *second,
+
+    global float *result,
+
+    int size
+) {
+    int index = get_global_id(0);
+    
+    if (index >= size) {
+        return;
+    }
+
+    result[index] = first[index] + second[index];
+}
+
+kernel void subtract(
+    global float *first,
+    global float *second,
+
+    global float *result,
+
+    int size
+) {
+    int index = get_global_id(0);
+    
+    if (index >= size) {
+        return;
+    }
+
+    result[index] = first[index] - second[index];
+}
+
+kernel void multiply(
+    global float *first,
+    global float *second,
+
+    global float *result,
+
+    int size
+) {
+    int index = get_global_id(0);
+    
+    if (index >= size) {
+        return;
+    }
+
+    result[index] = first[index] * second[index];
+}
+
+kernel void divide(
+    global float *first,
+    global float *second,
+
+    global float *result,
+
+    int size
+) {
+    int index = get_global_id(0);
+    
+    if (index >= size) {
+        return;
+    }
+
+    result[index] = first[index] / second[index];
+}

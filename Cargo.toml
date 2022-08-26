@@ -1,6 +1,6 @@
 [package]
 name = "intricate"
-version = "0.3.3"
+version = "0.4.0"
 edition = "2021"
 license = "MIT"
 authors = ["Gabriel Miranda"]
@@ -15,7 +15,9 @@ rand = "0.8.5"
 savefile-derive="0.10"
 savefile="0.10"
 opencl3="0.8.1"
-intricate-macros="0.3.10"
+indicatif="0.17.0"
+intricate-macros="0.4.0"
+# intricate-macros={ path="./intricate-macros/" }
 
 [[example]]
 name = "xor"
