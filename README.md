@@ -247,3 +247,4 @@ to use the Model after loading it, you **must** call the `init` method in the `l
 - separate Intricate into more than one crate as to make development more lightweight with rust-analyzer
 - implement convolutional layers and perhaps even solve some image classification problems in a example
 - have some feature of Intricate, should be optional, that would contain preloaded datasets, such as MNIST and others
+- I saw on another crate, (don't remember the name), a pretty cool feature, which was a halting condition that would determine when for the training to stop, perhaps adding that would be nice
