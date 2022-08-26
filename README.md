@@ -7,32 +7,90 @@
 
 A GPU accelerated library that creates/trains/runs neural networks in safe Rust code.
 
+---
+
+### Table of contents
+
+* [Architechture overview](#architechture-overview)
+    * [Models](#models)
+    * [Layers](#layers)
+    * [Optimizers](#optimizers)
+    * [Loss Functions](#loss-functions)
+* [XoR using Intricate](#xor-using-intricate)
+    * [Setting up the training data](#setting-up-the-training-data)
+    * [Setting up the layers](#setting-up-the-layers)
+    * [Setting up OpenCL](#setting-up-opencls-state)
+    * [Fitting our Model](#fitting-our-model)
+* [How to save and load models](#how-to-save-and-load-models)
+    * [Saving the Model](#saving-the-model)
+    * [Loading the Model](#loading-the-model)
+* [Things to be done still](#things-to-be-done-still)
+
+---
+
 ## Architechture overview
 
 Intricate has a layout very similar to popular libraries out there such as Keras.
 
+It consists at the surface of a [Model](#models), which consists then 
+of [Layers](#layers) which can be adjusted using a [Loss Function](#loss-functions)
+that is also helped by a [Optimizer](#optimizers).
+
 ### Models
 
-As said before, similar to Keras from Tensorflow, Intricate defines Models as basically
-a list of `Layers` and the definition for "layer" is as follows.
+As said before, similar to Keras, Intricate defines Models as basically
+a list of [Layers](#layers).
+
+A model does not have much logic in it, mostly it delegates most of the work to the layers,
+all that it does is orchestrate how the layers should work together and how the data goes from
+a layer to another.
 
 ### Layers
 
-Every layer receives **inputs** and returns **outputs**, 
-they must also implement a `back_propagate` method that 
-will mutate the layer if needed and then return the derivatives
-of the loss function with respected to the inputs, 
-written with **I** as the inputs of the layer, 
-**E** as the loss and **O** as the outputs of the layer:
+Every layer receives **inputs** and returns **outputs** following some rule that they must define. 
 
-```
-dE/dI <- Model <- dE/dO
-```
+They must also implement four methods that together constitute backpropagation:
 
-These layers can be anything you want and just propagates the previous inputs
-to the next inputs for the next layer or for the outputs of the whole Model.
+- `optimize_parameters`
+- `compute_gradients`
+- `apply_gradients`
+- `compute_loss_to_input_derivatives`
 
-There are a few activations already implemented, but still many to be implemented.
+Mostly the optimize_parameters will rely on an `Optimizer` that will try to improve
+the parameters that the Layer allows it to optimize.
+
+These methods together will be called sequentially to do backpropagation in the Model and
+using the results from the `compute_loss_to_input_derivatives` we will then to the same for
+the last layer and so on.
+
+These layers can be really any type of transformation on the inputs and outputs.
+An example of this is the activation functions in Intricate which are actual 
+layers instead of being used in the actual layers instead of being one with other layers
+which does simplify calculations tremendously and works like a charm.
+
+### Optimizers
+
+Optimizers the do just what you might think, they optimize.
+
+Specifically they optimize both the parameters a Layer allows them to optimize, as well
+as the Layer's gradients so that the Layer can use them to apply the optimized gradients on itself.
+
+This is useful for just having any type of impl of the `Optimizer` trait and then using it
+later which allows you to have any kind of Optimization on the training process you would like.
+
+Intricate currently only does have one optimizer since it is still on heavy development and still
+defining its architechture.
+
+### Loss Functions
+
+Loss Functions are just basically some implementations of a certain trait that are used
+to determine how bad a Model is. 
+
+Loss Functions are **NOT** used in a layer, they are used
+for the Model itself. Even though a Layer will use derivatives with respect 
+to the loss they don't really communicate with the Loss Function directly.
+
+---
 
 ## XoR using Intricate
 
@@ -99,15 +157,12 @@ use intricate::utils::{
 let opencl_state = setup_opencl(DeviceType::CPU).unwrap();
 ```
 
-For our Model to be able actually do computations, we need to pass the OpenCL state into an `init`
-function inside of the model as follows:
+For our Model to be able to actually do computations, we need to pass the OpenCL state 
+into the `init` method inside of the Model as follows:
 
 ```rust
 xor_model.init(&opencl_state).unwrap();
 ```
-
-Beware that as v0.3.0 of Intricate, any method called before `init`
-will panic because they do not have the necessary OpenCL state.
 
 ### Fitting our model
 
@@ -115,24 +170,46 @@ For training our Model we just need to call the `fit`
 method and pass in some parameters as follows:
 
 ```rust
-use intricate::loss_functions::MeanSquared;
-use intricate::optimizers::BasicOptimizer;
+use intricate::{
+    loss_functions::MeanSquared,
+    optimizers::BasicOptimizer,
+    types::{TrainingOptions, TrainingVerbosity},
+};
 
-xor_model.fit(
-    &training_inputs, 
-    &expected_outputs, 
-    TrainingOptions {
-        loss_algorithm: MeanSquared::new(), // The Mean Squared loss function
-        verbose: true,     // Should be verbose
-        compute_loss: true, // Weather or not to compute and return the loss
-        optimizer: BasicOptimizer::new(0.1), // The parameter here is the learning rate for the
-                                             // BasicOptimizer
-        epochs: 10000,
-    },
-).unwrap(); // Will return an Option containing the last loss after training
+let mut loss = MeanSquared::new();
+let mut optimizer = BasicOptimizer::new(0.1);
+
+// Fit the model however many times we want
+xor_model
+    .fit(
+        &training_inputs,
+        &expected_outputs,
+        &mut TrainingOptions {
+            loss_fn: &mut loss,
+            verbosity: TrainingVerbosity {
+                show_current_epoch: true, // Show a current epoch message such as `epoch #5`
+
+                show_epoch_progress: true, // Show the training steps process for each epoch in 
+                                           // a indicatif progress bar
+
+                show_epoch_elapsed: true, // Show the time elapsed in the epoch
+
+                print_loss: true, // Show the loss after an epoch of training
+            },
+            compute_loss: true,
+            optimizer: &mut optimizer,
+            batch_size: 4, // Intricate will always use Mini-batch Gradient Descent under the hood
+                           // since with it you can have all other variants of Gradient Descent.
+                           // So this is basically the size of the batch being used in gradient descent.
+            epochs: 500,
+        },
+    )
+    .unwrap();
 ```
 
 As you can see it is extremely easy creating these models, and blazingly fast as well.
+
+---
 
 ## How to save and load models
 
@@ -140,8 +217,10 @@ For saving and loading models Intricate uses the [savefile](https://github.com/a
 
 ### Saving the model
 
-To load and save data, as an example, say for the XoR model
-we trained above, we can just call the `save_file` function as such:
+As an example let's try saving and loading our XoR model.
+For doing that we will first need to sync all of the relevant layer information
+of the Model with OpenCL's `host`, (or just with the CPU), and then we will need
+to call the `save_file` method as follows:
 
 ```rust
 xor_model.sync_data_from_buffers_to_host().unwrap(); // sends the weights and biases from 
@@ -149,25 +228,21 @@ xor_model.sync_data_from_buffers_to_host().unwrap(); // sends the weights and bi
 save_file("xor-model.bin", 0, &xor_model).unwrap();
 ```
 
-Which will save all of the configuration of the XoR Model including what types of layers 
-it has inside and the trained parameters of each layer.
-
 ### Loading the model
 
-As for loading our XoR model, we just need to call the counterpart of save_file: `load_file`.
+As for loading our XoR model, we just need to call the 
+counterpart of the save_file method: `load_file`.
 
 ```rust
 let mut loaded_xor_model: Model = load_file("xor-model.bin", 0).unwrap();
 ```
 
-Now of curse, **savefile** cannot load in the GPU state so if you want
-to use the Model after loading it, you **must** call the `setup_opencl` again
-and initialize the Model with the resulting OpenCLState.
+Now of curse, the savefile crate cannot load in the data to the GPU, so if you want
+to use the Model after loading it, you **must** call the `init` method in the `loaded_xor_model`
+(done in examples/xor.rs).
 
 ## Things to be done still
 
 - separate Intricate into more than one crate as to make development more lightweight with rust-analyzer
 - implement convolutional layers and perhaps even solve some image classification problems in a example
 - have some feature of Intricate, should be optional, that would contain preloaded datasets, such as MNIST and others
-- write many more unit tests to make code safer, like a test for the backprop of every activation layer
-- perhaps write some kind of utility functions to help with writing repetitive tests for the backprop of activation functions
