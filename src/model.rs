@@ -437,16 +437,18 @@ impl<'a> Model<'a> {
             let start = Instant::now();
 
             let mut progress = None;
-            if training_options.verbose {
+            if training_options.verbosity.show_current_epoch {
+                println!("---------");
                 println!("epoch #{}", epoch_index + 1);
-                if training_options.batch_size < samples_amount {
-                    let pbar = ProgressBar::new((samples_amount as f32 / training_options.batch_size as f32).ceil() as u64);
-                    pbar.set_style(ProgressStyle::with_template("[{bar:10}] {pos}/{len} [{elapsed}] {eta) {msg}")
-                        .unwrap()
-                        .with_key("eta", |state: &ProgressState, w: &mut dyn Write| write!(w, "{:?}", state.eta()).unwrap())
-                        .progress_chars("=> "));
-                    progress = Some(pbar);
-                }
+            }
+
+            if training_options.verbosity.show_epoch_progress && training_options.batch_size < samples_amount {
+                let pbar = ProgressBar::new((samples_amount as f32 / training_options.batch_size as f32).ceil() as u64);
+                pbar.set_style(ProgressStyle::with_template("[{bar:10}] {pos}/{len} [{elapsed}] {eta) {msg}")
+                    .unwrap()
+                    .with_key("eta", |state: &ProgressState, w: &mut dyn Write| write!(w, "{:?}", state.eta()).unwrap())
+                    .progress_chars("=> "));
+                progress = Some(pbar);
             }
 
             let steps_amount =
@@ -477,7 +479,9 @@ impl<'a> Model<'a> {
                 if progress.is_some() {
                     let pbar = progress.as_ref().unwrap();
                     pbar.inc(1);
-                    pbar.set_message(format!("(loss: {})", losses.last().unwrap()));
+                    if training_options.verbosity.print_loss || training_options.compute_loss {
+                        pbar.set_message(format!("(loss: {})", losses.last().unwrap()));
+                    }
                 }
             }
 
@@ -485,13 +489,15 @@ impl<'a> Model<'a> {
                 progress.as_ref().unwrap().finish_and_clear();
             }
 
-            if training_options.verbose {
+            if training_options.verbosity.print_loss {
                 println!(
-                    "got a loss of {} after training in the batch",
+                    "got a loss of {} after epoch",
                     losses.last().unwrap()
                 );
-                println!("took {:?}", start.elapsed());
-                println!("---");
+            }
+
+            if training_options.verbosity.show_epoch_elapsed {
+                println!("{:?} elapsed on epoch", start.elapsed());
             }
         }
 
@@ -519,7 +525,7 @@ impl<'a> Model<'a> {
 
         let loss;
 
-        if training_options.verbose || training_options.compute_loss {
+        if training_options.verbosity.print_loss || training_options.compute_loss {
             self.predict_with_buffer(input_samples)?;
             let actual_outputs = self.layers.last().unwrap().get_last_outputs().unwrap();
 
@@ -528,14 +534,6 @@ impl<'a> Model<'a> {
                 &expected_output_samples,
                 samples_amount,
             )?);
-
-            // if training_options.verbose {
-            //     println!(
-            //         "step finished in {:?},\nafter updating parameters loss found was {}",
-            //         start.elapsed(),
-            //         loss.unwrap()
-            //     );
-            // }
         } else {
             loss = None;
         }

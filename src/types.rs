@@ -66,6 +66,20 @@ pub enum ModelLayer<'a> {
     Sigmoid(Sigmoid<'a>),
 }
 
+#[derive(Debug)]
+/// Some verbosity options to determine what should appear when training a Model or not.
+pub struct TrainingVerbosity {
+    /// Weather or not to show a message such as `epoch #5`
+    pub show_current_epoch: bool,
+    /// Weather or not to show a progress bar of an epoch with the current steps it has gon through
+    /// and the missing steps as well as an elapsed time and the last step's loss
+    pub show_epoch_progress: bool,
+    /// Weather or not to show how much time was elapsed going through a whole epoch
+    pub show_epoch_elapsed: bool,
+    /// Weather or not the loss of the Model after a epoch should be printed
+    pub print_loss: bool,
+}
+
 /// A struct that defines the options for training a Model.
 pub struct TrainingOptions<'a> {
     /// The loss function that will be used for calculating how **wrong** the Model
@@ -78,24 +92,17 @@ pub struct TrainingOptions<'a> {
     /// have and for `Stochastic Gradient Descent` you just need to set this to one.
     pub batch_size: usize,
 
-    /// The graadient descent implementation that should be used for doing gradient descent
-    /// during fitting
-    // pub gradient_descent_method: GradientDescent,
     /// The optimizer that will both optimize parameters before calculating gradients as well as
     /// optimize gradients and compute update vectors that are going to be actually used when
     /// applying the gradients
     pub optimizer: &'a mut dyn Optimizer<'a>, // this is mut because we need to init the optimizer
                                               // before using it
                                              
-    /// Weather or not the training process should be verbose, as to print the current epoch,
-    /// and the current loss after applying gradients.
-    pub verbose: bool,
+    /// Some verbosity options to determine what should appear when training a Model or not.
+    pub verbosity: TrainingVerbosity,
 
-    /// Weather or not at the end of each backprop the Model should compute its own loss and
-    /// return it.
-    ///
-    /// If this is **true**, at the end of the **fit** method there will be returned the loss after
-    /// applying the gradients.
+    /// Weather or not at the end of each training step the Model should compute its own loss and
+    /// store it to then return a Vec containing all of them.
     ///
     /// This will be necessarily true if `verbose` is set to **true**.
     pub compute_loss: bool,

@@ -3,7 +3,7 @@ use intricate::layers::Dense;
 
 use intricate::loss_functions::MeanSquared;
 use intricate::optimizers::BasicOptimizer;
-use intricate::types::{ModelLayer, TrainingOptions};
+use intricate::types::{ModelLayer, TrainingOptions, TrainingVerbosity};
 use intricate::utils::opencl::DeviceType;
 use intricate::utils::setup_opencl;
 use intricate::Model;
@@ -49,11 +49,16 @@ fn main() -> () {
             &expected_outputs,
             &mut TrainingOptions {
                 loss_fn: &mut loss,
-                verbose: true,     // Should be verbose
+                verbosity: TrainingVerbosity {
+                    show_current_epoch: true,
+                    show_epoch_progress: false,
+                    show_epoch_elapsed: true,
+                    print_loss: true,
+                },
                 compute_loss: true,
                 optimizer: &mut optimizer,
-                batch_size: 1,
-                epochs: 2000,
+                batch_size: 4,
+                epochs: 500,
             },
         )
         .unwrap();

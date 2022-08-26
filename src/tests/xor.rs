@@ -11,7 +11,7 @@ use crate::{
     loss_functions::MeanSquared,
     loss_functions::LossFunction,
     model::Model,
-    types::{ModelLayer, TrainingOptions},
+    types::{ModelLayer, TrainingVerbosity, TrainingOptions},
     utils::{setup_opencl, OpenCLState},
 };
 
@@ -56,11 +56,16 @@ fn should_decrease_error() -> () {
             &training_output_samples,
             &mut TrainingOptions {
                 loss_fn: &mut loss,
-                verbose: true,     // Should be verbose
+                verbosity: TrainingVerbosity {
+                    print_loss: false,
+                    show_current_epoch: false,
+                    show_epoch_progress: false,
+                    show_epoch_elapsed: false,
+                },
                 compute_loss: true,
                 batch_size: 4,
                 optimizer: &mut optimizer,
-                epochs: 10000,
+                epochs: 3000,
             },
         )
         .unwrap();
