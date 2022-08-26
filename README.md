@@ -56,16 +56,16 @@ They must also implement four methods that together constitute backpropagation:
 - `apply_gradients`
 - `compute_loss_to_input_derivatives`
 
-Mostly the optimize_parameters will rely on an `Optimizer` that will try to improve
+Mostly the optimize_parameters will rely on an [Optimizer](#optimizers) that will try to improve
 the parameters that the Layer allows it to optimize.
 
 These methods together will be called sequentially to do backpropagation in the Model and
-using the results from the `compute_loss_to_input_derivatives` we will then to the same for
+using the results from the `compute_loss_to_input_derivatives` we will then do the same for
 the last layer and so on.
 
 These layers can be really any type of transformation on the inputs and outputs.
 An example of this is the activation functions in Intricate which are actual 
-layers instead of being used in the actual layers instead of being one with other layers
+layers instead of being one with other layers
 which does simplify calculations tremendously and works like a charm.
 
 ### Optimizers
@@ -73,13 +73,14 @@ which does simplify calculations tremendously and works like a charm.
 Optimizers the do just what you might think, they optimize.
 
 Specifically they optimize both the parameters a Layer allows them to optimize, as well
-as the Layer's gradients so that the Layer can use them to apply the optimized gradients on itself.
+as the [Layer](#layers)'s gradients so that the Layer can use them to apply the optimized gradients on itself.
 
-This is useful for just having any type of impl of the `Optimizer` trait and then using it
-later which allows you to have any kind of Optimization on the training process you would like.
+This is useful because anyone using Intricate can develop and perhaps debug a Optimizer to see how well it does
+for certain use cases which is very good for where I want Intricate to go. All you have to do is create some struct
+that implements the `Optimizer` trait.
 
-Intricate currently only does have one optimizer since it is still on heavy development and still
-defining its architechture.
+Intricate currently only does have one optimizer since it is still on heavy development and changing
+architecture constantly so writing many implementations would be really annoying to change later.
 
 ### Loss Functions
 
