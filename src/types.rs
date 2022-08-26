@@ -129,7 +129,7 @@ pub struct TrainingOptions<'a> {
 
     /// The extra conditions for stopping the Model's training before the amount of predetermined
     /// epochs is reached.
-    pub halting_conditions: Vec<HaltingCondition>,
+    pub halting_condition: Option<HaltingCondition>,
 
     /// Weather or not at the end of each training step the Model should compute its own loss and
     /// store it to then return a Vec containing all of them.
