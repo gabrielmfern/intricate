@@ -186,23 +186,27 @@ xor_model
         &training_inputs,
         &expected_outputs,
         &mut TrainingOptions {
-            loss_fn: &mut loss,
+            loss_fn: &mut loss, // the type of loss function that should be used for Intricate
+                                // to determine how bad the Model is
             verbosity: TrainingVerbosity {
-                show_current_epoch: true, // Show a current epoch message such as `epoch #5`
-
-                show_epoch_progress: true, // Show the training steps process for each epoch in 
-                                           // a indicatif progress bar
-
-                show_epoch_elapsed: true, // Show the time elapsed in the epoch
-
-                print_loss: true, // Show the loss after an epoch of training
+                show_current_epoch: true, // show a message for each epoch like `epoch #5`
+                show_epoch_progress: false, // show a progress bar of the training steps in a
+                                            // epoch
+                show_epoch_elapsed: true, // show elapsed time in calculations for one epoch
+                print_accuracy: true, // should print the accuracy after each epoch
+                print_loss: true, // should print the loss after each epoch
+                halting_condition_warning: true,
             },
-            compute_loss: true,
+            //                 a condition for stopping the training if a min loss is reached
+            halting_condition: Some(HaltingCondition::MinAccuracyReached(0.95)),
+            compute_accuracy: false, // if Intricate should compute the accuracy after each
+                                     // training step
+            compute_loss: true, // if Intricate should compute the loss after each training
+                                // step
             optimizer: &mut optimizer,
-            batch_size: 4, // Intricate will always use Mini-batch Gradient Descent under the hood
-                           // since with it you can have all other variants of Gradient Descent.
-                           // So this is basically the size of the batch being used in gradient descent.
-            epochs: 500,
+            batch_size: 4, // the size of the mini-batch being used in Intricate's Mini-batch
+                           // Gradient Descent
+            epochs: 10000,
         },
     )
     .unwrap();
@@ -247,6 +251,5 @@ to use the Model after loading it, you **must** call the `init` method in the `l
 - separate Intricate into more than one crate as to make development more lightweight with rust-analyzer
 - implement convolutional layers and perhaps even solve some image classification problems in a example
 - have some feature of Intricate, should be optional, that would contain preloaded datasets, such as MNIST and others
-- I saw on another crate, (don't remember the name), a pretty cool feature, which was a halting condition that would determine when for the training to stop, perhaps adding that would be nice
 - add a way to send into the training process a callback closure that would be called everytime a epoch finished or even a step too with some cool info
 - make an example after doing the thing above ^, that uses that same function to plot the loss realtime using a crate like `textplots`

@@ -1,9 +1,6 @@
 #[allow(unused_imports)]
 use opencl3::error_codes::ClError;
 #[allow(unused_imports)]
-use crate::utils::opencl::DeviceType;
-
-#[allow(unused_imports)]
 use crate::{
     layers::activations::TanH,
     layers::Dense,
@@ -11,8 +8,8 @@ use crate::{
     loss_functions::MeanSquared,
     loss_functions::LossFunction,
     model::Model,
-    types::{ModelLayer, TrainingVerbosity, TrainingOptions},
-    utils::{setup_opencl, OpenCLState},
+    types::{ModelLayer, TrainingVerbosity, TrainingOptions, HaltingCondition},
+    utils::{setup_opencl, OpenCLState, opencl::DeviceType},
 };
 
 // Seems to fail every time I try to run this with DeviceType::CPU
@@ -50,28 +47,32 @@ fn should_decrease_error() -> () {
     let mut optimizer = BasicOptimizer::new(0.1);
 
     // Fit the model however many times we want
-    let losses = model
+    let training_results = model
         .fit(
             &training_input_samples,
             &training_output_samples,
             &mut TrainingOptions {
                 loss_fn: &mut loss,
                 verbosity: TrainingVerbosity {
-                    print_loss: false,
-                    show_current_epoch: false,
+                    show_current_epoch: true,
                     show_epoch_progress: false,
-                    show_epoch_elapsed: false,
+                    show_epoch_elapsed: true,
+                    print_accuracy: true,
+                    print_loss: false,
+                    halting_condition_warning: true,
                 },
+                halting_condition: Some(HaltingCondition::MinLossReached(0.1)),
+                compute_accuracy: true,
                 compute_loss: true,
-                batch_size: 4,
                 optimizer: &mut optimizer,
-                epochs: 3000,
+                batch_size: 4,
+                epochs: 10000,
             },
         )
         .unwrap();
 
     let max_loss = 0.1;
-    let last_loss = losses.last().unwrap();
+    let last_loss = training_results.loss_per_training_steps.last().unwrap();
 
     assert!(last_loss <= &max_loss);
 }

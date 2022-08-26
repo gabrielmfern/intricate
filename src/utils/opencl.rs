@@ -6,7 +6,7 @@ use std::{collections::HashMap, mem, ptr};
 use crate::{
     layers::compile_layers,
     loss_functions::compile_losses,
-    types::{KernelNotFoundError, ProgramNotFoundError},
+    types::{KernelNotFoundError, ProgramNotFoundError}, model::compile_model,
 };
 
 use super::gcd;
@@ -672,6 +672,8 @@ pub fn setup_opencl(device_type: DeviceType) -> Result<OpenCLState, UnableToSetu
         compile_buffer_operations_program(&mut state)?;
 
         compile_layers(&mut state)?;
+
+        compile_model(&mut state)?;
 
         compile_losses(&mut state)?;
 
