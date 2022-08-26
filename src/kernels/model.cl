@@ -12,5 +12,10 @@ kernel void compute_accuracy_per_output(
         return;
     }
 
-    accuracies[index] = fabs(outputs[index] - expected_outputs[index]) / expected_outputs[index];
+    if (expected_outputs[index] == 0) {
+        accuracies[index] = fabs(outputs[index] - expected_outputs[index]);
+    } else {
+        accuracies[index] = fabs(outputs[index] - expected_outputs[index]) / expected_outputs[index];
+    }
+    /* printf("accuracy %d: %e\n", index, accuracies[index]); */
 }
