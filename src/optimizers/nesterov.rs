@@ -9,13 +9,13 @@ use opencl3::{
 };
 
 use super::{OptimizationError, Optimizer};
-use crate::utils::{BufferOperations, OpenCLState, opencl::InplaceBufferOperations};
+use crate::utils::{opencl::InplaceBufferOperations, BufferOperations, OpenCLState};
 
 #[derive(Debug)]
 /// The momentum based optimizer is one that tries to simulate momentum using a `gamma` constant
 /// that defines how much of the last update vector should be added together with the current
 /// update vector as to further improve the training process.
-pub struct MomentumOptimizer<'a> {
+pub struct NesterovMomentumAcceleratedOptimizer<'a> {
     learning_rate: f32,
     momentum_gamma: f32,
 
@@ -24,14 +24,14 @@ pub struct MomentumOptimizer<'a> {
     opencl_state: Option<&'a OpenCLState>,
 }
 
-impl<'a> MomentumOptimizer<'a> {
+impl<'a> NesterovMomentumAcceleratedOptimizer<'a> {
     /// Creates a new instance of a Optimizer based on Momentum, that tries to speed up the
     /// training process in the right direction.
     ///
     /// The **momentum_gamma** parameter here is how much of the last update vector should be
     /// considered in the current one as to simulate momentum. This value is usually just `0.9`.
     pub fn new(learning_rate: f32, momentum_gamma: f32) -> Self {
-        MomentumOptimizer {
+        NesterovMomentumAcceleratedOptimizer {
             learning_rate,
             momentum_gamma,
 
@@ -42,7 +42,7 @@ impl<'a> MomentumOptimizer<'a> {
     }
 }
 
-impl<'a> Optimizer<'a> for MomentumOptimizer<'a> {
+impl<'a> Optimizer<'a> for NesterovMomentumAcceleratedOptimizer<'a> {
     fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), opencl3::error_codes::ClError> {
         self.opencl_state = Some(opencl_state);
 
@@ -51,10 +51,29 @@ impl<'a> Optimizer<'a> for MomentumOptimizer<'a> {
 
     fn optimize_parameters(
         &self,
-        _parameters: &mut Buffer<cl_float>,
-        _parameter_id: String,
-        _layer_index: usize,
+        parameters: &mut Buffer<cl_float>,
+        parameter_id: String,
+        layer_index: usize,
     ) -> Result<(), OptimizationError> {
+        if self.opencl_state.is_none() {
+            return Err(OptimizationError::UninitializedState);
+        }
+
+        let state = self.opencl_state.unwrap();
+
+        if let Some(layer_update_vectors) = self.last_update_vectors.get(&layer_index) {
+            if let Some(parameter_last_update_vector) = layer_update_vectors.get(&parameter_id) {
+                parameters.subtract_inplc(
+                    &parameter_last_update_vector.scale(
+                        self.momentum_gamma,
+                        CL_MEM_READ_ONLY,
+                        state,
+                    )?,
+                    state,
+                )?;
+            }
+        }
+
         Ok(())
     }
 

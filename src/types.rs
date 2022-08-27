@@ -11,7 +11,7 @@ use crate::{
         Dense,
     },
     loss_functions::LossFunction,
-    optimizers::Optimizer,
+    optimizers::Optimizer, utils::opencl::BufferConversionError,
 };
 
 #[derive(Debug)]
@@ -33,6 +33,8 @@ pub enum SyncDataError {
         /// The name of the field trying to be synced.
         field_name: String,
     },
+    /// Happens when something goes wrong with a buffer operation.
+    BufferConversion(BufferConversionError),
     /// Happens when there is no command queue to be used.
     NoCommandQueue,
 }

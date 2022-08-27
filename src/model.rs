@@ -22,7 +22,7 @@ use std::mem;
 use crate::{
     layers::{
         Gradient, Layer, LayerGradientApplicationError, LayerGradientComputationError,
-        LayerLossToInputDifferentiationError, LayerPropagationError, ParametersOptimizationError,
+        LayerLossToInputDifferentiationError, LayerPropagationError, ParametersOptimizationError, LayerInitializationError,
     },
     loss_functions::{
         LossComputationError, LossFunction, LossToModelOutputsDerivativesComputationError,
@@ -249,7 +249,7 @@ impl<'a> Model<'a> {
     /// CompilationError (just a String with some stacktrace to the error).
     /// If the programs were compiled successfully don't put your guard down yet because OpenCL may
     /// yield some error if something it needs to do fails.
-    pub fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), ClError> {
+    pub fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), LayerInitializationError> {
         for layer in self.layers.iter_mut() {
             layer.init(opencl_state)?;
         }

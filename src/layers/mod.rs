@@ -11,7 +11,7 @@ use opencl3::{
 
 use crate::{
     optimizers::{OptimizationError, Optimizer},
-    utils::{opencl::{EnsureKernelsAndProgramError, BufferOperationError}, OpenCLState, BufferOperations}, types::{KernelNotFoundError, ProgramNotFoundError, SyncDataError},
+    utils::{opencl::{EnsureKernelsAndProgramError, BufferOperationError, BufferConversionError}, OpenCLState, BufferOperations}, types::{KernelNotFoundError, ProgramNotFoundError, SyncDataError},
 };
 
 pub mod activations;
@@ -194,6 +194,19 @@ pub enum ParametersOptimizationError {
     EmptyParameter(String),
 }
 
+#[derive(Debug, FromForAllUnnamedVariants)]
+/// An enum containing all of the errors that can happen when trying to initialize a Layer.
+pub enum LayerInitializationError {
+    /// Happens when something goes wrong trying to convert the Layer's parameters into OpenCL
+    /// Buffers.
+    BufferConversion(BufferConversionError),
+    /// Happens when a parameter that is going to be converted into a OpenCL Buffer is empty. Such
+    /// as an empty Vec.
+    EmptyParameter(String),
+    /// Happens when there is no OpenCL Command Queue when needed.
+    NoCommandQueue,
+}
+
 /// A trait implemented by Intricate that is implemented in every struct that represents a Model
 /// Layer.
 /// A layer in Intricate can be defined basically as a function that can take some inputs and gives
@@ -259,7 +272,7 @@ pub trait Layer<'a> {
     ///
     /// This function will return an error if something goes wrong while 
     /// allocating buffers into the device of the queue.
-    fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), ClError>;
+    fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), LayerInitializationError>;
 
     /// Should calculate the outputs of the layer based on the inputs
     ///

@@ -126,7 +126,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             fn init(
                 &mut self,
                 opencl_state: &'a crate::utils::OpenCLState,
-            ) -> Result<(), opencl3::error_codes::ClError> {
+            ) -> Result<(), crate::layers::LayerInitializationError> {
                 match self {
                     #(
                         #enum_name::#layer_names_5(layer) => layer.init(opencl_state),
@@ -292,7 +292,7 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
             fn init(
                 &mut self,
                 opencl_state: &'a crate::utils::OpenCLState,
-            ) -> Result<(), opencl3::error_codes::ClError> {
+            ) -> Result<(), crate::layers::LayerInitializationError> {
                 self.opencl_state = Some(opencl_state);
 
                 Ok(())

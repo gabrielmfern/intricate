@@ -2,7 +2,7 @@
 
 use opencl3::{
     device::cl_float,
-    error_codes::{cl_int, ClError},
+    error_codes::cl_int,
     kernel::ExecuteKernel,
     memory::{Buffer, ClMem, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE},
 };
@@ -12,7 +12,7 @@ use savefile_derive::Savefile;
 use crate::{
     layers::{
         Gradient, Layer, LayerLossToInputDifferentiationError, LayerPropagationError,
-        SyncDataError, ParametersOptimizationError,
+        SyncDataError, ParametersOptimizationError, LayerInitializationError,
     },
     utils::{
         opencl::{empty_buffer, ensure_program, BufferOperations, EnsureKernelsAndProgramError},
@@ -95,7 +95,7 @@ impl<'a> SoftMax<'a> {
 }
 
 impl<'a> Layer<'a> for SoftMax<'a> {
-    fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), ClError> {
+    fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), LayerInitializationError> {
         self.opencl_state = Some(opencl_state);
 
         Ok(())

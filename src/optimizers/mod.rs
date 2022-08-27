@@ -2,9 +2,11 @@
 
 pub mod basic;
 pub mod momentum;
+pub mod nesterov;
 
 pub use basic::BasicOptimizer;
 pub use momentum::MomentumOptimizer;
+pub use nesterov::NesterovMomentumAcceleratedOptimizer;
 
 use intricate_macros::FromForAllUnnamedVariants;
 use opencl3::{device::cl_float, error_codes::ClError, memory::Buffer};

@@ -1,9 +1,8 @@
 //! The module that defines the Dense layer.
 
 use opencl3::{
-    command_queue::CL_NON_BLOCKING,
     device::cl_float,
-    error_codes::{cl_int, ClError},
+    error_codes::cl_int,
     kernel::ExecuteKernel,
     memory::{Buffer, ClMem, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE},
 };
@@ -13,6 +12,7 @@ use savefile_derive::Savefile;
 use std::mem;
 use std::ptr;
 
+use crate::utils::opencl::{BufferLike, InplaceBufferOperations};
 #[allow(unused_imports)]
 use crate::{
     optimizers::Optimizer,
@@ -25,8 +25,8 @@ use crate::{
 
 use super::{
     compute_update_vectors, Gradient, Layer, LayerGradientApplicationError,
-    LayerGradientComputationError, LayerLossToInputDifferentiationError, LayerPropagationError,
-    ParametersOptimizationError,
+    LayerGradientComputationError, LayerInitializationError, LayerLossToInputDifferentiationError,
+    LayerPropagationError, ParametersOptimizationError,
 };
 
 const DENSE_PROP_PROGRAM_NAME: &str = "DENSE_PROPAGATION";
@@ -210,43 +210,28 @@ impl<'a> Layer<'a> for Dense<'a> {
             });
         }
 
+        let weights_buffer = self.weights_buffer.as_ref().unwrap();
+
         if self.biases_buffer.is_none() {
             return Err(SyncDataError::NotAllocatedInDevice {
                 field_name: "biases_buffer".to_string(),
             });
         }
 
+        let biases_buffer = self.biases_buffer.as_ref().unwrap();
+
         if self.opencl_state.is_none() {
             return Err(SyncDataError::NotInitialized);
         }
 
-        if self.opencl_state.unwrap().queues.is_empty() {
+        let state = self.opencl_state.unwrap();
+
+        if state.queues.is_empty() {
             return Err(SyncDataError::NoCommandQueue);
         }
 
-        let mut weights_flat = vec![0.0; self.inputs_amount * self.outputs_amount];
-        let mut biases = vec![0.0; self.outputs_amount];
-
-        let queue = self.opencl_state.unwrap().queues.first().unwrap();
-
-        let read_weights_event = queue.enqueue_read_buffer(
-            self.weights_buffer.as_ref().unwrap(),
-            CL_NON_BLOCKING,
-            0,
-            weights_flat.as_mut_slice(),
-            &[],
-        )?;
-
-        let read_biases_event = queue.enqueue_read_buffer(
-            self.biases_buffer.as_ref().unwrap(),
-            CL_NON_BLOCKING,
-            0,
-            biases.as_mut_slice(),
-            &[],
-        )?;
-
-        read_weights_event.wait()?;
-        read_biases_event.wait()?;
+        let weights_flat = Vec::<f32>::from_buffer(weights_buffer, false, state)?;
+        let biases = Vec::<f32>::from_buffer(biases_buffer, false, state)?;
 
         self.biases = biases;
         self.weights = (0..self.inputs_amount)
@@ -266,51 +251,30 @@ impl<'a> Layer<'a> for Dense<'a> {
         Ok(())
     }
 
-    fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), ClError> {
-        assert!(!self.weights.is_empty());
-        assert!(!self.biases.is_empty());
-        assert!(!opencl_state.queues.is_empty());
+    fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), LayerInitializationError> {
+        if self.weights.is_empty() {
+            return Err(LayerInitializationError::EmptyParameter(
+                "weights".to_string(),
+            ));
+        }
 
-        let context = &opencl_state.context;
+        if self.biases.is_empty() {
+            return Err(LayerInitializationError::EmptyParameter(
+                "biases".to_string(),
+            ));
+        }
 
-        let mut weights_buffer = Buffer::<cl_float>::create(
-            context,
-            CL_MEM_READ_WRITE,
-            self.inputs_amount * self.outputs_amount,
-            ptr::null_mut(),
-        )?;
-        let mut biases_buffer = Buffer::<cl_float>::create(
-            context,
-            CL_MEM_READ_WRITE,
-            self.outputs_amount,
-            ptr::null_mut(),
-        )?;
+        let weights_buffer = self
+            .weights
+            .par_iter()
+            .flatten()
+            .map(|x| *x)
+            .collect::<Vec<f32>>()
+            .to_buffer(CL_MEM_READ_WRITE, false, opencl_state)?;
 
-        let queue = opencl_state.queues.first().unwrap();
-
-        queue
-            .enqueue_write_buffer(
-                &mut weights_buffer,
-                CL_NON_BLOCKING,
-                0,
-                self.weights
-                    .par_iter()
-                    .map(|x| x.to_vec())
-                    .flatten()
-                    .collect::<Vec<f32>>()
-                    .as_slice(),
-                &[],
-            )?
-            .wait()?;
-        queue
-            .enqueue_write_buffer(
-                &mut biases_buffer,
-                CL_NON_BLOCKING,
-                0,
-                self.biases.as_slice(),
-                &[],
-            )?
-            .wait()?;
+        let biases_buffer = self
+            .biases
+            .to_buffer(CL_MEM_READ_WRITE, false, opencl_state)?;
 
         self.weights_buffer = Some(weights_buffer);
         self.biases_buffer = Some(biases_buffer);
@@ -488,13 +452,10 @@ impl<'a> Layer<'a> for Dense<'a> {
         let update_vectors =
             compute_update_vectors(optimizer, per_parameter_type_gradients, layer_index, state)?;
 
-        let weights_buffer = self.weights_buffer.as_ref().unwrap();
-        let biases_buffer = self.biases_buffer.as_ref().unwrap();
-
-        self.weights_buffer =
-            Some(weights_buffer.subtract(&update_vectors[0], CL_MEM_READ_WRITE, state)?);
-        self.biases_buffer =
-            Some(biases_buffer.subtract(&update_vectors[1], CL_MEM_READ_WRITE, state)?);
+        let weights_buffer = self.weights_buffer.as_mut().unwrap();
+        let biases_buffer = self.biases_buffer.as_mut().unwrap();
+        weights_buffer.subtract_inplc(&update_vectors[0], state)?;
+        biases_buffer.subtract_inplc(&update_vectors[1], state)?;
 
         Ok(())
     }
