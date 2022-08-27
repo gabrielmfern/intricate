@@ -364,8 +364,7 @@ impl<'a> Layer<'a> for Dense<'a> {
 
         self.last_inputs_buffer = Some(copied_last_inputs_buffer);
 
-        let samples_amount =
-             inputs_total_count / self.inputs_amount;
+        let samples_amount = inputs_total_count / self.inputs_amount;
 
         let outputs_buffer = empty_buffer(
             self.outputs_amount * samples_amount,
@@ -409,7 +408,10 @@ impl<'a> Layer<'a> for Dense<'a> {
 
         let queue = state.queues.first().unwrap();
 
-        if layer_output_to_error_derivative.size()? / mem::size_of::<cl_float>() % self.outputs_amount != 0 {
+        if layer_output_to_error_derivative.size()? / mem::size_of::<cl_float>()
+            % self.outputs_amount
+            != 0
+        {
             return Err(LayerGradientComputationError::DerivativesDontMatchExpectedShape);
         }
 
@@ -455,10 +457,12 @@ impl<'a> Layer<'a> for Dense<'a> {
 
         Ok(vec![
             Gradient {
+                parameter_id: "weights".to_string(),
                 value: weights_gradients,
                 optimizable: true,
             },
             Gradient {
+                parameter_id: "biases".to_string(),
                 value: bias_gradients,
                 optimizable: true,
             },
@@ -468,7 +472,8 @@ impl<'a> Layer<'a> for Dense<'a> {
     fn apply_gradients(
         &mut self,
         per_parameter_type_gradients: &[Gradient],
-        optimizer: &dyn Optimizer<'a>,
+        optimizer: &mut dyn Optimizer<'a>,
+        layer_index: usize,
     ) -> Result<(), LayerGradientApplicationError> {
         if self.opencl_state.is_none() {
             return Err(LayerGradientApplicationError::LayerNotInitialized);
@@ -481,7 +486,7 @@ impl<'a> Layer<'a> for Dense<'a> {
         }
 
         let update_vectors =
-            compute_update_vectors(optimizer, per_parameter_type_gradients, state)?;
+            compute_update_vectors(optimizer, per_parameter_type_gradients, layer_index, state)?;
 
         let weights_buffer = self.weights_buffer.as_ref().unwrap();
         let biases_buffer = self.biases_buffer.as_ref().unwrap();
@@ -497,6 +502,7 @@ impl<'a> Layer<'a> for Dense<'a> {
     fn optimize_parameters(
         &mut self,
         optimizer: &dyn Optimizer<'a>,
+        layer_index: usize,
     ) -> Result<(), ParametersOptimizationError> {
         if self.weights_buffer.is_none() {
             return Err(ParametersOptimizationError::EmptyParameter(
@@ -510,8 +516,16 @@ impl<'a> Layer<'a> for Dense<'a> {
             ));
         }
 
-        optimizer.optimize_parameters(self.weights_buffer.as_mut().unwrap())?;
-        optimizer.optimize_parameters(self.biases_buffer.as_mut().unwrap())?;
+        optimizer.optimize_parameters(
+            self.weights_buffer.as_mut().unwrap(),
+            "weights".to_string(),
+            layer_index,
+        )?;
+        optimizer.optimize_parameters(
+            self.biases_buffer.as_mut().unwrap(),
+            "biases".to_string(),
+            layer_index,
+        )?;
 
         Ok(())
     }
@@ -540,8 +554,14 @@ impl<'a> Layer<'a> for Dense<'a> {
             return Err(LayerLossToInputDifferentiationError::DerivativesDontMatchExpectedShape);
         }
 
-        let samples_amount = layer_output_to_error_derivative.size()? / self.outputs_amount / mem::size_of::<cl_float>();
-        let loss_to_input_derivatives = empty_buffer(samples_amount * self.inputs_amount, CL_MEM_READ_WRITE, state)?;
+        let samples_amount = layer_output_to_error_derivative.size()?
+            / self.outputs_amount
+            / mem::size_of::<cl_float>();
+        let loss_to_input_derivatives = empty_buffer(
+            samples_amount * self.inputs_amount,
+            CL_MEM_READ_WRITE,
+            state,
+        )?;
 
         ExecuteKernel::new(kernel)
             .set_arg(self.weights_buffer.as_ref().unwrap())

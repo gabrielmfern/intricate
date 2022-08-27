@@ -34,8 +34,12 @@ pub(crate) fn compile_layers(
 /// A simple struct that contains the gradients for a certain parameter and weather or not these
 /// gradients should be optimized.
 pub struct Gradient {
+    /// The name of the parameter to keep track of what is updated in the optimizer
+    pub parameter_id: String,
+
     /// The actual gradients of the parameter.
     pub value: Buffer<cl_float>,
+
     /// Weather or not the gradients should be optimized when computing the update vectors.
     pub optimizable: bool,
 }
@@ -52,15 +56,20 @@ pub enum UpdateVectorsComputationError {
 }
 
 pub(crate) fn compute_update_vectors<'a>(
-    optimizer: &dyn Optimizer<'a>,
+    optimizer: &mut dyn Optimizer<'a>,
     all_gradients: &[Gradient],
+    layer_index: usize,
     state: &OpenCLState,
 ) -> Result<Vec<Buffer<cl_float>>, UpdateVectorsComputationError> {
     let mut update_vectors: Vec<Buffer<cl_float>> = Vec::with_capacity(all_gradients.len());
 
     for gradients in all_gradients.iter() {
         if gradients.optimizable {
-            update_vectors.push(optimizer.compute_update_vectors(&gradients.value)?);
+            update_vectors.push(optimizer.compute_update_vectors(
+                &gradients.value,
+                gradients.parameter_id.to_string(),
+                layer_index,
+            )?);
         } else {
             update_vectors.push(gradients.value.clone(CL_MEM_READ_ONLY, state)?);
         }
@@ -291,6 +300,7 @@ pub trait Layer<'a> {
     fn optimize_parameters(
         &mut self,
         optimizer: &dyn Optimizer<'a>,
+        layer_index: usize,
     ) -> Result<(), ParametersOptimizationError>;
 
     /// Applies all of the gradients given by **compute_gradients** of the current layer using a
@@ -310,7 +320,8 @@ pub trait Layer<'a> {
     fn apply_gradients(
         &mut self,
         per_parameter_type_gradients: &[Gradient],
-        optimizer: &dyn Optimizer<'a>,
+        optimizer: &mut dyn Optimizer<'a>,
+        layer_model_index: usize,
     ) -> Result<(), LayerGradientApplicationError>;
 
     /// Computes the derivatives of the Model's loss with respect to all of the inputs in each

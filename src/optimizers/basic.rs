@@ -34,13 +34,17 @@ impl<'a> Optimizer<'a> for BasicOptimizer<'a> {
     fn optimize_parameters(
         &self,
         _parameters: &mut Buffer<cl_float>,
+        _parameter_id: String,
+        _layer_index: usize,
     ) -> Result<(), OptimizationError> {
         Ok(())
     } 
 
     fn compute_update_vectors(
-        &self,
+        &mut self,
         gradients: &Buffer<cl_float>,
+        _parameter_id: String,
+        _layer_index: usize,
     ) -> Result<Buffer<cl_float>, OptimizationError> {
         if self.opencl_state.is_none() {
             return Err(OptimizationError::UninitializedState);

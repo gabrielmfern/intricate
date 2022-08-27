@@ -1,8 +1,10 @@
 //! The module that contains all of the implemented optimizers in Intricate
 
 pub mod basic;
+pub mod momentum;
 
 pub use basic::BasicOptimizer;
+pub use momentum::MomentumOptimizer;
 
 use intricate_macros::FromForAllUnnamedVariants;
 use opencl3::{device::cl_float, error_codes::ClError, memory::Buffer};
@@ -15,10 +17,13 @@ use crate::utils::{opencl::BufferOperationError, OpenCLState};
 pub enum OptimizationError {
     /// Happens when something goes wrong with OpenCL.
     OpenCL(ClError),
+
     /// Happens when something goes wrong on a buffer operation.
     BufferOperation(BufferOperationError),
+
     /// Happens if no command queue was found on the OpenCLState.
     NoCommandQueueFound,
+
     /// Happens if the state is not initialized.
     UninitializedState,
 }
@@ -37,17 +42,27 @@ pub trait Optimizer<'a> {
     ///
     /// Mostly this is used in an Optimizer like Nesterov's that tries to predict where the
     /// paremeters are going to be.
+    ///
+    /// The **parameter_id** is basically used to keep track and store update vectors for more than
+    /// one parameter if needed.
     fn optimize_parameters(
         &self,
         parameters: &mut Buffer<cl_float>,
+        parameter_id: String,
+        layer_index: usize,
     ) -> Result<(), OptimizationError>;
 
     /// Computes the update vectors of some certain gradients.
     ///
     /// This is basically used for example, on the Basic optimizer, for scaling the gradients by
     /// the learning and doing some other type of transformation.
+    ///
+    /// The **parameter_id** is basically used to keep track and store update vectors for more than
+    /// one parameter if needed.
     fn compute_update_vectors(
-        &self,
+        &mut self,
         gradients: &Buffer<cl_float>,
+        parameter_id: String,
+        layer_index: usize,
     ) -> Result<Buffer<cl_float>, OptimizationError>;
 }

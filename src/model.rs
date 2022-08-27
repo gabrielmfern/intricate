@@ -609,8 +609,8 @@ impl<'a> Model<'a> {
 
         let queue = &state.queues[0];
 
-        for layer in self.layers.iter_mut() {
-            layer.optimize_parameters(training_options.optimizer)?;
+        for (i, layer) in self.layers.iter_mut().enumerate() {
+            layer.optimize_parameters(training_options.optimizer, i)?;
         }
 
         let gradients = self.compute_gradients(
@@ -683,7 +683,7 @@ impl<'a> Model<'a> {
     pub fn apply_gradients(
         &mut self,
         gradients_per_layer: &[Vec<Gradient>],
-        optimizer: &dyn Optimizer<'a>, //ModelOptimizer<'a>,
+        optimizer: &mut dyn Optimizer<'a>, //ModelOptimizer<'a>,
     ) -> Result<(), ModelGradientApplicationError> {
         if self.opencl_state.is_none() {
             return Err(ModelGradientApplicationError::NotInitialized);
@@ -695,8 +695,8 @@ impl<'a> Model<'a> {
             return Err(ModelGradientApplicationError::NoCommandQueue);
         }
 
-        for (layer, gradients) in self.layers.iter_mut().zip(gradients_per_layer.iter().rev()) {
-            layer.apply_gradients(gradients.as_slice(), optimizer)?;
+        for (layer_index, (layer, gradients)) in self.layers.iter_mut().zip(gradients_per_layer.iter().rev()).enumerate() {
+            layer.apply_gradients(gradients.as_slice(), optimizer, layer_index)?;
         }
 
         Ok(())

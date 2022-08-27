@@ -226,7 +226,8 @@ impl<'a> Layer<'a> for SoftMax<'a> {
     fn apply_gradients(
         &mut self,
         _per_parameter_type_gradients: &[Gradient],
-        _optimizer: &dyn Optimizer<'a>,
+        _optimizer: &mut dyn Optimizer<'a>,
+        _layer_index: usize,
     ) -> Result<(), crate::layers::LayerGradientApplicationError> {
         Ok(())
     }
@@ -241,6 +242,7 @@ impl<'a> Layer<'a> for SoftMax<'a> {
     fn optimize_parameters(
         &mut self,
         _optimizer: &dyn Optimizer<'a>,
+        _layer_index: usize,
     ) -> Result<(), ParametersOptimizationError> {
         Ok(())
     }
