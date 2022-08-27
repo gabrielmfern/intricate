@@ -30,12 +30,17 @@ const BUFFER_OPERATIONS_PROGRAM_NAME: &str = "BUFFER_OPERATIONS";
 
 const REDUCE_BUFFER_KERNEL_NAME: &str = "sum_all_values_in_workgroups";
 
+const SCALE_INPLACE_BUFFER_KERNEL_NAME: &str = "scale_inplace";
 const SCALE_BUFFER_KERNEL_NAME: &str = "scale";
 
 const ADD_BUFFER_KERNEL_NAME: &str = "add";
+const ADD_INPLACE_BUFFER_KERNEL_NAME: &str = "add_inplace";
 const SUBTRACT_BUFFER_KERNEL_NAME: &str = "subtract";
+const SUBTRACT_INPLACE_BUFFER_KERNEL_NAME: &str = "subtract_inplace";
 const MULTIPLY_BUFFER_KERNEL_NAME: &str = "multiply";
+const MULTIPLY_INPLACE_BUFFER_KERNEL_NAME: &str = "multiply_inplace";
 const DIVIDE_BUFFER_KERNEL_NAME: &str = "divide";
+const DIVIDE_INPLACE_BUFFER_KERNEL_NAME: &str = "divide_inplace";
 
 #[derive(Debug, FromForAllUnnamedVariants)]
 /// An error that happens in the `ensure_program` function, if either the compilation goes wrong of
@@ -177,6 +182,11 @@ pub(crate) fn compile_buffer_operations_program(
         MULTIPLY_BUFFER_KERNEL_NAME.to_string(),
         DIVIDE_BUFFER_KERNEL_NAME.to_string(),
         SCALE_BUFFER_KERNEL_NAME.to_string(),
+
+        ADD_INPLACE_BUFFER_KERNEL_NAME.to_string(),
+        SUBTRACT_INPLACE_BUFFER_KERNEL_NAME.to_string(),
+        MULTIPLY_INPLACE_BUFFER_KERNEL_NAME.to_string(),
+        DIVIDE_INPLACE_BUFFER_KERNEL_NAME.to_string(),
     ];
 
     ensure_program(
@@ -211,9 +221,237 @@ pub enum BufferOperationError {
     NoCommandQueueFoundError,
 }
 
-/// A trait that is implemented within Intricate for defining if a certain struct
-/// is summable using OpenCL and the kernel compiled with the **compile_buffer_summation_kernel**
-/// function.
+/// A trait that is implemented within Intricate for doing inplace buffer operations that instead 
+/// of the normal buffer operations does not duplicate data, but mutates the original buffer. 
+pub trait InplaceBufferOperations
+where
+    Self: ClMem + Sized,
+{
+    /// Scales the buffer by a certain number or scaler. 
+    ///
+    /// As an example, if you had a buffer with
+    /// the number **[4, 5, 10]**, and you scaled it by **3** this method would change &self to 
+    /// **[12, 15, 30]**.
+    fn scale_inplc(
+        &mut self,
+        scaler: f32,
+        opencl_state: &OpenCLState,
+    ) -> Result<(), BufferOperationError>;
+
+    /// Will add all of the values of the `other` buffer into self.
+    fn add_inplc(
+        &mut self,
+        other: &Self,
+        opencl_state: &OpenCLState,
+    ) -> Result<(), BufferOperationError>;
+
+    /// Will just subtract all of the numbers of the `other` buffer into self.
+    fn subtract_inplc(
+        &mut self,
+        other: &Self,
+        opencl_state: &OpenCLState,
+    ) -> Result<(), BufferOperationError>;
+
+    /// Will just multiply all of the numbers of the `other` buffer into self.
+    fn multiply_inplc(
+        &mut self,
+        other: &Self,
+        opencl_state: &OpenCLState,
+    ) -> Result<(), BufferOperationError>;
+
+    /// Will divide all of the numbers of &self by the numbers of the `other` buffer.
+    fn divide_inplc(
+        &mut self,
+        other: &Self,
+        opencl_state: &OpenCLState,
+    ) -> Result<(), BufferOperationError>;
+}
+
+impl InplaceBufferOperations for Buffer<cl_float> {
+    fn scale_inplc(
+        &mut self,
+        scaler: f32,
+        opencl_state: &OpenCLState,
+    ) -> Result<(), BufferOperationError> {
+        if opencl_state.queues.is_empty() {
+            return Err(BufferOperationError::NoCommandQueueFoundError);
+        }
+
+        let queue = opencl_state.queues.first().unwrap();
+
+        let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
+        let kernel = program.get_krnl(SCALE_INPLACE_BUFFER_KERNEL_NAME)?;
+
+        let size_self = self.size()?;
+        let count_self = size_self / mem::size_of::<cl_float>();
+
+        ExecuteKernel::new(kernel)
+            .set_arg(self)
+            .set_arg(&(scaler as cl_float))
+            .set_arg(&(count_self as cl_int))
+            .set_global_work_size(count_self)
+            .enqueue_nd_range(queue)?
+            .wait()?;
+
+        Ok(())
+    }
+
+    fn add_inplc(
+        &mut self,
+        other: &Self,
+        opencl_state: &OpenCLState,
+    ) -> Result<(), BufferOperationError> {
+        if opencl_state.queues.is_empty() {
+            return Err(BufferOperationError::NoCommandQueueFoundError);
+        }
+
+        let queue = opencl_state.queues.first().unwrap();
+
+        let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
+
+        let kernel = program.get_krnl(ADD_INPLACE_BUFFER_KERNEL_NAME)?;
+
+        let size_self = self.size()?;
+        let size_other = other.size()?;
+
+        let count_self = size_self / mem::size_of::<cl_float>();
+        let count_other = size_other / mem::size_of::<cl_float>();
+        if size_self == size_other {
+            ExecuteKernel::new(kernel)
+                .set_arg(self)
+                .set_arg(other)
+                .set_arg(&(count_self as cl_int))
+                .set_global_work_size(count_self)
+                .enqueue_nd_range(queue)?
+                .wait()?;
+
+            Ok(())
+        } else {
+            Err(BufferOperationError::BuffersAreNotOfSameSize(
+                count_self,
+                count_other,
+            ))
+        }
+    }
+
+    fn subtract_inplc(
+        &mut self,
+        other: &Self,
+        opencl_state: &OpenCLState,
+    ) -> Result<(), BufferOperationError> {
+        if opencl_state.queues.is_empty() {
+            return Err(BufferOperationError::NoCommandQueueFoundError);
+        }
+
+        let queue = opencl_state.queues.first().unwrap();
+
+        let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
+
+        let kernel = program.get_krnl(SUBTRACT_INPLACE_BUFFER_KERNEL_NAME)?;
+
+        let size_self = self.size()?;
+        let size_other = other.size()?;
+
+        let count_self = size_self / mem::size_of::<cl_float>();
+        let count_other = size_other / mem::size_of::<cl_float>();
+        if size_self == size_other {
+            ExecuteKernel::new(kernel)
+                .set_arg(self)
+                .set_arg(other)
+                .set_arg(&(count_self as cl_int))
+                .set_global_work_size(count_self)
+                .enqueue_nd_range(queue)?
+                .wait()?;
+
+            Ok(())
+        } else {
+            Err(BufferOperationError::BuffersAreNotOfSameSize(
+                count_self,
+                count_other,
+            ))
+        }
+    }
+
+    fn divide_inplc(
+        &mut self,
+        other: &Self,
+        opencl_state: &OpenCLState,
+    ) -> Result<(), BufferOperationError> {
+        if opencl_state.queues.is_empty() {
+            return Err(BufferOperationError::NoCommandQueueFoundError);
+        }
+
+        let queue = opencl_state.queues.first().unwrap();
+
+        let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
+
+        let kernel = program.get_krnl(DIVIDE_INPLACE_BUFFER_KERNEL_NAME)?;
+
+        let size_self = self.size()?;
+        let size_other = other.size()?;
+
+        let count_self = size_self / mem::size_of::<cl_float>();
+        let count_other = size_other / mem::size_of::<cl_float>();
+        if size_self == size_other {
+            ExecuteKernel::new(kernel)
+                .set_arg(self)
+                .set_arg(other)
+                .set_arg(&(count_self as cl_int))
+                .set_global_work_size(count_self)
+                .enqueue_nd_range(queue)?
+                .wait()?;
+
+            Ok(())
+        } else {
+            Err(BufferOperationError::BuffersAreNotOfSameSize(
+                count_self,
+                count_other,
+            ))
+        }
+    }
+
+    fn multiply_inplc(
+        &mut self,
+        other: &Self,
+        opencl_state: &OpenCLState,
+    ) -> Result<(), BufferOperationError> {
+        if opencl_state.queues.is_empty() {
+            return Err(BufferOperationError::NoCommandQueueFoundError);
+        }
+
+        let queue = opencl_state.queues.first().unwrap();
+
+        let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
+
+        let kernel = program.get_krnl(MULTIPLY_INPLACE_BUFFER_KERNEL_NAME)?;
+
+        let size_self = self.size()?;
+        let size_other = other.size()?;
+
+        let count_self = size_self / mem::size_of::<cl_float>();
+        let count_other = size_other / mem::size_of::<cl_float>();
+        if size_self == size_other {
+            ExecuteKernel::new(kernel)
+                .set_arg(self)
+                .set_arg(other)
+                .set_arg(&(count_self as cl_int))
+                .set_global_work_size(count_self)
+                .enqueue_nd_range(queue)?
+                .wait()?;
+
+            Ok(())
+        } else {
+            Err(BufferOperationError::BuffersAreNotOfSameSize(
+                count_self,
+                count_other,
+            ))
+        }
+    }
+}
+
+/// A trait that is implemented within Intricate for doing buffer operations that somewhat of
+/// duplicate data. An example of this is if you subtract a buffer from another it will not change
+/// any of these two buffers, but it will create a new one with the results and give it back.
 pub trait BufferOperations
 where
     Self: ClMem + Sized,

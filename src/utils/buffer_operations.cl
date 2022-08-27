@@ -54,6 +54,21 @@ kernel void sum_all_values_in_workgroups(
     }
 }
 
+kernel void scale_inplace(
+    global float *self,
+    
+    float scaler,
+    int size
+) {
+    int index = get_global_id(0);
+
+    if (index >= size) {
+        return;
+    }
+
+    self[index] = (float)self[index] * scaler;
+}
+
 kernel void scale(
     global float *nums,
     global float *result,
@@ -68,6 +83,21 @@ kernel void scale(
     }
 
     result[index] = (float)nums[index] * scaler;
+}
+
+kernel void add_inplace(
+    global float *self,
+    global float *other,
+
+    int size
+) {
+    int index = get_global_id(0);
+
+    if (index >= size) {
+        return;
+    }
+
+    self[index] = self[index] + other[index];
 }
 
 kernel void add(
@@ -87,6 +117,21 @@ kernel void add(
     result[index] = first[index] + second[index];
 }
 
+kernel void subtract_inplace(
+    global float *self,
+    global float *other,
+
+    int size
+) {
+    int index = get_global_id(0);
+
+    if (index >= size) {
+        return;
+    }
+
+    self[index] = self[index] - other[index];
+}
+
 kernel void subtract(
     global float *first,
     global float *second,
@@ -104,6 +149,21 @@ kernel void subtract(
     result[index] = first[index] - second[index];
 }
 
+kernel void multiply_inplace(
+    global float *self,
+    global float *other,
+
+    int size
+) {
+    int index = get_global_id(0);
+
+    if (index >= size) {
+        return;
+    }
+
+    self[index] = self[index] * other[index];
+}
+
 kernel void multiply(
     global float *first,
     global float *second,
@@ -119,6 +179,21 @@ kernel void multiply(
     }
 
     result[index] = first[index] * second[index];
+}
+
+kernel void divide_inplace(
+    global float *self,
+    global float *other,
+
+    int size
+) {
+    int index = get_global_id(0);
+
+    if (index >= size) {
+        return;
+    }
+
+    self[index] = self[index] / other[index];
 }
 
 kernel void divide(
