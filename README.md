@@ -253,3 +253,5 @@ to use the Model after loading it, you **must** call the `init` method in the `l
 - have some feature of Intricate, should be optional, that would contain preloaded datasets, such as MNIST and others
 - add a way to send into the training process a callback closure that would be called everytime a epoch finished or even a step too with some cool info
 - make an example after doing the thing above ^, that uses that same function to plot the loss realtime using a crate like `textplots`
+- add embedding layers for text such as bag of words with an expected vocabulary size
+- add optimizers to make Intricate actually be able to solve some problems
