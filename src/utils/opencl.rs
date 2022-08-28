@@ -1049,7 +1049,6 @@ where
 {
     fn to_buffer(
         &self,
-        flags: cl_mem_flags,
         blocking: bool,
         opencl_state: &OpenCLState,
     ) -> Result<Buffer<T>, BufferConversionError>;
@@ -1082,14 +1081,13 @@ pub(crate) fn empty_buffer(
 impl BufferLike<cl_float> for Vec<f32> {
     fn to_buffer(
         &self,
-        flags: cl_mem_flags,
         blocking: bool,
         opencl_state: &OpenCLState,
     ) -> Result<Buffer<cl_float>, BufferConversionError> {
         if let Some(queue) = opencl_state.queues.first() {
             let context = &opencl_state.context;
 
-            let mut buffer = Buffer::create(context, flags, self.len(), ptr::null_mut())?;
+            let mut buffer = Buffer::create(context, CL_MEM_READ_WRITE, self.len(), ptr::null_mut())?;
 
             if blocking {
                 queue
@@ -1137,11 +1135,6 @@ impl BufferLike<cl_float> for Vec<f32> {
 
 #[cfg(test)]
 mod test_opencl_utils {
-    use opencl3::{
-        command_queue::CL_NON_BLOCKING,
-        device::cl_float,
-        memory::{Buffer, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE},
-    };
     use rand::{thread_rng, Rng};
     use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
@@ -1163,10 +1156,10 @@ mod test_opencl_utils {
         let expected: Vec<f32> = vec1.iter().zip(&vec2).map(|(a, b)| a + b).collect();
 
         let buff1 = vec1
-            .to_buffer(CL_MEM_READ_ONLY, true, &opencl_state)
+            .to_buffer(true, &opencl_state)
             .unwrap();
         let buff2 = vec2
-            .to_buffer(CL_MEM_READ_ONLY, true, &opencl_state)
+            .to_buffer(true, &opencl_state)
             .unwrap();
 
         let actual = Vec::<f32>::from_buffer(
@@ -1197,10 +1190,10 @@ mod test_opencl_utils {
         let expected: Vec<f32> = vec1.iter().zip(&vec2).map(|(a, b)| a - b).collect();
 
         let buff1 = vec1
-            .to_buffer(CL_MEM_READ_ONLY, true, &opencl_state)
+            .to_buffer(true, &opencl_state)
             .unwrap();
         let buff2 = vec2
-            .to_buffer(CL_MEM_READ_ONLY, true, &opencl_state)
+            .to_buffer(true, &opencl_state)
             .unwrap();
 
         let actual = Vec::<f32>::from_buffer(
@@ -1231,10 +1224,10 @@ mod test_opencl_utils {
         let expected: Vec<f32> = vec1.iter().zip(&vec2).map(|(a, b)| a * b).collect();
 
         let buff1 = vec1
-            .to_buffer(CL_MEM_READ_ONLY, true, &opencl_state)
+            .to_buffer(true, &opencl_state)
             .unwrap();
         let buff2 = vec2
-            .to_buffer(CL_MEM_READ_ONLY, true, &opencl_state)
+            .to_buffer(true, &opencl_state)
             .unwrap();
 
         let actual = Vec::<f32>::from_buffer(
@@ -1265,10 +1258,10 @@ mod test_opencl_utils {
         let expected: Vec<f32> = vec1.iter().zip(&vec2).map(|(a, b)| a / b).collect();
 
         let buff1 = vec1
-            .to_buffer(CL_MEM_READ_ONLY, true, &opencl_state)
+            .to_buffer(true, &opencl_state)
             .unwrap();
         let buff2 = vec2
-            .to_buffer(CL_MEM_READ_ONLY, true, &opencl_state)
+            .to_buffer(true, &opencl_state)
             .unwrap();
 
         let actual = Vec::<f32>::from_buffer(
@@ -1298,7 +1291,7 @@ mod test_opencl_utils {
         let expected: Vec<f32> = vec1.iter().map(|a| a * scaler).collect();
 
         let buff = vec1
-            .to_buffer(CL_MEM_READ_ONLY, true, &opencl_state)
+            .to_buffer(true, &opencl_state)
             .unwrap();
 
         let actual = Vec::<f32>::from_buffer(
@@ -1324,21 +1317,7 @@ mod test_opencl_utils {
             .collect();
         let expected_sum: f32 = test_vec.par_iter().sum();
 
-        let mut buff = Buffer::<cl_float>::create(
-            &opencl_state.context,
-            CL_MEM_READ_WRITE,
-            numbers_amount,
-            std::ptr::null_mut(),
-        )
-        .unwrap();
-
-        let first_device_queue = opencl_state.queues.first().unwrap();
-
-        first_device_queue
-            .enqueue_write_buffer(&mut buff, CL_NON_BLOCKING, 0, test_vec.as_slice(), &[])
-            .unwrap()
-            .wait()
-            .unwrap();
+        let buff = test_vec.to_buffer(false, &opencl_state).unwrap();
 
         let actual_result = buff.sum(&opencl_state).unwrap();
 

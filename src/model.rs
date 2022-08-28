@@ -334,7 +334,7 @@ impl<'a> Model<'a> {
             .map(|x| x.to_vec())
             .flatten()
             .collect::<Vec<f32>>()
-            .to_buffer(CL_MEM_READ_ONLY, false, state)?;
+            .to_buffer(false, state)?;
 
         let result = self.predict_with_moved_buffer(first_input_samples_buffer)?;
 
@@ -422,14 +422,14 @@ impl<'a> Model<'a> {
             .flatten()
             .map(|x| *x)
             .collect::<Vec<f32>>()
-            .to_buffer(CL_MEM_READ_ONLY, false, state)?;
+            .to_buffer(false, state)?;
 
         let expected_output_samples_buffer = training_expected_output_samples
             .par_iter()
             .flatten()
             .map(|x| *x)
             .collect::<Vec<f32>>()
-            .to_buffer(CL_MEM_READ_WRITE, false, state)?;
+            .to_buffer(false, state)?;
 
         let steps_amount =
             (samples_amount as f32 / training_options.batch_size as f32).ceil() as usize;

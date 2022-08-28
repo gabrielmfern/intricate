@@ -101,7 +101,6 @@ impl<'a> Optimizer<'a> for AdagradOptimizer<'a> {
 mod tests {
     use super::AdagradOptimizer;
     use crate::{optimizers::Optimizer, utils::opencl::*};
-    use opencl3::memory::CL_MEM_READ_ONLY;
     use rand::prelude::*;
 
     #[test]
@@ -124,7 +123,7 @@ mod tests {
         let state = setup_opencl(DeviceType::GPU).unwrap();
 
         let gradients_buf = gradients
-            .to_buffer(CL_MEM_READ_ONLY, false, &state)
+            .to_buffer(false, &state)
             .unwrap();
 
         let mut optimizer = AdagradOptimizer::new(learning_rate, episilon);

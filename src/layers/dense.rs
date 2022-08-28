@@ -270,11 +270,11 @@ impl<'a> Layer<'a> for Dense<'a> {
             .flatten()
             .map(|x| *x)
             .collect::<Vec<f32>>()
-            .to_buffer(CL_MEM_READ_WRITE, false, opencl_state)?;
+            .to_buffer(false, opencl_state)?;
 
         let biases_buffer = self
             .biases
-            .to_buffer(CL_MEM_READ_WRITE, false, opencl_state)?;
+            .to_buffer(false, opencl_state)?;
 
         self.weights_buffer = Some(weights_buffer);
         self.biases_buffer = Some(biases_buffer);
@@ -593,11 +593,11 @@ mod dense_tests {
 
         let expected_bias_gradients: Vec<f32> = loss_to_output_derivatives.to_vec();
 
-        let input_samples_buffer = inputs.to_buffer(CL_MEM_READ_ONLY, true, &state).unwrap();
+        let input_samples_buffer = inputs.to_buffer(true, &state).unwrap();
         gpu_dense.last_inputs_buffer = Some(input_samples_buffer);
 
         let loss_to_output_derivatives_buffer = loss_to_output_derivatives
-            .to_buffer(CL_MEM_READ_ONLY, true, &state)
+            .to_buffer(true, &state)
             .unwrap();
 
         let actual_gradients = gpu_dense

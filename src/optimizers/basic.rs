@@ -61,7 +61,6 @@ impl<'a> Optimizer<'a> for BasicOptimizer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use opencl3::memory::CL_MEM_READ_ONLY;
     use rand::prelude::*;
 
     use crate::{
@@ -89,7 +88,7 @@ mod tests {
         let state = setup_opencl(DeviceType::GPU).unwrap();
 
         let gradients_buf = gradients
-            .to_buffer(CL_MEM_READ_ONLY, false, &state)
+            .to_buffer(false, &state)
             .unwrap();
 
         let mut optimizer = BasicOptimizer::new(learning_rate);

@@ -119,7 +119,6 @@ impl<'a> Optimizer<'a> for NesterovMomentumAcceleratedOptimizer<'a> {
 
 #[cfg(test)]
 mod nesterov_tests {
-    use opencl3::memory::{CL_MEM_READ_ONLY, CL_MEM_READ_WRITE};
     use rand::prelude::*;
 
     use crate::{
@@ -151,7 +150,7 @@ mod nesterov_tests {
         let state = setup_opencl(DeviceType::GPU).unwrap();
 
         let gradients_buf = gradients
-            .to_buffer(CL_MEM_READ_ONLY, false, &state)
+            .to_buffer(false, &state)
             .unwrap();
 
         let mut optimizer = NesterovMomentumAcceleratedOptimizer::new(learning_rate, gamma);
@@ -199,10 +198,10 @@ mod nesterov_tests {
         let state = setup_opencl(DeviceType::GPU).unwrap();
 
         let mut parameters_buf = initial_parameters
-            .to_buffer(CL_MEM_READ_WRITE, false, &state)
+            .to_buffer(false, &state)
             .unwrap();
         let gradients_buf = gradients
-            .to_buffer(CL_MEM_READ_ONLY, false, &state)
+            .to_buffer(false, &state)
             .unwrap();
 
         let mut optimizer = NesterovMomentumAcceleratedOptimizer::new(learning_rate, gamma);

@@ -102,7 +102,6 @@ impl<'a> Optimizer<'a> for MomentumOptimizer<'a> {
 
 #[cfg(test)]
 mod momentum_tests {
-    use opencl3::memory::CL_MEM_READ_ONLY;
     use rand::prelude::*;
 
     use crate::{
@@ -133,7 +132,7 @@ mod momentum_tests {
         let state = setup_opencl(DeviceType::GPU).unwrap();
 
         let gradients_buf = gradients
-            .to_buffer(CL_MEM_READ_ONLY, false, &state)
+            .to_buffer(false, &state)
             .unwrap();
 
         let mut optimizer = MomentumOptimizer::new(learning_rate, gamma);
