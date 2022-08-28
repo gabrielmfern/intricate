@@ -357,7 +357,7 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                     return Err(crate::layers::LayerPropagationError::InputsDontMatchExpectedShape);
                 }
 
-                let mut copied_last_inputs_buffer = inputs.clone(opencl3::memory::CL_MEM_READ_ONLY, state)?;
+                let mut copied_last_inputs_buffer = inputs.clone(state)?;
 
                 self.last_inputs_buffer = Some(copied_last_inputs_buffer);
 

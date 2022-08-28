@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use opencl3::{
     device::cl_float,
-    memory::{Buffer, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE},
+    memory::Buffer,
 };
 
 use super::{OptimizationError, Optimizer};
@@ -66,7 +66,6 @@ impl<'a> Optimizer<'a> for NesterovMomentumAcceleratedOptimizer<'a> {
                 parameters.subtract_inplc(
                     &parameter_last_update_vector.scale(
                         self.momentum_gamma,
-                        CL_MEM_READ_ONLY,
                         state,
                     )?,
                     state,
@@ -89,7 +88,7 @@ impl<'a> Optimizer<'a> for NesterovMomentumAcceleratedOptimizer<'a> {
 
         let state = self.opencl_state.unwrap();
 
-        let normal_update_vector = gradients.scale(self.learning_rate, CL_MEM_READ_ONLY, state)?;
+        let normal_update_vector = gradients.scale(self.learning_rate, state)?;
 
         if !self.last_update_vectors.contains_key(&layer_index) {
             self.last_update_vectors
@@ -104,7 +103,7 @@ impl<'a> Optimizer<'a> for NesterovMomentumAcceleratedOptimizer<'a> {
 
         if let Some(last_update_vector) = last_update_vector_option {
             let mut scalled_last_update_vec =
-                last_update_vector.scale(self.momentum_gamma, CL_MEM_READ_WRITE, state)?;
+                last_update_vector.scale(self.momentum_gamma, state)?;
             scalled_last_update_vec.add_inplc(&normal_update_vector, state)?;
 
             update_vector = scalled_last_update_vec;
@@ -112,7 +111,7 @@ impl<'a> Optimizer<'a> for NesterovMomentumAcceleratedOptimizer<'a> {
             update_vector = normal_update_vector;
         }
 
-        layer_update_vectors.insert(parameter_id, update_vector.clone(CL_MEM_READ_ONLY, state)?);
+        layer_update_vectors.insert(parameter_id, update_vector.clone(state)?);
 
         Ok(update_vector)
     }

@@ -2,7 +2,7 @@
 
 use opencl3::{
     device::cl_float,
-    memory::{Buffer, CL_MEM_READ_ONLY},
+    memory::Buffer,
 };
 
 use super::{OptimizationError, Optimizer};
@@ -54,7 +54,7 @@ impl<'a> Optimizer<'a> for BasicOptimizer<'a> {
 
         let state = self.opencl_state.unwrap();
 
-        Ok(gradients.scale(self.learning_rate, CL_MEM_READ_ONLY, state)?)
+        Ok(gradients.scale(self.learning_rate, state)?)
     }
 }
 

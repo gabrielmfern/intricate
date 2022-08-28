@@ -6,7 +6,8 @@ use std::{collections::HashMap, mem, ptr};
 use crate::{
     layers::compile_layers,
     loss_functions::compile_losses,
-    types::{KernelNotFoundError, ProgramNotFoundError}, model::compile_model,
+    model::compile_model,
+    types::{KernelNotFoundError, ProgramNotFoundError},
 };
 
 use super::gcd;
@@ -33,8 +34,13 @@ const REDUCE_BUFFER_KERNEL_NAME: &str = "sum_all_values_in_workgroups";
 const SCALE_INPLACE_BUFFER_KERNEL_NAME: &str = "scale_inplace";
 const SCALE_BUFFER_KERNEL_NAME: &str = "scale";
 
+const INVERSE_SQRT_BUFFER_KERNEL_NAME: &str = "inverse_sqrt";
+const INVERSE_SQRT_INPLACE_BUFFER_KERNEL_NAME: &str = "inverse_sqrt_inplace";
+
 const ADD_BUFFER_KERNEL_NAME: &str = "add";
+const ADD_NUM_BUFFER_KERNEL_NAME: &str = "add_num";
 const ADD_INPLACE_BUFFER_KERNEL_NAME: &str = "add_inplace";
+const SHIFT_INPLACE_BUFFER_KERNEL_NAME: &str = "shift_inplace";
 const SUBTRACT_BUFFER_KERNEL_NAME: &str = "subtract";
 const SUBTRACT_INPLACE_BUFFER_KERNEL_NAME: &str = "subtract_inplace";
 const MULTIPLY_BUFFER_KERNEL_NAME: &str = "multiply";
@@ -182,7 +188,11 @@ pub(crate) fn compile_buffer_operations_program(
         MULTIPLY_BUFFER_KERNEL_NAME.to_string(),
         DIVIDE_BUFFER_KERNEL_NAME.to_string(),
         SCALE_BUFFER_KERNEL_NAME.to_string(),
-
+        ADD_NUM_BUFFER_KERNEL_NAME.to_string(),
+        INVERSE_SQRT_BUFFER_KERNEL_NAME.to_string(),
+        SCALE_INPLACE_BUFFER_KERNEL_NAME.to_string(),
+        SHIFT_INPLACE_BUFFER_KERNEL_NAME.to_string(),
+        INVERSE_SQRT_INPLACE_BUFFER_KERNEL_NAME.to_string(),
         ADD_INPLACE_BUFFER_KERNEL_NAME.to_string(),
         SUBTRACT_INPLACE_BUFFER_KERNEL_NAME.to_string(),
         MULTIPLY_INPLACE_BUFFER_KERNEL_NAME.to_string(),
@@ -221,16 +231,16 @@ pub enum BufferOperationError {
     NoCommandQueueFoundError,
 }
 
-/// A trait that is implemented within Intricate for doing inplace buffer operations that instead 
-/// of the normal buffer operations does not duplicate data, but mutates the original buffer. 
+/// A trait that is implemented within Intricate for doing inplace buffer operations that instead
+/// of the normal buffer operations does not duplicate data, but mutates the original buffer.
 pub trait InplaceBufferOperations
 where
     Self: ClMem + Sized,
 {
-    /// Scales the buffer by a certain number or scaler. 
+    /// Scales the buffer by a certain number or scaler.
     ///
     /// As an example, if you had a buffer with
-    /// the number **[4, 5, 10]**, and you scaled it by **3** this method would change &self to 
+    /// the number **[4, 5, 10]**, and you scaled it by **3** this method would change &self to
     /// **[12, 15, 30]**.
     fn scale_inplc(
         &mut self,
@@ -249,6 +259,19 @@ where
     fn subtract_inplc(
         &mut self,
         other: &Self,
+        opencl_state: &OpenCLState,
+    ) -> Result<(), BufferOperationError>;
+
+    /// Adds a number to every single number inside of Self
+    fn shift_inplc(
+        &mut self,
+        num: f32,
+        opencl_state: &OpenCLState,
+    ) -> Result<(), BufferOperationError>;
+
+    /// Takes the inverse sqrt of Self
+    fn inverse_sqrt_inplc(
+        &mut self,
         opencl_state: &OpenCLState,
     ) -> Result<(), BufferOperationError>;
 
@@ -288,6 +311,60 @@ impl InplaceBufferOperations for Buffer<cl_float> {
         ExecuteKernel::new(kernel)
             .set_arg(self)
             .set_arg(&(scaler as cl_float))
+            .set_arg(&(count_self as cl_int))
+            .set_global_work_size(count_self)
+            .enqueue_nd_range(queue)?
+            .wait()?;
+
+        Ok(())
+    }
+
+    fn inverse_sqrt_inplc(
+        &mut self,
+        opencl_state: &OpenCLState,
+    ) -> Result<(), BufferOperationError> {
+        if opencl_state.queues.is_empty() {
+            return Err(BufferOperationError::NoCommandQueueFoundError);
+        }
+
+        let queue = opencl_state.queues.first().unwrap();
+
+        let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
+        let kernel = program.get_krnl(INVERSE_SQRT_INPLACE_BUFFER_KERNEL_NAME)?;
+
+        let size_self = self.size()?;
+        let count_self = size_self / mem::size_of::<cl_float>();
+
+        ExecuteKernel::new(kernel)
+            .set_arg(self)
+            .set_arg(&(count_self as cl_int))
+            .set_global_work_size(count_self)
+            .enqueue_nd_range(queue)?
+            .wait()?;
+
+        Ok(())
+    }
+
+    fn shift_inplc(
+        &mut self,
+        num: f32,
+        opencl_state: &OpenCLState,
+    ) -> Result<(), BufferOperationError> {
+        if opencl_state.queues.is_empty() {
+            return Err(BufferOperationError::NoCommandQueueFoundError);
+        }
+
+        let queue = opencl_state.queues.first().unwrap();
+
+        let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
+        let kernel = program.get_krnl(SHIFT_INPLACE_BUFFER_KERNEL_NAME)?;
+
+        let size_self = self.size()?;
+        let count_self = size_self / mem::size_of::<cl_float>();
+
+        ExecuteKernel::new(kernel)
+            .set_arg(self)
+            .set_arg(&(num as cl_float))
             .set_arg(&(count_self as cl_int))
             .set_global_work_size(count_self)
             .enqueue_nd_range(queue)?
@@ -469,31 +546,20 @@ where
     /// - If the summation kernel was not foudn in the program for buffer operations.
     fn sum(&self, opencl_state: &OpenCLState) -> Result<f32, BufferOperationError>;
 
-    /// Scales the buffer by a certain number or scaler. 
+    /// Scales the buffer by a certain number or scaler.
     ///
     /// As an example, if you had a buffer with
     /// the number **[4, 5, 10]**, and you scaled it by **3** this method would give you ``[12, 15,
     /// 30]`.
-    fn scale(
-        &self,
-        scaler: f32,
-        flags: cl_mem_flags,
-        opencl_state: &OpenCLState,
-    ) -> Result<Self, BufferOperationError>;
+    fn scale(&self, scaler: f32, opencl_state: &OpenCLState) -> Result<Self, BufferOperationError>;
 
     /// Will just add all of the numbers of two buffers together into a new one.
-    fn add(
-        &self,
-        other: &Self,
-        flags: cl_mem_flags,
-        opencl_state: &OpenCLState,
-    ) -> Result<Self, BufferOperationError>;
+    fn add(&self, other: &Self, opencl_state: &OpenCLState) -> Result<Self, BufferOperationError>;
 
     /// Will just subtract all of the numbers from the current buffer to the other.
     fn subtract(
         &self,
         other: &Self,
-        flags: cl_mem_flags,
         opencl_state: &OpenCLState,
     ) -> Result<Self, BufferOperationError>;
 
@@ -501,37 +567,37 @@ where
     fn multiply(
         &self,
         other: &Self,
-        flags: cl_mem_flags,
         opencl_state: &OpenCLState,
     ) -> Result<Self, BufferOperationError>;
+
+    /// Adds a number to every single number inside of Self
+    fn shift(&self, num: f32, opencl_state: &OpenCLState) -> Result<Self, BufferOperationError>;
+
+    /// Takes the inverse sqrt of each one of the numbers
+    fn inverse_sqrt(&self, opencl_state: &OpenCLState) -> Result<Self, BufferOperationError>;
 
     /// Divides each respective number of the current buffer and another buffer.
     fn divide(
         &self,
         other: &Self,
-        flags: cl_mem_flags,
         opencl_state: &OpenCLState,
     ) -> Result<Self, BufferOperationError>;
 
+    /// A function that prints a Vec that contains the information of SElf
+    fn dbg(&self, state: &OpenCLState) -> Result<(), BufferConversionError>;
+
     /// Clones the current buffer into another new buffer with a certain memory flag.
-    fn clone(
-        &self,
-        flags: cl_mem_flags,
-        opencl_state: &OpenCLState,
-    ) -> Result<Self, BufferOperationError>;
+    fn clone(&self, opencl_state: &OpenCLState) -> Result<Self, BufferOperationError>;
 }
 
 impl BufferOperations for Buffer<cl_float> {
-    fn clone(
-        &self,
-        flags: cl_mem_flags,
-        opencl_state: &OpenCLState,
-    ) -> Result<Self, BufferOperationError> {
+    fn clone(&self, opencl_state: &OpenCLState) -> Result<Self, BufferOperationError> {
         if let Some(queue) = opencl_state.queues.first() {
             let context = &opencl_state.context;
             let size = self.size()?;
             let count = size / std::mem::size_of::<cl_float>();
-            let mut copied_buff = Buffer::create(context, flags, count, ptr::null_mut())?;
+            let mut copied_buff =
+                Buffer::create(context, CL_MEM_READ_WRITE, count, ptr::null_mut())?;
 
             queue
                 .enqueue_copy_buffer(self, &mut copied_buff, 0, 0, size, &[])?
@@ -543,12 +609,15 @@ impl BufferOperations for Buffer<cl_float> {
         }
     }
 
-    fn scale(
-        &self,
-        scaler: f32,
-        flags: cl_mem_flags,
-        opencl_state: &OpenCLState,
-    ) -> Result<Self, BufferOperationError> {
+    fn dbg(&self, state: &OpenCLState) -> Result<(), BufferConversionError> {
+        let vec = Vec::<f32>::from_buffer(self, false, state)?;
+
+        println!("{:?}", vec);
+
+        Ok(())
+    }
+
+    fn scale(&self, scaler: f32, opencl_state: &OpenCLState) -> Result<Self, BufferOperationError> {
         if opencl_state.queues.is_empty() {
             return Err(BufferOperationError::NoCommandQueueFoundError);
         }
@@ -562,7 +631,7 @@ impl BufferOperations for Buffer<cl_float> {
         let size_self = self.size()?;
         let count_self = size_self / mem::size_of::<cl_float>();
 
-        let result = Buffer::create(context, flags, count_self, ptr::null_mut())?;
+        let result = Buffer::create(context, CL_MEM_READ_WRITE, count_self, ptr::null_mut())?;
 
         ExecuteKernel::new(kernel)
             .set_arg(self)
@@ -576,10 +645,66 @@ impl BufferOperations for Buffer<cl_float> {
         Ok(result)
     }
 
+    fn shift(&self, num: f32, opencl_state: &OpenCLState) -> Result<Self, BufferOperationError> {
+        if opencl_state.queues.is_empty() {
+            return Err(BufferOperationError::NoCommandQueueFoundError);
+        }
+
+        let context = &opencl_state.context;
+        let queue = opencl_state.queues.first().unwrap();
+
+        let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
+
+        let kernel = program.get_krnl(ADD_NUM_BUFFER_KERNEL_NAME)?;
+
+        let size_self = self.size()?;
+
+        let count_self = size_self / mem::size_of::<cl_float>();
+        let result = Buffer::create(context, CL_MEM_READ_WRITE, count_self, ptr::null_mut())?;
+
+        ExecuteKernel::new(kernel)
+            .set_arg(self)
+            .set_arg(&result)
+            .set_arg(&(num as cl_float))
+            .set_arg(&(count_self as cl_int))
+            .set_global_work_size(count_self)
+            .enqueue_nd_range(queue)?
+            .wait()?;
+
+        Ok(result)
+    }
+
+    fn inverse_sqrt(&self, opencl_state: &OpenCLState) -> Result<Self, BufferOperationError> {
+        if opencl_state.queues.is_empty() {
+            return Err(BufferOperationError::NoCommandQueueFoundError);
+        }
+
+        let context = &opencl_state.context;
+        let queue = opencl_state.queues.first().unwrap();
+
+        let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
+
+        let kernel = program.get_krnl(INVERSE_SQRT_BUFFER_KERNEL_NAME)?;
+
+        let size_self = self.size()?;
+
+        let count_self = size_self / mem::size_of::<cl_float>();
+        let result = Buffer::create(context, CL_MEM_READ_WRITE, count_self, ptr::null_mut())?;
+
+        ExecuteKernel::new(kernel)
+            .set_arg(self)
+            .set_arg(&result)
+            .set_arg(&(count_self as cl_int))
+            .set_global_work_size(count_self)
+            .enqueue_nd_range(queue)?
+            .wait()?;
+
+        Ok(result)
+    }
+
     fn multiply(
         &self,
         other: &Self,
-        flags: cl_mem_flags,
         opencl_state: &OpenCLState,
     ) -> Result<Self, BufferOperationError> {
         if opencl_state.queues.is_empty() {
@@ -599,7 +724,7 @@ impl BufferOperations for Buffer<cl_float> {
         let count_self = size_self / mem::size_of::<cl_float>();
         let count_other = size_other / mem::size_of::<cl_float>();
         if size_self == size_other {
-            let result = Buffer::create(context, flags, count_self, ptr::null_mut())?;
+            let result = Buffer::create(context, CL_MEM_READ_WRITE, count_self, ptr::null_mut())?;
 
             ExecuteKernel::new(kernel)
                 .set_arg(self)
@@ -622,7 +747,6 @@ impl BufferOperations for Buffer<cl_float> {
     fn divide(
         &self,
         other: &Self,
-        flags: cl_mem_flags,
         opencl_state: &OpenCLState,
     ) -> Result<Self, BufferOperationError> {
         if opencl_state.queues.is_empty() {
@@ -642,7 +766,7 @@ impl BufferOperations for Buffer<cl_float> {
         let count_self = size_self / mem::size_of::<cl_float>();
         let count_other = size_other / mem::size_of::<cl_float>();
         if size_self == size_other {
-            let result = Buffer::create(context, flags, count_self, ptr::null_mut())?;
+            let result = Buffer::create(context, CL_MEM_READ_WRITE, count_self, ptr::null_mut())?;
 
             ExecuteKernel::new(kernel)
                 .set_arg(self)
@@ -665,7 +789,6 @@ impl BufferOperations for Buffer<cl_float> {
     fn subtract(
         &self,
         other: &Self,
-        flags: cl_mem_flags,
         opencl_state: &OpenCLState,
     ) -> Result<Self, BufferOperationError> {
         if opencl_state.queues.is_empty() {
@@ -685,7 +808,7 @@ impl BufferOperations for Buffer<cl_float> {
         let count_self = size_self / mem::size_of::<cl_float>();
         let count_other = size_other / mem::size_of::<cl_float>();
         if size_self == size_other {
-            let result = Buffer::create(context, flags, count_self, ptr::null_mut())?;
+            let result = Buffer::create(context, CL_MEM_READ_WRITE, count_self, ptr::null_mut())?;
 
             ExecuteKernel::new(kernel)
                 .set_arg(self)
@@ -705,12 +828,7 @@ impl BufferOperations for Buffer<cl_float> {
         }
     }
 
-    fn add(
-        &self,
-        other: &Self,
-        flags: cl_mem_flags,
-        opencl_state: &OpenCLState,
-    ) -> Result<Self, BufferOperationError> {
+    fn add(&self, other: &Self, opencl_state: &OpenCLState) -> Result<Self, BufferOperationError> {
         if opencl_state.queues.is_empty() {
             return Err(BufferOperationError::NoCommandQueueFoundError);
         }
@@ -728,7 +846,7 @@ impl BufferOperations for Buffer<cl_float> {
         let count_self = size_self / mem::size_of::<cl_float>();
         let count_other = size_other / mem::size_of::<cl_float>();
         if size_self == size_other {
-            let result = Buffer::create(context, flags, count_self, ptr::null_mut())?;
+            let result = Buffer::create(context, CL_MEM_READ_WRITE, count_self, ptr::null_mut())?;
 
             ExecuteKernel::new(kernel)
                 .set_arg(self)
@@ -1047,13 +1165,12 @@ mod test_opencl_utils {
             .to_buffer(CL_MEM_READ_ONLY, true, &opencl_state)
             .unwrap();
 
-        let actual =
-            Vec::<f32>::from_buffer(
-                &buff1.add(&buff2, CL_MEM_READ_ONLY, &opencl_state).unwrap(), 
-                true, 
-                &opencl_state
-            )
-            .unwrap();
+        let actual = Vec::<f32>::from_buffer(
+            &buff1.add(&buff2, &opencl_state).unwrap(),
+            true,
+            &opencl_state,
+        )
+        .unwrap();
 
         expected.iter().zip(actual).for_each(|(expected, actual)| {
             assert!((expected - actual).abs() / expected.max(actual) <= 0.0001);
@@ -1083,7 +1200,7 @@ mod test_opencl_utils {
             .unwrap();
 
         let actual = Vec::<f32>::from_buffer(
-            &buff1.subtract(&buff2, CL_MEM_READ_ONLY, &opencl_state).unwrap(),
+            &buff1.subtract(&buff2, &opencl_state).unwrap(),
             true,
             &opencl_state,
         )
@@ -1117,9 +1234,7 @@ mod test_opencl_utils {
             .unwrap();
 
         let actual = Vec::<f32>::from_buffer(
-            &buff1
-                .multiply(&buff2, CL_MEM_READ_ONLY, &opencl_state)
-                .unwrap(),
+            &buff1.multiply(&buff2, &opencl_state).unwrap(),
             true,
             &opencl_state,
         )
@@ -1153,7 +1268,7 @@ mod test_opencl_utils {
             .unwrap();
 
         let actual = Vec::<f32>::from_buffer(
-            &buff1.divide(&buff2, CL_MEM_READ_ONLY, &opencl_state).unwrap(),
+            &buff1.divide(&buff2, &opencl_state).unwrap(),
             true,
             &opencl_state,
         )
@@ -1183,7 +1298,7 @@ mod test_opencl_utils {
             .unwrap();
 
         let actual = Vec::<f32>::from_buffer(
-            &buff.scale(scaler, CL_MEM_READ_ONLY, &opencl_state).unwrap(),
+            &buff.scale(scaler, &opencl_state).unwrap(),
             true,
             &opencl_state,
         )

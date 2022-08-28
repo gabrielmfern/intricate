@@ -85,6 +85,66 @@ kernel void scale(
     result[index] = (float)nums[index] * scaler;
 }
 
+kernel void inverse_sqrt_inplace(
+    global float *buf,
+    int size
+) {
+    int index = get_global_id(0);
+    
+    if (index >= size) {
+        return;
+    }
+
+    buf[index] = 1 / sqrt(buf[index]);
+}
+
+kernel void inverse_sqrt(
+    global float *first,
+    global float *result,
+
+    int size
+) {
+    int index = get_global_id(0);
+    
+    if (index >= size) {
+        return;
+    }
+
+    result[index] = 1 / sqrt(first[index]);
+}
+
+kernel void shift_inplace(
+    global float *buf,
+
+    float num,
+    int size
+) {
+    int index = get_global_id(0);
+    
+    if (index >= size) {
+        return;
+    }
+
+    buf[index] = buf[index] + num;
+}
+
+kernel void add_num(
+    global float *first,
+
+    global float *result,
+
+    float num,
+    int size
+) {
+    int index = get_global_id(0);
+    
+    if (index >= size) {
+        return;
+    }
+
+    result[index] = first[index] + num;
+}
+
 kernel void add_inplace(
     global float *self,
     global float *other,

@@ -6,7 +6,7 @@ use intricate_macros::FromForAllUnnamedVariants;
 use opencl3::{
     device::cl_float,
     error_codes::ClError,
-    memory::{Buffer, CL_MEM_READ_ONLY},
+    memory::Buffer,
 };
 
 use crate::{
@@ -71,7 +71,7 @@ pub(crate) fn compute_update_vectors<'a>(
                 layer_index,
             )?);
         } else {
-            update_vectors.push(gradients.value.clone(CL_MEM_READ_ONLY, state)?);
+            update_vectors.push(gradients.value.clone(state)?);
         }
     }
 

@@ -4,7 +4,7 @@ use opencl3::{
     device::cl_float,
     error_codes::cl_int,
     kernel::ExecuteKernel,
-    memory::{Buffer, ClMem, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE},
+    memory::{Buffer, ClMem, CL_MEM_READ_WRITE},
 };
 
 use savefile_derive::Savefile;
@@ -156,7 +156,7 @@ impl<'a> Layer<'a> for SoftMax<'a> {
 
         let samples_amount = inputs_total_count / self.inputs_amount;
 
-        let copied_last_inputs_buffer = inputs.clone(CL_MEM_READ_ONLY, state)?;
+        let copied_last_inputs_buffer = inputs.clone(state)?;
 
         self.last_inputs_buffer = Some(copied_last_inputs_buffer);
 
