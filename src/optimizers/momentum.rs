@@ -5,11 +5,11 @@ use std::collections::HashMap;
 
 use opencl3::{
     device::cl_float,
-    memory::{Buffer, ClMem, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE},
+    memory::{Buffer, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE},
 };
 
 use super::{OptimizationError, Optimizer};
-use crate::utils::{BufferOperations, OpenCLState, opencl::InplaceBufferOperations};
+use crate::utils::{opencl::InplaceBufferOperations, BufferOperations, OpenCLState};
 
 #[derive(Debug)]
 /// The momentum based optimizer is one that tries to simulate momentum using a `gamma` constant
@@ -72,7 +72,7 @@ impl<'a> Optimizer<'a> for MomentumOptimizer<'a> {
 
         let normal_update_vector = gradients.scale(self.learning_rate, CL_MEM_READ_ONLY, state)?;
 
-        if self.last_update_vectors.get(&layer_index).is_none() {
+        if !self.last_update_vectors.contains_key(&layer_index) {
             self.last_update_vectors
                 .insert(layer_index, HashMap::default());
         }
@@ -84,15 +84,11 @@ impl<'a> Optimizer<'a> for MomentumOptimizer<'a> {
         let update_vector;
 
         if let Some(last_update_vector) = last_update_vector_option {
-            if last_update_vector.size()? != normal_update_vector.size()? {
-                let mut scalled_last_update_vec = last_update_vector
-                    .scale(self.momentum_gamma, CL_MEM_READ_WRITE, state)?;
-                scalled_last_update_vec.add_inplc(&normal_update_vector, state)?;
+            let mut scalled_last_update_vec =
+                last_update_vector.scale(self.momentum_gamma, CL_MEM_READ_WRITE, state)?;
+            scalled_last_update_vec.add_inplc(&normal_update_vector, state)?;
 
-                update_vector = scalled_last_update_vec;
-            } else {
-                update_vector = normal_update_vector;
-            }
+            update_vector = scalled_last_update_vec;
         } else {
             update_vector = normal_update_vector;
         }
@@ -100,5 +96,70 @@ impl<'a> Optimizer<'a> for MomentumOptimizer<'a> {
         layer_update_vectors.insert(parameter_id, update_vector.clone(CL_MEM_READ_ONLY, state)?);
 
         Ok(update_vector)
+    }
+}
+
+
+#[cfg(test)]
+mod momentum_tests {
+    use opencl3::memory::CL_MEM_READ_ONLY;
+    use rand::prelude::*;
+
+    use crate::{
+        optimizers::Optimizer,
+        utils::{
+            opencl::{BufferLike, DeviceType},
+            setup_opencl,
+        },
+    };
+
+    use super::MomentumOptimizer;
+
+    #[test]
+    fn should_compute_update_vectors_correctly() {
+        // theta = theta - v_t
+        // v_t = gamma * v_(t-1) + learning_rate * gradients of theta with respect to the loss
+        let mut rng = thread_rng();
+
+        let gradients = vec![rng.gen_range(0f32..1f32)];
+
+        let gamma = 0.9;
+        let learning_rate = 0.01;
+
+        let expected_inital_update_vector = vec![learning_rate * gradients[0]];
+        let expected_second_update_vector =
+            vec![gamma * expected_inital_update_vector[0] + learning_rate * gradients[0]];
+
+        let state = setup_opencl(DeviceType::GPU).unwrap();
+
+        let gradients_buf = gradients
+            .to_buffer(CL_MEM_READ_ONLY, false, &state)
+            .unwrap();
+
+        let mut optimizer = MomentumOptimizer::new(learning_rate, gamma);
+        optimizer.init(&state).unwrap();
+
+        let initial_update_buf = optimizer
+            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0)
+            .unwrap();
+        let secondary_update_buf = optimizer
+            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0)
+            .unwrap();
+
+        let initial_update_vector =
+            Vec::<f32>::from_buffer(&initial_update_buf, false, &state).unwrap();
+        let secondary_update_vector =
+            Vec::<f32>::from_buffer(&secondary_update_buf, false, &state).unwrap();
+
+        assert!(
+            (dbg!(initial_update_vector[0]) - dbg!(expected_inital_update_vector[0])).abs()
+                / expected_inital_update_vector[0]
+                <= 0.001
+        );
+        assert!(
+            (dbg!(secondary_update_vector[0]) - dbg!(expected_second_update_vector[0])).abs()
+                / expected_second_update_vector[0]
+                <= 0.001
+        );
     }
 }
