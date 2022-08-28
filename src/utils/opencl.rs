@@ -20,10 +20,11 @@ use opencl3::{
         CL_DEVICE_TYPE_CPU, CL_DEVICE_TYPE_CUSTOM, CL_DEVICE_TYPE_GPU,
     },
     error_codes::{cl_int, ClError},
+    event::Event,
     kernel::{ExecuteKernel, Kernel},
     memory::{Buffer, ClMem, CL_MEM_READ_WRITE},
     program::Program,
-    types::{cl_device_type, cl_float, cl_mem_flags},
+    types::{cl_device_type, cl_event, cl_float, cl_mem_flags},
 };
 
 const BUFFER_OPERATIONS_PROGRAM_SOURCE: &str = include_str!("buffer_operations.cl");
@@ -153,7 +154,8 @@ fn reduce_buffer_by_summation(
     opencl_state: &OpenCLState,
     max_local_size: usize,
     reduce_kernel: &Kernel,
-) -> Result<Buffer<cl_float>, ClError> {
+    wait_list: &[Event],
+) -> Result<(Event, Buffer<cl_float>), ClError> {
     let current_count = buffer.size()? / mem::size_of::<cl_float>();
     assert!(current_count >= 1);
 
@@ -164,18 +166,17 @@ fn reduce_buffer_by_summation(
         empty_buffer(global_size / local_size, CL_MEM_READ_WRITE, opencl_state)?;
     let queue = opencl_state.queues.first().unwrap();
 
-    ExecuteKernel::new(reduce_kernel)
+    let event = ExecuteKernel::new(reduce_kernel)
         .set_arg(buffer)
         .set_arg(&current_reduced_buffer)
         .set_arg_local_buffer(local_size)
         .set_arg(&(current_count as cl_int))
+        .set_event_wait_list(&wait_list.iter().map(|e| e.get()).collect::<Vec<cl_event>>())
         .set_local_work_size(local_size)
         .set_global_work_size(global_size)
         .enqueue_nd_range(queue)?;
 
-    queue.finish()?;
-
-    Ok(current_reduced_buffer)
+    Ok((event, current_reduced_buffer))
 }
 
 pub(crate) fn compile_buffer_operations_program(
@@ -897,19 +898,22 @@ impl BufferOperations for Buffer<cl_float> {
         } else if current_count == 0 {
             Ok(0.0)
         } else {
-            let mut current_buf =
-                reduce_buffer_by_summation(self, opencl_state, max_local_size, reduce_kernel)?;
+            let (mut ev, mut current_buf) =
+                reduce_buffer_by_summation(self, opencl_state, max_local_size, reduce_kernel, &[])?;
             current_count = current_buf.size()? / mem::size_of::<cl_float>();
 
             while current_count > 1 {
-                current_buf = reduce_buffer_by_summation(
+                (ev, current_buf) = reduce_buffer_by_summation(
                     &current_buf,
                     opencl_state,
                     max_local_size,
                     reduce_kernel,
+                    &[ev],
                 )?;
                 current_count = current_buf.size()? / mem::size_of::<cl_float>();
             }
+
+            queue.finish()?;
 
             let mut buf_slice: [f32; 1] = [0.0];
 
