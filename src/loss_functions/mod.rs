@@ -6,18 +6,21 @@ use std::fmt::Debug;
 
 pub mod categorical_cross_entropy;
 pub mod mean_squared;
+pub mod mean_absolute;
 
 pub use categorical_cross_entropy::CategoricalCrossEntropy;
-use intricate_macros::FromForAllUnnamedVariants;
 pub use mean_squared::MeanSquared;
+pub use mean_absolute::MeanAbsolute;
 
 use crate::{utils::{OpenCLState, opencl::{EnsureKernelsAndProgramError, BufferOperationError}}, types::{KernelNotFoundError, ProgramNotFoundError}};
 
+use intricate_macros::FromForAllUnnamedVariants;
 use opencl3::{device::cl_float, error_codes::ClError, memory::Buffer};
 
 use self::{
     categorical_cross_entropy::compile_categorical_cross_entropy,
     mean_squared::compile_mean_squared,
+    mean_absolute::compile_mean_absolute,
 };
 
 pub(crate) fn compile_losses(
@@ -25,6 +28,7 @@ pub(crate) fn compile_losses(
 ) -> Result<(), EnsureKernelsAndProgramError> {
     compile_mean_squared(opencl_state)?;
     compile_categorical_cross_entropy(opencl_state)?;
+    compile_mean_absolute(opencl_state)?;
 
     Ok(())
 }
