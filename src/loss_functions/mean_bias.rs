@@ -1,4 +1,4 @@
-//! The module that implements the Mean Absolute loss function.
+//! The module that implements the Mean Bias loss function.
 
 use std::mem;
 
@@ -18,12 +18,12 @@ use crate::utils::OpenCLState;
 
 use super::{LossComputationError, LossToModelOutputsDerivativesComputationError};
 
-const PROGRAM_NAME: &str = "MEAN_ABSOLUTE";
-const PROGRAM_SOURCE: &str = include_str!("kernels/mean_absolute.cl");
+const PROGRAM_NAME: &str = "MEAN_BIAS";
+const PROGRAM_SOURCE: &str = include_str!("kernels/mean_bias.cl");
 const COMPUTE_LOSS_KERNEL: &str = "compute_loss";
 const COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL: &str = "compute_loss_to_output_derivatives";
 
-pub(crate) fn compile_mean_absolute(
+pub(crate) fn compile_mean_bias(
     opencl_state: &mut OpenCLState,
 ) -> Result<(), EnsureKernelsAndProgramError> {
     let kernels = &[
@@ -43,25 +43,23 @@ pub(crate) fn compile_mean_absolute(
 }
 
 #[derive(Debug)]
-/// The Mean Absolute loss function.
-///
-/// A loss function similar to the Mean Squared, but it is more tolerant with small values and more
-/// considerate to them because it compares using aboslute values instead of squares.
-pub struct MeanAbsolute<'a> {
+/// The Mean Bias loss function calculates the direct difference between **output** and
+/// **expected output** and averages them between the amount of outputs.
+pub struct MeanBias<'a> {
     opencl_state: Option<&'a OpenCLState>,
 }
 
-impl<'a> MeanAbsolute<'a> {
-    /// Crates a new instance of the Mean Absolute but as a raw version of the struct.
+impl<'a> MeanBias<'a> {
+    /// Crates a new instance of the Mean Bias but as a raw version of the struct.
     ///
     /// Be aware that after creation this needs to be called the `init` method before computing the
-    /// loss or anything like that.
-    pub fn new() -> MeanAbsolute<'a> {
-        MeanAbsolute { opencl_state: None }
+    /// loss or anything like that.`
+    pub fn new() -> MeanBias<'a> {
+        MeanBias { opencl_state: None }
     }
 }
 
-impl<'a> LossFunction<'a> for MeanAbsolute <'a> {
+impl<'a> LossFunction<'a> for MeanBias<'a> {
     fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), ClError> {
         self.opencl_state = Some(opencl_state);
 
@@ -113,8 +111,7 @@ impl<'a> LossFunction<'a> for MeanAbsolute <'a> {
             .enqueue_nd_range(queue)?
             .wait()?;
 
-        Ok(sample_losses_buffer
-            .sum(self.opencl_state.unwrap())?
+        Ok(sample_losses_buffer.sum(self.opencl_state.unwrap())?
             / outputs_amount as f32
             / samples_amount as f32)
     }
@@ -136,7 +133,9 @@ impl<'a> LossFunction<'a> for MeanAbsolute <'a> {
         }
 
         if output_samples.size()? != expected_outputs.size()? {
-            return Err(LossToModelOutputsDerivativesComputationError::OutputsAndExpectedOutputsDoNotMatch);
+            return Err(
+                LossToModelOutputsDerivativesComputationError::OutputsAndExpectedOutputsDoNotMatch,
+            );
         }
 
         let outputs_total_count = output_samples.size()? / mem::size_of::<cl_float>();
@@ -149,7 +148,8 @@ impl<'a> LossFunction<'a> for MeanAbsolute <'a> {
         let derivatives_buffer = empty_buffer(outputs_total_count, CL_MEM_READ_WRITE, state)?;
 
         let program = state.get_prgm(PROGRAM_NAME)?;
-        let compute_loss_to_output_derivatives_kernel = program.get_krnl(COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL)?;
+        let compute_loss_to_output_derivatives_kernel =
+            program.get_krnl(COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL)?;
 
         ExecuteKernel::new(&compute_loss_to_output_derivatives_kernel)
             .set_arg(output_samples)
@@ -166,23 +166,23 @@ impl<'a> LossFunction<'a> for MeanAbsolute <'a> {
 }
 
 #[cfg(test)]
-mod mean_squared_tests {
+mod tests {
     use opencl3::types::CL_NON_BLOCKING;
     use rand::{thread_rng, Rng};
 
-    use super::MeanAbsolute;
-    use crate::utils::{approx_eq::assert_approx_equal_distance, setup_opencl, OpenCLState, opencl::BufferLike};
-    use crate::{
-        loss_functions::LossFunction, utils::opencl::DeviceType,
+    use super::MeanBias;
+    use crate::loss_functions::LossFunction;
+    use crate::utils::opencl::DeviceType;
+    use crate::utils::{
+        approx_eq::assert_approx_equal_distance, opencl::BufferLike, setup_opencl, OpenCLState,
     };
 
     #[test]
-    fn should_compute_derivatives_up_to_a_certain_precision()
-    {
+    fn should_compute_derivatives_up_to_a_certain_precision() {
         let opencl_state: OpenCLState = setup_opencl(DeviceType::GPU).unwrap();
 
-        let mut loss_fn = MeanAbsolute::new();
-        loss_fn .init(&opencl_state).unwrap();
+        let mut loss_fn = MeanBias::new();
+        loss_fn.init(&opencl_state).unwrap();
 
         let outputs_amount: usize = 61;
         let samples_amount: usize = 113;
@@ -199,9 +199,7 @@ mod mean_squared_tests {
 
         let expected_derivatives: Vec<f32> = output_samples
             .iter()
-            .map(|actual_output| {
-                actual_output / actual_output.abs() / outputs_amount as f32
-            })
+            .map(|_| 1.0 / outputs_amount as f32)
             .collect();
 
         let outputs_buf = output_samples.to_buffer(false, &opencl_state).unwrap();
@@ -209,17 +207,21 @@ mod mean_squared_tests {
 
         let queue = opencl_state.queues.first().unwrap();
 
-        let buf = loss_fn.compute_loss_derivative_with_respect_to_output_samples(
-            &outputs_buf,
-            &expected_outputs_buf,
-            samples_amount,
-        ).unwrap();
+        let buf = loss_fn
+            .compute_loss_derivative_with_respect_to_output_samples(
+                &outputs_buf,
+                &expected_outputs_buf,
+                samples_amount,
+            )
+            .unwrap();
         let mut derivatives_vec = vec![0.0; samples_amount * outputs_amount];
         let derivatives_slice = derivatives_vec.as_mut_slice();
 
         queue
-            .enqueue_read_buffer(&buf, CL_NON_BLOCKING, 0, derivatives_slice, &[]).unwrap()
-            .wait().unwrap();
+            .enqueue_read_buffer(&buf, CL_NON_BLOCKING, 0, derivatives_slice, &[])
+            .unwrap()
+            .wait()
+            .unwrap();
 
         assert_approx_equal_distance(&expected_derivatives, &derivatives_vec, 0.01);
     }
@@ -228,7 +230,7 @@ mod mean_squared_tests {
     fn should_compute_loss_up_to_a_certain_precision() {
         let opencl_state: OpenCLState = setup_opencl(DeviceType::GPU).unwrap();
 
-        let mut loss = MeanAbsolute::new();
+        let mut loss = MeanBias::new();
         loss.init(&opencl_state).unwrap();
 
         let mut rng = thread_rng();
@@ -246,17 +248,19 @@ mod mean_squared_tests {
         let expected_loss: f32 = expected_outputs
             .iter()
             .zip(&outputs)
-            .map(|(expected_output, output)| (output - expected_output).abs())
+            .map(|(expected_output, output)| output - expected_output)
             .sum::<f32>()
             / outputs_amount as f32
             / samples_amount as f32;
         let outputs_buf = outputs.to_buffer(false, &opencl_state).unwrap();
         let expected_outputs_buf = expected_outputs.to_buffer(false, &opencl_state).unwrap();
 
-        let actual_loss = loss.compute_loss(&outputs_buf, &expected_outputs_buf, samples_amount).unwrap();
+        let actual_loss = loss
+            .compute_loss(&outputs_buf, &expected_outputs_buf, samples_amount)
+            .unwrap();
 
         println!(
-            "|({} - {}) / {}| <= 0.1%",
+            "|({} - {}) / {}| <= 1%",
             expected_loss,
             actual_loss,
             expected_loss.max(actual_loss)

@@ -281,7 +281,7 @@ mod mean_squared_tests {
         let expected_loss: f32 = expected_outputs
             .iter()
             .zip(&outputs)
-            .map(|(output, expected_output)| (output - expected_output).powf(2.0))
+            .map(|(expected_output, output)| (output - expected_output).powf(2.0))
             .sum::<f32>()
             / outputs_amount as f32
             / samples_amount as f32;

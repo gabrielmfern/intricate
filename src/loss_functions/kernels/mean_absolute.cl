@@ -50,5 +50,4 @@ kernel void compute_loss_to_output_derivatives(
     float dist = (float) (output_samples[flat_i] - expected_output_samples[flat_i]);
 
     loss_to_output_derivatives[flat_i] = output_samples[flat_i] / fabs(output_samples[flat_i]) / (float)outputs_amount;
-    // loss_to_output_derivatives[flat_i] = 1.0;
 }
