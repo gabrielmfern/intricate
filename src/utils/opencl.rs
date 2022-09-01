@@ -117,7 +117,7 @@ pub(crate) fn find_optimal_local_and_global_work_sizes(
     max_local_size: usize,
 ) -> (usize, usize) {
     let mut local_size = gcd(data_size, max_local_size);
-    if local_size == 1 && data_size < max_local_size {
+    if data_size <= max_local_size {
         local_size = data_size;
     }
 
@@ -157,19 +157,19 @@ fn reduce_buffer_by_summation(
     wait_list: &[Event],
 ) -> Result<(Event, Buffer<cl_float>), ClError> {
     let current_count = buffer.size()? / mem::size_of::<cl_float>();
-    assert!(current_count >= 1);
+    assert!(dbg!(current_count) >= 1);
 
     let (local_size, global_size) =
         find_optimal_local_and_global_work_sizes(current_count, max_local_size);
 
     let current_reduced_buffer =
-        empty_buffer(global_size / local_size, CL_MEM_READ_WRITE, opencl_state)?;
+        empty_buffer(dbg!(global_size) / dbg!(local_size), CL_MEM_READ_WRITE, opencl_state)?;
     let queue = opencl_state.queues.first().unwrap();
 
     let event = ExecuteKernel::new(reduce_kernel)
         .set_arg(buffer)
         .set_arg(&current_reduced_buffer)
-        .set_arg_local_buffer(local_size)
+        .set_arg_local_buffer(local_size * mem::size_of::<cl_int>())
         .set_arg(&(current_count as cl_int))
         .set_event_wait_list(&wait_list.iter().map(|e| e.get()).collect::<Vec<cl_event>>())
         .set_local_work_size(local_size)
@@ -913,15 +913,14 @@ impl BufferOperations for Buffer<cl_float> {
                 current_count = current_buf.size()? / mem::size_of::<cl_float>();
             }
 
-            queue.finish()?;
-
-            let mut buf_slice: [f32; 1] = [0.0];
+            let mut buf_slice = [0.0];
 
             queue
-                .enqueue_read_buffer(&current_buf, CL_NON_BLOCKING, 0, &mut buf_slice, &[])?
-                .wait()?;
+                .enqueue_read_buffer(&current_buf, CL_NON_BLOCKING, 0, &mut buf_slice, &[ev.get()])?;
 
-            Ok(buf_slice[0])
+            queue.finish()?;
+
+            Ok(dbg!(buf_slice)[0])
         }
     }
 }
@@ -1012,7 +1011,7 @@ pub enum DeviceType {
 /// creating the context or the queues.
 pub fn setup_opencl(device_type: DeviceType) -> Result<OpenCLState, UnableToSetupOpenCLError> {
     let device_ids = get_all_devices(device_type as cl_device_type)?;
-    if !device_ids.is_empty() {
+    if !&device_ids.is_empty() {
         let devices: Vec<Device> = device_ids.iter().map(|id| Device::new(*id)).collect();
         let context = Context::from_devices(&device_ids, &[], None, ptr::null_mut())?;
 
@@ -1311,16 +1310,17 @@ mod test_opencl_utils {
         let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
 
         let mut rng = thread_rng();
-        let numbers_amount = 1234;
+        let numbers_amount = 256;
         let test_vec: Vec<f32> = (0..numbers_amount)
             .map(|_| -> f32 { rng.gen_range(-123.31_f32..3193.31_f32) })
             .collect();
         let expected_sum: f32 = test_vec.par_iter().sum();
 
-        let buff = test_vec.to_buffer(false, &opencl_state).unwrap();
+        let buff = test_vec.to_buffer(true, &opencl_state).unwrap();
 
         let actual_result = buff.sum(&opencl_state).unwrap();
 
+        println!("{} - {}", actual_result, expected_sum);
         assert!(
             ((actual_result - expected_sum) / (actual_result.max(expected_sum))).abs() <= 0.0001
         );

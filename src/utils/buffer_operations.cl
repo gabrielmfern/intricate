@@ -15,24 +15,22 @@ kernel void sum_all_values_in_workgroups(
     int global_id = get_global_id(0);
     int group_size = get_local_size(0);
 
-    workgroup_state[local_id] = original[global_id];
-    barrier(CLK_LOCAL_MEM_FENCE);
-
     if (group_size > buffer_length) {
         group_size = buffer_length;
     }
 
+    workgroup_state[local_id] = (float)original[global_id];
+    barrier(CLK_LOCAL_MEM_FENCE);
+
     int half_size = group_size / 2;
-    while (half_size > 0) {
+    while (group_size > 1) {
         // if the id in the work group is in the first half
         if (local_id < half_size) {
-            if (global_id < buffer_length) {
-                // sum it and the corresponding value in the other half together into the local_id
-                workgroup_state[local_id] += workgroup_state[local_id + half_size];
-                if (local_id == 0) {
-                    if ((half_size * 2) < group_size) {
-                        workgroup_state[0] += workgroup_state[group_size - 1];
-                    }
+            // sum it and the corresponding value in the other half together into the local_id
+            workgroup_state[local_id] += workgroup_state[local_id + half_size];
+            if (local_id == 0) {
+                if ((half_size * 2) < group_size) {
+                    workgroup_state[0] = (float) (workgroup_state[0] + workgroup_state[group_size - 1]);
                 }
             }
         }
