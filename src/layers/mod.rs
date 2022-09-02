@@ -6,12 +6,12 @@ use intricate_macros::FromForAllUnnamedVariants;
 use opencl3::{
     device::cl_float,
     error_codes::ClError,
-    memory::{Buffer, CL_MEM_READ_ONLY},
+    memory::Buffer,
 };
 
 use crate::{
     optimizers::{OptimizationError, Optimizer},
-    utils::{opencl::{EnsureKernelsAndProgramError, BufferOperationError}, OpenCLState, BufferOperations}, types::{KernelNotFoundError, ProgramNotFoundError, SyncDataError},
+    utils::{opencl::{EnsureKernelsAndProgramError, BufferOperationError, BufferConversionError}, OpenCLState, BufferOperations}, types::{KernelNotFoundError, ProgramNotFoundError, SyncDataError},
 };
 
 pub mod activations;
@@ -34,8 +34,12 @@ pub(crate) fn compile_layers(
 /// A simple struct that contains the gradients for a certain parameter and weather or not these
 /// gradients should be optimized.
 pub struct Gradient {
+    /// The name of the parameter to keep track of what is updated in the optimizer
+    pub parameter_id: String,
+
     /// The actual gradients of the parameter.
     pub value: Buffer<cl_float>,
+
     /// Weather or not the gradients should be optimized when computing the update vectors.
     pub optimizable: bool,
 }
@@ -52,17 +56,22 @@ pub enum UpdateVectorsComputationError {
 }
 
 pub(crate) fn compute_update_vectors<'a>(
-    optimizer: &dyn Optimizer<'a>,
+    optimizer: &mut dyn Optimizer<'a>,
     all_gradients: &[Gradient],
+    layer_index: usize,
     state: &OpenCLState,
 ) -> Result<Vec<Buffer<cl_float>>, UpdateVectorsComputationError> {
     let mut update_vectors: Vec<Buffer<cl_float>> = Vec::with_capacity(all_gradients.len());
 
     for gradients in all_gradients.iter() {
         if gradients.optimizable {
-            update_vectors.push(optimizer.compute_update_vectors(&gradients.value)?);
+            update_vectors.push(optimizer.compute_update_vectors(
+                &gradients.value,
+                gradients.parameter_id.to_string(),
+                layer_index,
+            )?);
         } else {
-            update_vectors.push(gradients.value.clone(CL_MEM_READ_ONLY, state)?);
+            update_vectors.push(gradients.value.clone(state)?);
         }
     }
 
@@ -185,6 +194,19 @@ pub enum ParametersOptimizationError {
     EmptyParameter(String),
 }
 
+#[derive(Debug, FromForAllUnnamedVariants)]
+/// An enum containing all of the errors that can happen when trying to initialize a Layer.
+pub enum LayerInitializationError {
+    /// Happens when something goes wrong trying to convert the Layer's parameters into OpenCL
+    /// Buffers.
+    BufferConversion(BufferConversionError),
+    /// Happens when a parameter that is going to be converted into a OpenCL Buffer is empty. Such
+    /// as an empty Vec.
+    EmptyParameter(String),
+    /// Happens when there is no OpenCL Command Queue when needed.
+    NoCommandQueue,
+}
+
 /// A trait implemented by Intricate that is implemented in every struct that represents a Model
 /// Layer.
 /// A layer in Intricate can be defined basically as a function that can take some inputs and gives
@@ -250,7 +272,7 @@ pub trait Layer<'a> {
     ///
     /// This function will return an error if something goes wrong while 
     /// allocating buffers into the device of the queue.
-    fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), ClError>;
+    fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), LayerInitializationError>;
 
     /// Should calculate the outputs of the layer based on the inputs
     ///
@@ -291,6 +313,7 @@ pub trait Layer<'a> {
     fn optimize_parameters(
         &mut self,
         optimizer: &dyn Optimizer<'a>,
+        layer_index: usize,
     ) -> Result<(), ParametersOptimizationError>;
 
     /// Applies all of the gradients given by **compute_gradients** of the current layer using a
@@ -310,7 +333,8 @@ pub trait Layer<'a> {
     fn apply_gradients(
         &mut self,
         per_parameter_type_gradients: &[Gradient],
-        optimizer: &dyn Optimizer<'a>,
+        optimizer: &mut dyn Optimizer<'a>,
+        layer_model_index: usize,
     ) -> Result<(), LayerGradientApplicationError>;
 
     /// Computes the derivatives of the Model's loss with respect to all of the inputs in each

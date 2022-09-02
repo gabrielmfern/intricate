@@ -22,7 +22,7 @@ use std::mem;
 use crate::{
     layers::{
         Gradient, Layer, LayerGradientApplicationError, LayerGradientComputationError,
-        LayerLossToInputDifferentiationError, LayerPropagationError, ParametersOptimizationError,
+        LayerLossToInputDifferentiationError, LayerPropagationError, ParametersOptimizationError, LayerInitializationError,
     },
     loss_functions::{
         LossComputationError, LossFunction, LossToModelOutputsDerivativesComputationError,
@@ -249,7 +249,7 @@ impl<'a> Model<'a> {
     /// CompilationError (just a String with some stacktrace to the error).
     /// If the programs were compiled successfully don't put your guard down yet because OpenCL may
     /// yield some error if something it needs to do fails.
-    pub fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), ClError> {
+    pub fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), LayerInitializationError> {
         for layer in self.layers.iter_mut() {
             layer.init(opencl_state)?;
         }
@@ -334,7 +334,7 @@ impl<'a> Model<'a> {
             .map(|x| x.to_vec())
             .flatten()
             .collect::<Vec<f32>>()
-            .to_buffer(CL_MEM_READ_ONLY, false, state)?;
+            .to_buffer(false, state)?;
 
         let result = self.predict_with_moved_buffer(first_input_samples_buffer)?;
 
@@ -422,14 +422,14 @@ impl<'a> Model<'a> {
             .flatten()
             .map(|x| *x)
             .collect::<Vec<f32>>()
-            .to_buffer(CL_MEM_READ_ONLY, false, state)?;
+            .to_buffer(false, state)?;
 
         let expected_output_samples_buffer = training_expected_output_samples
             .par_iter()
             .flatten()
             .map(|x| *x)
             .collect::<Vec<f32>>()
-            .to_buffer(CL_MEM_READ_WRITE, false, state)?;
+            .to_buffer(false, state)?;
 
         let steps_amount =
             (samples_amount as f32 / training_options.batch_size as f32).ceil() as usize;
@@ -609,8 +609,8 @@ impl<'a> Model<'a> {
 
         let queue = &state.queues[0];
 
-        for layer in self.layers.iter_mut() {
-            layer.optimize_parameters(training_options.optimizer)?;
+        for (i, layer) in self.layers.iter_mut().enumerate() {
+            layer.optimize_parameters(training_options.optimizer, i)?;
         }
 
         let gradients = self.compute_gradients(
@@ -683,7 +683,7 @@ impl<'a> Model<'a> {
     pub fn apply_gradients(
         &mut self,
         gradients_per_layer: &[Vec<Gradient>],
-        optimizer: &dyn Optimizer<'a>, //ModelOptimizer<'a>,
+        optimizer: &mut dyn Optimizer<'a>, //ModelOptimizer<'a>,
     ) -> Result<(), ModelGradientApplicationError> {
         if self.opencl_state.is_none() {
             return Err(ModelGradientApplicationError::NotInitialized);
@@ -695,8 +695,8 @@ impl<'a> Model<'a> {
             return Err(ModelGradientApplicationError::NoCommandQueue);
         }
 
-        for (layer, gradients) in self.layers.iter_mut().zip(gradients_per_layer.iter().rev()) {
-            layer.apply_gradients(gradients.as_slice(), optimizer)?;
+        for (layer_index, (layer, gradients)) in self.layers.iter_mut().zip(gradients_per_layer.iter().rev()).enumerate() {
+            layer.apply_gradients(gradients.as_slice(), optimizer, layer_index)?;
         }
 
         Ok(())

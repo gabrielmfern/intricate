@@ -19,7 +19,7 @@ kernel void compute_loss(
     for (int output_index = 0; output_index < outputs_amount; output_index++) {
         int flat_i = row_part + output_index;
         float output_dist = (float) (output_samples[flat_i] - expected_output_samples[flat_i]);
-        sample_loss += output_dist * output_dist;
+        sample_loss += output_dist;
     }
 
     sample_losses[sample_index] = sample_loss;
@@ -49,5 +49,5 @@ kernel void compute_loss_to_output_derivatives(
 
     float dist = (float) (output_samples[flat_i] - expected_output_samples[flat_i]);
 
-    loss_to_output_derivatives[flat_i] = 2.0 / (float)outputs_amount * dist;
+    loss_to_output_derivatives[flat_i] = 1.0 / (float)outputs_amount;
 }

@@ -54,12 +54,12 @@ fn should_decrease_error() -> () {
             &mut TrainingOptions {
                 loss_fn: &mut loss,
                 verbosity: TrainingVerbosity {
-                    show_current_epoch: true,
+                    show_current_epoch: false,
                     show_epoch_progress: false,
-                    show_epoch_elapsed: true,
-                    print_accuracy: true,
+                    show_epoch_elapsed: false,
+                    print_accuracy: false,
                     print_loss: false,
-                    halting_condition_warning: true,
+                    halting_condition_warning: false,
                 },
                 halting_condition: Some(HaltingCondition::MinLossReached(0.1)),
                 compute_accuracy: true,

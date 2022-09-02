@@ -126,7 +126,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             fn init(
                 &mut self,
                 opencl_state: &'a crate::utils::OpenCLState,
-            ) -> Result<(), opencl3::error_codes::ClError> {
+            ) -> Result<(), crate::layers::LayerInitializationError> {
                 match self {
                     #(
                         #enum_name::#layer_names_5(layer) => layer.init(opencl_state),
@@ -180,13 +180,15 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             fn apply_gradients(
                 &mut self,
                 per_parameter_type_gradients: &[crate::layers::Gradient],
-                optimizer: &dyn crate::optimizers::Optimizer<'a>,
+                optimizer: &mut dyn crate::optimizers::Optimizer<'a>,
+                layer_index: usize,
             ) -> Result<(), crate::layers::LayerGradientApplicationError> {
                 match self {
                     #(
                         #enum_name::#layer_names_10(layer) => layer.apply_gradients(
                             per_parameter_type_gradients,
-                            optimizer
+                            optimizer,
+                            layer_index,
                         ),
                     )*
                 }
@@ -208,11 +210,13 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             fn optimize_parameters(
                 &mut self,
                 optimizer: &dyn crate::optimizers::Optimizer<'a>,
+                layer_index: usize,
             ) -> Result<(), crate::layers::ParametersOptimizationError> {
                 match self {
                     #(
                         #enum_name::#layer_names_12(layer) => layer.optimize_parameters(
                             optimizer,
+                            layer_index,
                         ),
                     )*
                 }
@@ -288,7 +292,7 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
             fn init(
                 &mut self,
                 opencl_state: &'a crate::utils::OpenCLState,
-            ) -> Result<(), opencl3::error_codes::ClError> {
+            ) -> Result<(), crate::layers::LayerInitializationError> {
                 self.opencl_state = Some(opencl_state);
 
                 Ok(())
@@ -353,7 +357,7 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                     return Err(crate::layers::LayerPropagationError::InputsDontMatchExpectedShape);
                 }
 
-                let mut copied_last_inputs_buffer = inputs.clone(opencl3::memory::CL_MEM_READ_ONLY, state)?;
+                let mut copied_last_inputs_buffer = inputs.clone(state)?;
 
                 self.last_inputs_buffer = Some(copied_last_inputs_buffer);
 
@@ -389,7 +393,8 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
             fn apply_gradients(
                 &mut self,
                 _per_parameter_type_gradients: &[crate::layers::Gradient],
-                _optimizer: &dyn crate::optimizers::Optimizer<'a>,
+                _optimizer: &mut dyn crate::optimizers::Optimizer<'a>,
+                _layer_index: usize,
             ) -> Result<(), crate::layers::LayerGradientApplicationError> {
                 Ok(())
             }
@@ -397,6 +402,7 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
             fn optimize_parameters(
                 &mut self,
                 _optimizer: &dyn crate::optimizers::Optimizer<'a>,
+                _layer_index: usize,
             ) -> Result<(), crate::layers::ParametersOptimizationError> {
                 Ok(())
             }

@@ -16,8 +16,8 @@ use crate::utils::opencl::EnsureKernelsAndProgramError;
 use crate::utils::BufferOperations;
 use crate::utils::OpenCLState;
 
-use super::LossToModelOutputsDerivativesComputationError;
 use super::LossComputationError;
+use super::LossToModelOutputsDerivativesComputationError;
 
 const PROGRAM_NAME: &str = "CATEGORICAL_CROSS_ENTROPY";
 const PROGRAM_SOURCE: &str = include_str!("kernels/categorical_cross_entropy.cl");
@@ -47,6 +47,10 @@ pub(crate) fn compile_categorical_cross_entropy(
 /// The **Categorical Cross Entropy** loss function made for, as the name may suggest, classfying
 /// the loss of a categorical Model.
 /// May yield some NaN values when being used because of the nature of this loss function
+///
+/// This loss function is very good for categorical problems because it penalizes when some values
+/// are high when they should be closer to 0, and if the values are a bit far from what they are
+/// expected to be they are much more penalized that in other loss functions.
 pub struct CategoricalCrossEntropy<'a> {
     opencl_state: Option<&'a OpenCLState>,
 }
@@ -93,7 +97,7 @@ impl<'a> LossFunction<'a> for CategoricalCrossEntropy<'a> {
         }
 
         let outputs_total_count = outputs_size / mem::size_of::<cl_float>();
-        
+
         if outputs_total_count % samples_amount != 0 {
             return Err(LossComputationError::TrainingDataDoesNotHaveExpectedSamplesAmount);
         }
@@ -141,11 +145,13 @@ impl<'a> LossFunction<'a> for CategoricalCrossEntropy<'a> {
         let outputs_size = output_samples.size()?;
 
         if output_samples.size()? != expected_outputs.size()? {
-            return Err(LossToModelOutputsDerivativesComputationError::OutputsAndExpectedOutputsDoNotMatch);
+            return Err(
+                LossToModelOutputsDerivativesComputationError::OutputsAndExpectedOutputsDoNotMatch,
+            );
         }
 
         let outputs_total_count = outputs_size / mem::size_of::<cl_float>();
-        
+
         if outputs_total_count % samples_amount != 0 {
             return Err(LossToModelOutputsDerivativesComputationError::TrainingDataDoesNotHaveExpectedSamplesAmount);
         }
@@ -155,7 +161,8 @@ impl<'a> LossFunction<'a> for CategoricalCrossEntropy<'a> {
         let derivatives_buffer = empty_buffer(outputs_total_count, CL_MEM_READ_WRITE, state)?;
 
         let program = state.get_prgm(PROGRAM_NAME)?;
-        let loss_to_output_deriv_kernel = program.get_krnl(COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL)?;
+        let loss_to_output_deriv_kernel =
+            program.get_krnl(COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL)?;
 
         ExecuteKernel::new(loss_to_output_deriv_kernel)
             .set_arg(output_samples)
@@ -184,9 +191,7 @@ mod categorical_cross_entropy_tests {
 
     use super::CategoricalCrossEntropy;
     use crate::utils::{approx_eq::assert_approx_equal_distance, setup_opencl, OpenCLState};
-    use crate::{
-        loss_functions::LossFunction, utils::opencl::DeviceType,
-    };
+    use crate::{loss_functions::LossFunction, utils::opencl::DeviceType};
 
     #[test]
     fn should_compute_derivatives_up_to_a_certain_precision() {
@@ -213,7 +218,7 @@ mod categorical_cross_entropy_tests {
         let expected_derivatives: Vec<f32> = expected_outputs
             .iter()
             .zip(&output_samples)
-            .map(|(expected_output, actual_output)| -expected_output / actual_output)
+            .map(|(expected_output, actual_output)| -(expected_output / actual_output + (1.0 - expected_output) / (1.0 - actual_output)))
             .collect();
 
         let mut outputs_buf = Buffer::<cl_float>::create(
@@ -221,13 +226,15 @@ mod categorical_cross_entropy_tests {
             CL_MEM_READ_ONLY,
             samples_amount * outputs_amount,
             ptr::null_mut(),
-        ).unwrap();
+        )
+        .unwrap();
         let mut expected_outputs_buf = Buffer::<cl_float>::create(
             context,
             CL_MEM_READ_ONLY,
             samples_amount * outputs_amount,
             ptr::null_mut(),
-        ).unwrap();
+        )
+        .unwrap();
 
         let queue = opencl_state.queues.first().unwrap();
 
@@ -238,8 +245,10 @@ mod categorical_cross_entropy_tests {
                 0,
                 output_samples.as_slice(),
                 &[],
-            ).unwrap()
-            .wait().unwrap();
+            )
+            .unwrap()
+            .wait()
+            .unwrap();
         queue
             .enqueue_write_buffer(
                 &mut expected_outputs_buf,
@@ -247,20 +256,26 @@ mod categorical_cross_entropy_tests {
                 0,
                 expected_outputs.as_slice(),
                 &[],
-            ).unwrap()
-            .wait().unwrap();
+            )
+            .unwrap()
+            .wait()
+            .unwrap();
 
-        let buf = gpu_loss.compute_loss_derivative_with_respect_to_output_samples(
-            &outputs_buf,
-            &expected_outputs_buf,
-            samples_amount,
-        ).unwrap();
+        let buf = gpu_loss
+            .compute_loss_derivative_with_respect_to_output_samples(
+                &outputs_buf,
+                &expected_outputs_buf,
+                samples_amount,
+            )
+            .unwrap();
         let mut derivatives_vec = vec![0.0; samples_amount * outputs_amount];
         let derivatives_slice = derivatives_vec.as_mut_slice();
 
         queue
-            .enqueue_read_buffer(&buf, CL_NON_BLOCKING, 0, derivatives_slice, &[]).unwrap()
-            .wait().unwrap();
+            .enqueue_read_buffer(&buf, CL_NON_BLOCKING, 0, derivatives_slice, &[])
+            .unwrap()
+            .wait()
+            .unwrap();
 
         assert_approx_equal_distance(&expected_derivatives, &derivatives_vec, 0.01);
     }
@@ -288,7 +303,9 @@ mod categorical_cross_entropy_tests {
         let expected_loss: f32 = expected_outputs
             .iter()
             .zip(&outputs)
-            .map(|(expected_output, output)| -expected_output * output.ln())
+            .map(|(expected_output, output)| {
+                -(expected_output * output.ln() + (1.0 - expected_output) * (1.0 - output).ln())
+            })
             .sum::<f32>()
             / samples_amount as f32;
         let mut outputs_buf = Buffer::<cl_float>::create(
@@ -296,13 +313,15 @@ mod categorical_cross_entropy_tests {
             CL_MEM_READ_ONLY,
             samples_amount * outputs_amount,
             ptr::null_mut(),
-        ).unwrap();
+        )
+        .unwrap();
         let mut expected_outputs_buf = Buffer::<cl_float>::create(
             context,
             CL_MEM_READ_ONLY,
             samples_amount * outputs_amount,
             ptr::null_mut(),
-        ).unwrap();
+        )
+        .unwrap();
 
         let queue = opencl_state.queues.first().unwrap();
 
@@ -313,8 +332,10 @@ mod categorical_cross_entropy_tests {
                 0,
                 outputs.as_slice(),
                 &[],
-            ).unwrap()
-            .wait().unwrap();
+            )
+            .unwrap()
+            .wait()
+            .unwrap();
         queue
             .enqueue_write_buffer(
                 &mut expected_outputs_buf,
@@ -322,10 +343,14 @@ mod categorical_cross_entropy_tests {
                 0,
                 expected_outputs.as_slice(),
                 &[],
-            ).unwrap()
-            .wait().unwrap();
+            )
+            .unwrap()
+            .wait()
+            .unwrap();
 
-        let actual_loss = loss.compute_loss(&outputs_buf, &expected_outputs_buf, samples_amount).unwrap();
+        let actual_loss = loss
+            .compute_loss(&outputs_buf, &expected_outputs_buf, samples_amount)
+            .unwrap();
 
         let largest_loss = expected_loss.max(actual_loss);
         println!(
