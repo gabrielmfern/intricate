@@ -157,13 +157,13 @@ fn reduce_buffer_by_summation(
     wait_list: &[Event],
 ) -> Result<(Event, Buffer<cl_float>), ClError> {
     let current_count = buffer.size()? / mem::size_of::<cl_float>();
-    assert!(dbg!(current_count) >= 1);
+    assert!(current_count >= 1);
 
     let (local_size, global_size) =
         find_optimal_local_and_global_work_sizes(current_count, max_local_size);
 
     let current_reduced_buffer =
-        empty_buffer(dbg!(global_size) / dbg!(local_size), CL_MEM_READ_WRITE, opencl_state)?;
+        empty_buffer(global_size / local_size, CL_MEM_READ_WRITE, opencl_state)?;
     let queue = opencl_state.queues.first().unwrap();
 
     let event = ExecuteKernel::new(reduce_kernel)
@@ -920,7 +920,7 @@ impl BufferOperations for Buffer<cl_float> {
 
             queue.finish()?;
 
-            Ok(dbg!(buf_slice)[0])
+            Ok(buf_slice[0])
         }
     }
 }
