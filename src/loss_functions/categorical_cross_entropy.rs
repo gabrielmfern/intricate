@@ -218,7 +218,10 @@ mod categorical_cross_entropy_tests {
         let expected_derivatives: Vec<f32> = expected_outputs
             .iter()
             .zip(&output_samples)
-            .map(|(expected_output, actual_output)| -(expected_output / actual_output + (1.0 - expected_output) / (1.0 - actual_output)))
+            .map(|(expected_output, actual_output)| {
+                -(expected_output / (actual_output + 0.00001)
+                    - (1.0 - expected_output) / (1.0 - actual_output + 0.00001))
+            })
             .collect();
 
         let mut outputs_buf = Buffer::<cl_float>::create(
@@ -304,7 +307,8 @@ mod categorical_cross_entropy_tests {
             .iter()
             .zip(&outputs)
             .map(|(expected_output, output)| {
-                -(expected_output * output.ln() + (1.0 - expected_output) * (1.0 - output).ln())
+                -(expected_output * (output + 0.00001).ln()
+                    + (1.0 - expected_output) * (1.0 - output + 0.00001).ln())
             })
             .sum::<f32>()
             / samples_amount as f32;
