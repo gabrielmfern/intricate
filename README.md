@@ -79,9 +79,6 @@ This is useful because anyone using Intricate can develop and perhaps debug a Op
 for certain use cases which is very good for where I want Intricate to go. All you have to do is create some struct
 that implements the `Optimizer` trait.
 
-Intricate currently only does have one optimizer since it is still on heavy development and changing
-architecture constantly so writing many implementations would be really annoying to change later.
-
 ### Loss Functions
 
 Loss Functions are just basically some implementations of a certain trait that are used
