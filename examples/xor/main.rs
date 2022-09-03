@@ -3,7 +3,7 @@ use intricate::layers::Dense;
 
 use intricate::loss_functions::MeanSquared;
 use intricate::optimizers::BasicOptimizer;
-use intricate::types::{ModelLayer, TrainingOptions, TrainingVerbosity, HaltingCondition};
+use intricate::types::{HaltingCondition, ModelLayer, TrainingOptions, TrainingVerbosity};
 use intricate::utils::opencl::DeviceType;
 use intricate::utils::setup_opencl;
 use intricate::Model;
@@ -19,12 +19,7 @@ fn main() -> () {
         vec![1.0, 1.0],
     ];
 
-    let expected_outputs: Vec<Vec<f32>> = vec![
-        vec![0.0],
-        vec![1.0],
-        vec![1.0],
-        vec![0.0],
-    ];
+    let expected_outputs: Vec<Vec<f32>> = vec![vec![0.0], vec![1.0], vec![1.0], vec![0.0]];
 
     // Defining the layers for our XoR Model
     let layers: Vec<ModelLayer> = vec![
@@ -50,25 +45,36 @@ fn main() -> () {
             &expected_outputs,
             &mut TrainingOptions {
                 loss_fn: &mut loss, // the type of loss function that should be used for Intricate
-                                    // to determine how bad the Model is
+                // to determine how bad the Model is
+                // these two functions are quite useful for a Model that needs to work with very large 
+                // data that will cost a lot of RAM and computing
+                from_inputs_to_vectors: &(|inputs| Ok(inputs.to_vec())), // a function to
+                                                                         // preprocess the inputs
+                from_expected_outputs_to_vectors: &(|outputs| Ok(outputs.to_vec())), // a function
+                                                                                     // to
+                                                                                     // preprocess
+                                                                                     // the
+                                                                                     // expected
+                                                                                     // outputs
                 verbosity: TrainingVerbosity {
-                    show_current_epoch: true, // show a message for each epoch like `epoch #5`
+                    show_current_epoch: true,   // show a message for each epoch like `epoch #5`
                     show_epoch_progress: false, // show a progress bar of the training steps in a
-                                                // epoch
+                    // epoch
                     show_epoch_elapsed: true, // show elapsed time in calculations for one epoch
-                    print_accuracy: true, // should print the accuracy after each epoch
-                    print_loss: true, // should print the loss after each epoch
+                    print_accuracy: true,     // should print the accuracy after each epoch
+                    print_loss: true,         // should print the loss after each epoch
                     halting_condition_warning: true,
                 },
-                //                 a condition for stopping the training if a min accuracy is reached
+                //                 a condition for stopping the training if the Model gets to 95%
+                //                 accuracy
                 halting_condition: Some(HaltingCondition::MinAccuracyReached(0.95)),
                 compute_accuracy: false, // if Intricate should compute the accuracy after each
-                                         // training step
+                // training step
                 compute_loss: true, // if Intricate should compute the loss after each training
-                                    // step
+                // step
                 optimizer: &mut optimizer,
                 batch_size: 4, // the size of the mini-batch being used in Intricate's Mini-batch
-                               // Gradient Descent
+                // Gradient Descent
                 epochs: 10000,
             },
         )

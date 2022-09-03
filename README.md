@@ -185,6 +185,16 @@ xor_model
         &mut TrainingOptions {
             loss_fn: &mut loss, // the type of loss function that should be used for Intricate
                                 // to determine how bad the Model is
+            // these two functions are quite useful for a Model that needs to work with very large 
+            // data that will cost a lot of RAM and computing
+            from_inputs_to_vectors: &(|inputs| Ok(inputs.to_vec())), // a function to
+                                                                     // preprocess the inputs
+            from_expected_outputs_to_vectors: &(|outputs| Ok(outputs.to_vec())), // a function
+                                                                                 // to
+                                                                                 // preprocess
+                                                                                 // the
+                                                                                 // expected
+                                                                                 // outputs
             verbosity: TrainingVerbosity {
                 show_current_epoch: true, // show a message for each epoch like `epoch #5`
                 show_epoch_progress: false, // show a progress bar of the training steps in a
@@ -208,7 +218,6 @@ xor_model
     )
     .unwrap();
 ```
-
 As you can see it is extremely easy creating these models, and blazingly fast as well.
 
 ---
@@ -250,3 +259,4 @@ to use the Model after loading it, you **must** call the `init` method in the `l
 - add a way to send into the training process a callback closure that would be called everytime a epoch finished or even a step too with some cool info
 - make an example after doing the thing above ^, that uses that same function to plot the loss realtime using a crate like `textplots`
 - add embedding layers for text such as bag of words with an expected vocabulary size
+- add a better way to define training options as to not need to write such large code when there is no need for it
