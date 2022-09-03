@@ -14,7 +14,7 @@ use opencl3::{
     error_codes::ClError,
     memory::{Buffer, ClMem, CL_MEM_READ_WRITE},
 };
-use opencl3::{error_codes::cl_int, kernel::ExecuteKernel, memory::CL_MEM_READ_ONLY};
+use opencl3::{error_codes::cl_int, kernel::ExecuteKernel};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use savefile_derive::Savefile;
 use std::mem;
@@ -22,15 +22,16 @@ use std::mem;
 use crate::{
     layers::{
         Gradient, Layer, LayerGradientApplicationError, LayerGradientComputationError,
-        LayerLossToInputDifferentiationError, LayerPropagationError, ParametersOptimizationError, LayerInitializationError,
+        LayerInitializationError, LayerLossToInputDifferentiationError, LayerPropagationError,
+        ParametersOptimizationError,
     },
     loss_functions::{
         LossComputationError, LossFunction, LossToModelOutputsDerivativesComputationError,
     },
     optimizers::Optimizer,
     types::{
-        HaltingCondition, KernelNotFoundError, ModelLayer, ProgramNotFoundError, SyncDataError,
-        TrainingOptions, TrainingResults,
+        HaltingCondition, KernelNotFoundError, ModelLayer, PreprocessingError,
+        ProgramNotFoundError, SyncDataError, TrainingOptions, TrainingResults,
     },
     utils::{
         opencl::{
@@ -139,6 +140,9 @@ pub enum ModelFittingError {
 
     /// Happens when something goes wrong in a predefined buffer operation
     BufferOperation(BufferOperationError),
+
+    /// Happens when something goes wrong while trying to convert the InputType samples intoj
+    Preprocessing(PreprocessingError),
 
     /// Happens if something goes wrong with OpenCL.
     OpenCL(ClError),
@@ -394,11 +398,11 @@ impl<'a> Model<'a> {
     /// happens while compiling the OpenCL programs for the Loss Function
     /// defined in the training options, or some error happens running the kernels
     /// at some point in the method calls.
-    pub fn fit(
+    pub fn fit<InputType, OutputType>(
         &mut self,
-        training_input_samples: &Vec<Vec<f32>>,
-        training_expected_output_samples: &Vec<Vec<f32>>,
-        training_options: &mut TrainingOptions<'a>,
+        training_input_samples: &Vec<InputType>,
+        training_expected_output_samples: &Vec<OutputType>,
+        training_options: &mut TrainingOptions<'a, InputType, OutputType>,
     ) -> Result<TrainingResults, ModelFittingError> {
         if self.opencl_state.is_none() {
             return Err(ModelFittingError::NotInitialized);
@@ -413,23 +417,7 @@ impl<'a> Model<'a> {
         training_options.loss_fn.init(state)?;
         training_options.optimizer.init(state)?;
 
-        let inputs_amount = self.layers[0].get_inputs_amount();
-        let outputs_amount = self.layers.last().unwrap().get_outputs_amount();
         let samples_amount = training_input_samples.len();
-
-        let input_samples_buffer = training_input_samples
-            .par_iter()
-            .flatten()
-            .map(|x| *x)
-            .collect::<Vec<f32>>()
-            .to_buffer(false, state)?;
-
-        let expected_output_samples_buffer = training_expected_output_samples
-            .par_iter()
-            .flatten()
-            .map(|x| *x)
-            .collect::<Vec<f32>>()
-            .to_buffer(false, state)?;
 
         let steps_amount =
             (samples_amount as f32 / training_options.batch_size as f32).ceil() as usize;
@@ -437,13 +425,12 @@ impl<'a> Model<'a> {
         let mut losses: Vec<f32> = Vec::with_capacity(training_options.epochs * steps_amount);
         let mut accuracies: Vec<f32> = Vec::with_capacity(training_options.epochs * steps_amount);
 
-        let mut per_step_inputs: Vec<Buffer<cl_float>> = Vec::with_capacity(steps_amount);
-        let mut per_step_outputs: Vec<Buffer<cl_float>> = Vec::with_capacity(steps_amount);
+        let mut per_step_input_batches: Vec<&[InputType]> = Vec::with_capacity(steps_amount);
+        let mut per_step_output_batches: Vec<&[OutputType]> = Vec::with_capacity(steps_amount);
 
         for i_batch in 0..steps_amount {
             let count;
             let origin;
-
             if i_batch == steps_amount - 1 && samples_amount % training_options.batch_size != 0 {
                 count = samples_amount % training_options.batch_size;
                 origin = steps_amount - 1;
@@ -452,19 +439,11 @@ impl<'a> Model<'a> {
                 origin = i_batch * count;
             }
 
-            let batch_inputs = input_samples_buffer.create_sub_buffer(
-                CL_MEM_READ_ONLY,
-                origin * inputs_amount,
-                count * inputs_amount,
-            )?;
-            let batch_outputs = expected_output_samples_buffer.create_sub_buffer(
-                CL_MEM_READ_ONLY,
-                origin * outputs_amount,
-                count * outputs_amount,
-            )?;
+            let batch_inputs = &training_input_samples[origin..(origin + count)];
+            let batch_outputs = &training_expected_output_samples[origin..(origin + count)];
 
-            per_step_inputs.push(batch_inputs);
-            per_step_outputs.push(batch_outputs);
+            per_step_input_batches.push(batch_inputs);
+            per_step_output_batches.push(batch_outputs);
         }
 
         for epoch_index in 0..training_options.epochs {
@@ -483,7 +462,7 @@ impl<'a> Model<'a> {
                     (samples_amount as f32 / training_options.batch_size as f32).ceil() as u64,
                 );
                 pbar.set_style(
-                    ProgressStyle::with_template("[{bar:10}] {pos}/{len} [{elapsed}] {eta) {msg}")
+                    ProgressStyle::with_template("[{bar:10}] {pos}/{len} [{elapsed}] {eta} {msg}")
                         .unwrap()
                         .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
                             write!(w, "{:?}", state.eta()).unwrap()
@@ -497,8 +476,22 @@ impl<'a> Model<'a> {
                 (samples_amount as f32 / training_options.batch_size as f32).ceil() as usize;
 
             for i_batch in 0..steps_amount {
-                let batch_inputs = &per_step_inputs[i_batch];
-                let batch_outputs = &per_step_outputs[i_batch];
+                let batch_inputs: Buffer<cl_float> =
+                    (training_options.from_inputs_to_vectors)(per_step_input_batches[i_batch])?
+                        .par_iter()
+                        .flatten()
+                        .map(|x| *x)
+                        .collect::<Vec<f32>>()
+                        .to_buffer(false, state)?;
+                let batch_outputs: Buffer<cl_float> = (training_options
+                    .from_expected_outputs_to_vectors)(
+                    per_step_output_batches[i_batch]
+                )?
+                .par_iter()
+                .flatten()
+                .map(|x| *x)
+                .collect::<Vec<f32>>()
+                .to_buffer(false, state)?;
 
                 let local_batch_size;
                 if i_batch == steps_amount - 1 && samples_amount % training_options.batch_size != 0
@@ -509,8 +502,8 @@ impl<'a> Model<'a> {
                 }
 
                 let (optional_loss, optional_accuracy) = self.do_training_step(
-                    batch_inputs,
-                    batch_outputs,
+                    &batch_inputs,
+                    &batch_outputs,
                     local_batch_size,
                     training_options,
                 )?;
@@ -541,13 +534,16 @@ impl<'a> Model<'a> {
             }
 
             if training_options.verbosity.print_accuracy {
-                println!("got a accuracy of {} after epoch", accuracies.last().unwrap());
+                println!(
+                    "got a accuracy of {} after epoch",
+                    accuracies.last().unwrap()
+                );
             }
 
             if training_options.verbosity.show_epoch_elapsed {
                 println!("{:?} elapsed on epoch", start.elapsed());
             }
-            
+
             if let Some(halting_condition) = &training_options.halting_condition {
                 match halting_condition {
                     HaltingCondition::MinLossReached(min_loss) => {
@@ -564,7 +560,7 @@ impl<'a> Model<'a> {
 
                             break;
                         }
-                    },
+                    }
                     HaltingCondition::MinAccuracyReached(min_acc) => {
                         if accuracies.is_empty() {
                             return Err(ModelFittingError::NoAccuracyForHaltingCondition);
@@ -579,7 +575,7 @@ impl<'a> Model<'a> {
 
                             break;
                         }
-                    },
+                    }
                 };
             }
         }
@@ -590,12 +586,12 @@ impl<'a> Model<'a> {
         })
     }
 
-    fn do_training_step(
+    fn do_training_step<InputType, OutputType>(
         &mut self,
         input_samples: &Buffer<cl_float>,
         expected_output_samples: &Buffer<cl_float>,
         samples_amount: usize,
-        training_options: &mut TrainingOptions<'a>,
+        training_options: &mut TrainingOptions<'a, InputType, OutputType>,
     ) -> Result<(Option<f32>, Option<f32>), ModelFittingError> {
         if self.opencl_state.is_none() {
             return Err(ModelFittingError::NotInitialized);
@@ -695,7 +691,12 @@ impl<'a> Model<'a> {
             return Err(ModelGradientApplicationError::NoCommandQueue);
         }
 
-        for (layer_index, (layer, gradients)) in self.layers.iter_mut().zip(gradients_per_layer.iter().rev()).enumerate() {
+        for (layer_index, (layer, gradients)) in self
+            .layers
+            .iter_mut()
+            .zip(gradients_per_layer.iter().rev())
+            .enumerate()
+        {
             layer.apply_gradients(gradients.as_slice(), optimizer, layer_index)?;
         }
 

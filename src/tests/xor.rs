@@ -53,6 +53,8 @@ fn should_decrease_error() -> () {
             &training_output_samples,
             &mut TrainingOptions {
                 loss_fn: &mut loss,
+                from_inputs_to_vectors: &(|inputs| Ok(inputs.to_vec())),
+                from_expected_outputs_to_vectors: &(|outputs| Ok(outputs.to_vec())),
                 verbosity: TrainingVerbosity {
                     show_current_epoch: false,
                     show_epoch_progress: false,
