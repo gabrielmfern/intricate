@@ -11,8 +11,7 @@ use crate::{
         Dense,
     },
     loss_functions::LossFunction,
-    optimizers::Optimizer,
-    utils::opencl::BufferConversionError,
+    optimizers::Optimizer, utils::opencl::BufferConversionError,
 };
 
 #[derive(Debug)]
@@ -109,34 +108,11 @@ pub enum HaltingCondition {
     MinAccuracyReached(f32),
 }
 
-#[derive(Debug)]
-/// A error that happens when trying to preprocess the `InputType` and convert it into a vector for
-/// using as actual inputs to the Model.
-///
-/// The String it contains is the cause of the error.
-pub struct PreprocessingError(String);
-
 /// A struct that defines the options for training a Model.
-pub struct TrainingOptions<'a, InputType, OutputType> {
+pub struct TrainingOptions<'a> {
     /// The loss function that will be used for calculating how **wrong** the Model
     /// was after some prediction over many samples.
     pub loss_fn: &'a mut dyn LossFunction<'a>,
-
-    /// A function that will convert from the InputsType to a matrix of floats.
-    ///
-    /// This is useful for a Model that is made to work on text in case you have a Bag of Words
-    /// inputs in which case they can get very large, to avoid overflowing in the RAM you cna just
-    /// pass in the text to the function and use the vocabulary inside of the conversion to
-    /// generate the BoW if needed.
-    pub from_inputs_to_vectors: &'a dyn Fn(&[InputType]) -> Result<Vec<Vec<f32>>, PreprocessingError>,
-
-    /// A function that will convert from the OutputsType to a matrix of floats.
-    ///
-    /// This is useful for a Model that is made to work on text in case you have a Bag of Words as
-    /// outputs in which case they can get very large, to avoid overflowing in the RAM you cna just
-    /// pass in the text to the function and use the vocabulary inside of the conversion to
-    /// generate the BoW if needed.
-    pub from_expected_outputs_to_vectors: &'a dyn Fn(&[OutputType]) -> Result<Vec<Vec<f32>>, PreprocessingError>,
 
     /// The size of the batch given at once to the Model for training.
     /// This is here because a Model will always run on mini batches, if you wish to do `Batch
@@ -148,7 +124,8 @@ pub struct TrainingOptions<'a, InputType, OutputType> {
     /// optimize gradients and compute update vectors that are going to be actually used when
     /// applying the gradients
     pub optimizer: &'a mut dyn Optimizer<'a>, // this is mut because we need to init the optimizer
-    // before using it
+                                              // before using it
+                                             
     /// Some verbosity options to determine what should appear when training a Model or not.
     pub verbosity: TrainingVerbosity,
 
