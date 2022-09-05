@@ -15,7 +15,6 @@ use opencl3::{
     memory::{Buffer, ClMem, CL_MEM_READ_WRITE},
 };
 use opencl3::{error_codes::cl_int, kernel::ExecuteKernel};
-use rand::prelude::*;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use savefile_derive::Savefile;
 use std::mem;
@@ -426,29 +425,25 @@ impl<'a> Model<'a> {
         let mut losses: Vec<f32> = Vec::with_capacity(training_options.epochs * steps_amount);
         let mut accuracies: Vec<f32> = Vec::with_capacity(training_options.epochs * steps_amount);
 
-        let mut per_step_sample_batches: Vec<(&[InputType], &[OutputType])> =
-            Vec::with_capacity(steps_amount);
+        let mut per_step_input_batches: Vec<&[InputType]> = Vec::with_capacity(steps_amount);
+        let mut per_step_output_batches: Vec<&[OutputType]> = Vec::with_capacity(steps_amount);
 
         for i_batch in 0..steps_amount {
             let count;
             let origin;
             if i_batch == steps_amount - 1 && samples_amount % training_options.batch_size != 0 {
                 count = samples_amount % training_options.batch_size;
-                origin = (steps_amount - 1) * training_options.batch_size - count;
+                origin = steps_amount - 1;
             } else {
                 count = training_options.batch_size;
                 origin = i_batch * count;
             }
 
-            let interval = origin..(origin + count);
+            let batch_inputs = &training_input_samples[origin..(origin + count)];
+            let batch_outputs = &training_expected_output_samples[origin..(origin + count)];
 
-            let batch_inputs = &training_input_samples[interval.clone()];
-            let batch_outputs = &training_expected_output_samples[interval.clone()];
-
-            per_step_sample_batches.push((
-                batch_inputs,
-                batch_outputs,
-            ));
+            per_step_input_batches.push(batch_inputs);
+            per_step_output_batches.push(batch_outputs);
         }
 
         for epoch_index in 0..training_options.epochs {
@@ -480,21 +475,17 @@ impl<'a> Model<'a> {
             let steps_amount =
                 (samples_amount as f32 / training_options.batch_size as f32).ceil() as usize;
 
-            let mut rng = thread_rng();
             for i_batch in 0..steps_amount {
-                per_step_sample_batches.shuffle(&mut rng);
-
                 let batch_inputs: Buffer<cl_float> =
-                    (training_options.from_inputs_to_vectors)(per_step_sample_batches[i_batch].0)?
+                    (training_options.from_inputs_to_vectors)(per_step_input_batches[i_batch])?
                         .par_iter()
                         .flatten()
                         .map(|x| *x)
                         .collect::<Vec<f32>>()
                         .to_buffer(false, state)?;
-
                 let batch_outputs: Buffer<cl_float> = (training_options
                     .from_expected_outputs_to_vectors)(
-                    per_step_sample_batches[i_batch].1
+                    per_step_output_batches[i_batch]
                 )?
                 .par_iter()
                 .flatten()
@@ -502,10 +493,18 @@ impl<'a> Model<'a> {
                 .collect::<Vec<f32>>()
                 .to_buffer(false, state)?;
 
+                let local_batch_size;
+                if i_batch == steps_amount - 1 && samples_amount % training_options.batch_size != 0
+                {
+                    local_batch_size = samples_amount % training_options.batch_size;
+                } else {
+                    local_batch_size = training_options.batch_size;
+                }
+
                 let (optional_loss, optional_accuracy) = self.do_training_step(
                     &batch_inputs,
                     &batch_outputs,
-                    per_step_sample_batches[i_batch].0.len(),
+                    local_batch_size,
                     training_options,
                 )?;
 
