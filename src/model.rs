@@ -454,8 +454,8 @@ impl<'a> Model<'a> {
 
             let batch_inputs = input_samples_buffer.create_sub_buffer(
                 CL_MEM_READ_ONLY,
-                dbg!(origin) * inputs_amount,
-                dbg!(count) * inputs_amount,
+                origin * inputs_amount,
+                count * inputs_amount,
             )?;
             let batch_outputs = expected_output_samples_buffer.create_sub_buffer(
                 CL_MEM_READ_ONLY,
@@ -483,7 +483,7 @@ impl<'a> Model<'a> {
                     (samples_amount as f32 / training_options.batch_size as f32).ceil() as u64,
                 );
                 pbar.set_style(
-                    ProgressStyle::with_template("[{bar:10}] {pos}/{len} [{elapsed}] {eta) {msg}")
+                    ProgressStyle::with_template("[{bar:10}] {pos}/{len} [{elapsed}/{eta}] {msg}")
                         .unwrap()
                         .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
                             write!(w, "{:?}", state.eta()).unwrap()
