@@ -446,7 +446,7 @@ impl<'a> Model<'a> {
 
             if i_batch == steps_amount - 1 && samples_amount % training_options.batch_size != 0 {
                 count = samples_amount % training_options.batch_size;
-                origin = steps_amount - 1;
+                origin = samples_amount - count;
             } else {
                 count = training_options.batch_size;
                 origin = i_batch * count;
@@ -454,8 +454,8 @@ impl<'a> Model<'a> {
 
             let batch_inputs = input_samples_buffer.create_sub_buffer(
                 CL_MEM_READ_ONLY,
-                origin * inputs_amount,
-                count * inputs_amount,
+                dbg!(origin) * inputs_amount,
+                dbg!(count) * inputs_amount,
             )?;
             let batch_outputs = expected_output_samples_buffer.create_sub_buffer(
                 CL_MEM_READ_ONLY,
