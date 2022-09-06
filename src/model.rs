@@ -22,7 +22,8 @@ use std::mem;
 use crate::{
     layers::{
         Gradient, Layer, LayerGradientApplicationError, LayerGradientComputationError,
-        LayerLossToInputDifferentiationError, LayerPropagationError, ParametersOptimizationError, LayerInitializationError,
+        LayerInitializationError, LayerLossToInputDifferentiationError, LayerPropagationError,
+        ParametersOptimizationError,
     },
     loss_functions::{
         LossComputationError, LossFunction, LossToModelOutputsDerivativesComputationError,
@@ -432,40 +433,25 @@ impl<'a> Model<'a> {
             .to_buffer(false, state)?;
 
         let steps_amount =
-            (samples_amount as f32 / training_options.batch_size as f32).ceil() as usize;
+            calculate_training_steps_amount(samples_amount, training_options.batch_size);
 
         let mut losses: Vec<f32> = Vec::with_capacity(training_options.epochs * steps_amount);
         let mut accuracies: Vec<f32> = Vec::with_capacity(training_options.epochs * steps_amount);
 
-        let mut per_step_inputs: Vec<Buffer<cl_float>> = Vec::with_capacity(steps_amount);
-        let mut per_step_outputs: Vec<Buffer<cl_float>> = Vec::with_capacity(steps_amount);
-
-        for i_batch in 0..steps_amount {
-            let count;
-            let origin;
-
-            if i_batch == steps_amount - 1 && samples_amount % training_options.batch_size != 0 {
-                count = samples_amount % training_options.batch_size;
-                origin = samples_amount - count;
-            } else {
-                count = training_options.batch_size;
-                origin = i_batch * count;
-            }
-
-            let batch_inputs = input_samples_buffer.create_sub_buffer(
-                CL_MEM_READ_ONLY,
-                origin * inputs_amount,
-                count * inputs_amount,
-            )?;
-            let batch_outputs = expected_output_samples_buffer.create_sub_buffer(
-                CL_MEM_READ_ONLY,
-                origin * outputs_amount,
-                count * outputs_amount,
-            )?;
-
-            per_step_inputs.push(batch_inputs);
-            per_step_outputs.push(batch_outputs);
-        }
+        let per_step_inputs: Vec<Buffer<cl_float>> = separate_into_sub_buffer_batches(
+            &input_samples_buffer,
+            steps_amount,
+            samples_amount,
+            training_options.batch_size,
+            inputs_amount,
+        )?;
+        let per_step_outputs: Vec<Buffer<cl_float>> = separate_into_sub_buffer_batches(
+            &expected_output_samples_buffer,
+            steps_amount,
+            samples_amount,
+            training_options.batch_size,
+            outputs_amount,
+        )?;
 
         for epoch_index in 0..training_options.epochs {
             let start = Instant::now();
@@ -492,9 +478,6 @@ impl<'a> Model<'a> {
                 );
                 progress = Some(pbar);
             }
-
-            let steps_amount =
-                (samples_amount as f32 / training_options.batch_size as f32).ceil() as usize;
 
             for i_batch in 0..steps_amount {
                 let batch_inputs = &per_step_inputs[i_batch];
@@ -541,13 +524,16 @@ impl<'a> Model<'a> {
             }
 
             if training_options.verbosity.print_accuracy {
-                println!("got a accuracy of {} after epoch", accuracies.last().unwrap());
+                println!(
+                    "got a accuracy of {} after epoch",
+                    accuracies.last().unwrap()
+                );
             }
 
             if training_options.verbosity.show_epoch_elapsed {
                 println!("{:?} elapsed on epoch", start.elapsed());
             }
-            
+
             if let Some(halting_condition) = &training_options.halting_condition {
                 match halting_condition {
                     HaltingCondition::MinLossReached(min_loss) => {
@@ -564,7 +550,7 @@ impl<'a> Model<'a> {
 
                             break;
                         }
-                    },
+                    }
                     HaltingCondition::MinAccuracyReached(min_acc) => {
                         if accuracies.is_empty() {
                             return Err(ModelFittingError::NoAccuracyForHaltingCondition);
@@ -579,7 +565,7 @@ impl<'a> Model<'a> {
 
                             break;
                         }
-                    },
+                    }
                 };
             }
         }
@@ -695,7 +681,12 @@ impl<'a> Model<'a> {
             return Err(ModelGradientApplicationError::NoCommandQueue);
         }
 
-        for (layer_index, (layer, gradients)) in self.layers.iter_mut().zip(gradients_per_layer.iter().rev()).enumerate() {
+        for (layer_index, (layer, gradients)) in self
+            .layers
+            .iter_mut()
+            .zip(gradients_per_layer.iter().rev())
+            .enumerate()
+        {
             layer.apply_gradients(gradients.as_slice(), optimizer, layer_index)?;
         }
 
@@ -753,4 +744,100 @@ impl<'a> Model<'a> {
 
         Ok(gradients)
     }
+}
+
+fn calculate_training_steps_amount(samples_amount: usize, batch_size: usize) -> usize {
+    (samples_amount as f32 / batch_size as f32).ceil() as usize
+}
+
+#[test]
+fn should_calculate_training_steps_amount_correctly() {
+    let samples_amount = 25;
+    let batch_size = 4;
+
+    let correct_training_steps = 7;
+    let actual_training_steps = calculate_training_steps_amount(samples_amount, batch_size);
+
+    assert_eq!(correct_training_steps, actual_training_steps);
+}
+
+fn calculate_batch_origin_and_count(
+    steps_amount: usize,
+    batch_size: usize,
+    batch_index: usize,
+    samples_amount: usize, //   origin, count
+) -> (usize, usize) {
+    let (origin, count);
+    if batch_index == steps_amount - 1 && samples_amount % batch_size != 0 {
+        count = samples_amount % batch_size;
+        origin = samples_amount - count;
+    } else {
+        count = batch_size;
+        origin = batch_index * count;
+    }
+
+    (origin, count)
+}
+
+#[test]
+fn should_calculate_batch_origin_and_count_correctly_for_normal_batches() {
+    let samples_amount = 6123;
+    let batch_size = 25;
+
+    let steps_amount = 245;
+    let batch_index = 123;
+
+    let expected_origin = batch_size * batch_index;
+    let expected_count = batch_size;
+
+    let (origin, count) =
+        calculate_batch_origin_and_count(steps_amount, batch_size, batch_index, samples_amount);
+
+    assert_eq!(origin, expected_origin);
+    assert_eq!(count, expected_count);
+}
+
+#[test]
+fn should_calculate_batch_origin_and_count_correctly_for_the_last_uneven_batch() {
+    let samples_amount = 6123;
+    let batch_size = 25;
+
+    let steps_amount = 245;
+    let batch_index = 244;
+
+    let expected_origin = 6100;
+    let expected_count = 23;
+
+    let (origin, count) =
+        calculate_batch_origin_and_count(steps_amount, batch_size, batch_index, samples_amount);
+
+    assert_eq!(origin, expected_origin);
+    assert_eq!(count, expected_count);
+}
+
+fn separate_into_sub_buffer_batches(
+    buffer: &Buffer<cl_float>,
+    steps_amount: usize,
+
+    samples_amount: usize,
+    batch_size: usize,
+
+    feature_amount: usize,
+) -> Result<Vec<Buffer<cl_float>>, ClError> {
+    let mut per_step_feature: Vec<Buffer<cl_float>> = Vec::with_capacity(steps_amount);
+
+    for i_batch in 0..steps_amount {
+        let (origin, count) =
+            calculate_batch_origin_and_count(steps_amount, batch_size, i_batch, samples_amount);
+
+        let batch = buffer.create_sub_buffer(
+            CL_MEM_READ_ONLY,
+            origin * feature_amount,
+            count * feature_amount,
+        )?;
+
+        per_step_feature.push(batch);
+    }
+
+    Ok(per_step_feature)
 }
