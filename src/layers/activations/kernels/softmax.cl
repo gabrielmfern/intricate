@@ -23,11 +23,8 @@ kernel void calculate_exponentials(
     float max_val = (float)max_input_per_sample[sample_index];
 
     // this -max_val is to normalize these values to not have NaN calculation results everywhere
-    // printf("sample max val: %e\n", max_val);
-    // printf("current input: %e\n", inputs[flat_input_i]);
     float dist = (float)inputs[flat_input_i] - max_val;
-    // printf("current_input - max_val = %e\n", dist);
-    // printf("exp(dist)=%e - exp(1.0)=%e\n", exp(dist), exp(1.0));
+
     exponentials[flat_input_i] = exp(dist);
 }
 
@@ -44,12 +41,11 @@ kernel void sum_exponentials_per_sample(
         return;
     }
 
-    float exponential_sum = (float)0.0;
+    float exponential_sum = 0.0f;
     int row_part = sample_index * numbers_amount;
     for (int input_index = 0; input_index < numbers_amount; input_index++) {
         int flat_i = row_part + input_index;
-        // printf("input_index: %d\nsample_index: %d\nnumbers_amount: %d\n", input_index, sample_index, numbers_amount);
-        // printf("%e + %e\n", exponential_sum, exponentials[flat_i]);
+
         exponential_sum += exponentials[flat_i];
     }
 
@@ -135,7 +131,7 @@ kernel void back_propagate(
 
     int flat_input_i = sample_index * inputs_amount + input_index;
 
-    float total = (float)0.0; 
+    float total = 0.0f; 
     float input_associated_output = (float)flattened_output_samples[flat_input_i];
 
     int row_part = sample_index * outputs_amount;
@@ -143,9 +139,9 @@ kernel void back_propagate(
         int flat_output_i = row_part + output_index;
 
         float output = (float)flattened_output_samples[flat_output_i];
-        float output_to_input_derivative = (float)0.0;
+        float output_to_input_derivative = 0.0f;
         if (input_index == output_index) {
-            output_to_input_derivative = output * ((float)1.0 - output);
+            output_to_input_derivative = output * ((float)1.0f - output);
         } else {
             output_to_input_derivative = -input_associated_output * output;
         }

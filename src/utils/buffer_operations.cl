@@ -93,7 +93,7 @@ kernel void inverse_sqrt_inplace(
         return;
     }
 
-    buf[index] = 1 / sqrt(buf[index]);
+    buf[index] = 1.0f / sqrt(buf[index]);
 }
 
 kernel void inverse_sqrt(
@@ -108,7 +108,7 @@ kernel void inverse_sqrt(
         return;
     }
 
-    result[index] = 1 / sqrt(first[index]);
+    result[index] = 1.0f / sqrt(first[index]);
 }
 
 kernel void shift_inplace(

@@ -11,7 +11,7 @@ kernel void propagate(
         return;
     }
 
-    flattened_output_samples[index] = (float)1.0 / ((float)1.0 + exp(-flattened_input_samples[index]));
+    flattened_output_samples[index] = 1.0f / (1.0f + exp(-flattened_input_samples[index]));
 }
 
 kernel void back_propagate(
@@ -25,10 +25,7 @@ kernel void back_propagate(
     int inputs_amount
 ) {
     int sample_index = get_global_id(0);
-    // int samples_amount = get_global_size(0);
-
     int input_index = get_global_id(1);
-    // int inputs_amount = get_global_size(1);
     
     if (sample_index >= samples_amount) {
         return;
@@ -39,25 +36,18 @@ kernel void back_propagate(
 
     int flat_input_i = sample_index * inputs_amount + input_index;
 
-    // float output = (float)flattened_output_samples[flat_input_i];
-    // float output_to_input_derivative = (float)1.0 - output * output;
-
-    // float loss_to_output_derivative = (float)flattened_loss_to_output_derivatives[flat_input_i];
-    float total = (float)0.0; 
-    // output_to_input_derivative * loss_to_output_derivative;
+    float total = 0.0f; 
 
     float output = (float)flattened_output_samples[flat_input_i];
-    float output_to_input_derivative = output * (1 - output);
+    float output_to_input_derivative = output * (1.0f - output);
 
     int row_part = sample_index * outputs_amount;
     for (int output_index = 0; output_index < outputs_amount; output_index++) {
         int flat_output_i = row_part + output_index;
 
         float loss_to_output_derivative = (float)flattened_loss_to_output_derivatives[flat_output_i];
-
-        total += (float)loss_to_output_derivative;
-        // printf("last + %e * %e = %e \n", output_to_input_derivative, loss_to_output_derivative, total);
+        total += loss_to_output_derivative;
     }
 
-    flattened_loss_to_input_derivatives[flat_input_i] = (float)output_to_input_derivative * total;
+    flattened_loss_to_input_derivatives[flat_input_i] = output_to_input_derivative * total;
 }

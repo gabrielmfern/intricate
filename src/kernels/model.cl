@@ -12,10 +12,7 @@ kernel void compute_accuracy_per_output(
         return;
     }
 
-    if (expected_outputs[index] == 0) {
-        accuracies[index] = 1 - fabs(outputs[index] - expected_outputs[index]);
-    } else {
-        accuracies[index] = 1 - fabs(outputs[index] - expected_outputs[index]) / expected_outputs[index];
-    }
-    /* printf("accuracy %d: %e\n", index, accuracies[index]); */
+    float expected_output = (float)expected_outputs[index];
+    float output = (float)outputs[index];
+    accuracies[index] = 1.0f - fabs(output - expected_output) / fmax(expected_output, output);
 }

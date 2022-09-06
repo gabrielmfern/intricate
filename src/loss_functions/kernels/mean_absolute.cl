@@ -13,7 +13,7 @@ kernel void compute_loss(
         return;
     }
 
-    float sample_loss = 0.0;
+    float sample_loss = 0.0f;
 
     int row_part = sample_index * outputs_amount;
     for (int output_index = 0; output_index < outputs_amount; output_index++) {
