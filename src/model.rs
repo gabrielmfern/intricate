@@ -151,12 +151,11 @@ pub enum ModelFittingError {
     ModelGradientComputation(ModelGradientComputationError),
     /// Happens when something goes wrong in the gradient application of the Model.
     ModelGradientApplication(ModelGradientApplicationError),
-    /// Happens when something goes wrong when trying to optimize a Layer's parameters.
-    ParameterOptimization(ParametersOptimizationError),
     /// Happens when something goes wrong in the prediction of the Model.
     ModelPrediction(ModelPredictionError),
-    /// Happens when something goes wrong in the propagation of the Model.
-    LayerPropagation(LayerPropagationError),
+
+    /// Happens when something goes wrong when trying to optimize a Layer's parameters.
+    ParameterOptimization(usize, ParametersOptimizationError),
 
     /// Happens when the Model has no layers inside of it
     NoLayers,
@@ -501,10 +500,16 @@ impl<'a> Model<'a> {
                     (samples_amount as f32 / training_options.batch_size as f32).ceil() as u64,
                 );
                 pbar.set_style(
-                    ProgressStyle::with_template("[{bar:10}] {pos}/{len} [{elapsed}/{eta}] {msg}")
-                        .unwrap()
+                    ProgressStyle::with_template("[{bar:10}] [{per_second}/s] {pos}/{len} {elapsed}/{eta} {msg}")
+                        .expect("unable to create epoch training steps progress bar")
+                        .with_key("elapsed", |state: &ProgressState, w: &mut dyn Write| {
+                            write!(w, "{}", format!("{:.?}", state.elapsed())).unwrap()
+                        })
+                        .with_key("per_second", |state: &ProgressState, w: &mut dyn Write| {
+                            write!(w, "{}", format!("{:.2}", state.per_sec())).unwrap()
+                        })
                         .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
-                            write!(w, "{:?}", state.eta()).unwrap()
+                            write!(w, "{}", format!("{:.?}", state.eta())).unwrap()
                         })
                         .progress_chars("=> "),
                 );
@@ -632,7 +637,9 @@ impl<'a> Model<'a> {
         }
 
         for (i, layer) in self.layers.iter_mut().enumerate() {
-            layer.optimize_parameters(training_options.optimizer, i)?;
+            if let Err(err) = layer.optimize_parameters(training_options.optimizer, i) {
+                return Err(ModelFittingError::ParameterOptimization(i, err));
+            }
         }
 
         let gradients = self.compute_gradients(
