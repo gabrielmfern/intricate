@@ -14,5 +14,7 @@ kernel void compute_accuracy_per_output(
 
     float expected_output = (float)expected_outputs[index];
     float output = (float)outputs[index];
-    accuracies[index] = 1.0f - fabs(output - expected_output) / fmax(expected_output, output);
+
+    accuracies[index] = 1.0f - fabs(expected_output - output) 
+        / fmax(fmax(expected_output, output), 1.0f);
 }
