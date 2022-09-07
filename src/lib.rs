@@ -19,4 +19,6 @@ pub use model::Model;
 
 pub mod types;
 
+pub mod datasets;
+
 mod tests;

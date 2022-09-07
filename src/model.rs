@@ -442,6 +442,8 @@ impl<'a> Model<'a> {
             return Err(ModelFittingError::NoCommandQueue);
         }
 
+        assert_eq!(training_input_samples.len(), training_expected_output_samples.len());
+
         training_options.loss_fn.init(state)?;
         training_options.optimizer.init(state)?;
 
@@ -476,6 +478,7 @@ impl<'a> Model<'a> {
             training_options.batch_size,
             inputs_amount,
         )?;
+
         let per_step_outputs: Vec<Buffer<cl_float>> = separate_into_sub_buffer_batches(
             &expected_output_samples_buffer,
             steps_amount,
@@ -883,6 +886,24 @@ fn should_calculate_batch_origin_and_count_correctly_for_the_last_uneven_batch()
     assert_eq!(count, expected_count);
 }
 
+#[test]
+fn should_calculate_batch_origin_and_count_correctly_for_the_last_uneven_batch_2() {
+    let samples_amount = 60000;
+    let batch_size = 64;
+
+    let steps_amount = 938;
+    let batch_index = 937;
+
+    let expected_origin = 59968;
+    let expected_count = 32;
+
+    let (origin, count) =
+        calculate_batch_origin_and_count(steps_amount, batch_size, batch_index, samples_amount);
+
+    assert_eq!(origin, expected_origin);
+    assert_eq!(count, expected_count);
+}
+
 fn separate_into_sub_buffer_batches(
     buffer: &Buffer<cl_float>,
     steps_amount: usize,
@@ -892,6 +913,10 @@ fn separate_into_sub_buffer_batches(
 
     feature_amount: usize,
 ) -> Result<Vec<Buffer<cl_float>>, ClError> {
+    let buff_size = buffer.size()?;
+    assert_eq!(buff_size % samples_amount, 0);
+    assert_eq!(buff_size % feature_amount, 0);
+
     let mut per_step_feature: Vec<Buffer<cl_float>> = Vec::with_capacity(steps_amount);
 
     for i_batch in 0..steps_amount {

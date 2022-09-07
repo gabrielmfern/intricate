@@ -11,4 +11,5 @@ Cargo.lock
 */Cargo.lock
 **/Cargo.lock
 xor-model.bin
+mnist-model.bin
 intricate-macros/Cargo.lock
