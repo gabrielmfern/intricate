@@ -114,6 +114,8 @@ pub enum ModelPredictionError {
     Conversion(BufferConversionError),
     /// Happens when something goes wrong inside of the propagation of a Layer.
     LayerPropagation(LayerPropagationError),
+    /// Happens when the Model has no layers inside of it
+    NoLayers,
 }
 
 #[derive(Debug, FromForAllUnnamedVariants)]
@@ -151,9 +153,13 @@ pub enum ModelFittingError {
     ModelGradientApplication(ModelGradientApplicationError),
     /// Happens when something goes wrong when trying to optimize a Layer's parameters.
     ParameterOptimization(ParametersOptimizationError),
+    /// Happens when something goes wrong in the prediction of the Model.
+    ModelPrediction(ModelPredictionError),
     /// Happens when something goes wrong in the propagation of the Model.
     LayerPropagation(LayerPropagationError),
 
+    /// Happens when the Model has no layers inside of it
+    NoLayers,
     /// Happens when something goes wrong while computing the overall loss of the Model
     LossComputation(LossComputationError),
 }
@@ -171,13 +177,21 @@ pub enum ModelGradientComputationError {
 
     /// Happens when there goes something wrong with OpenCL.
     OpenCL(ClError),
-    /// Happens when the propagation of a layer goes wrong.
-    LayerPropagation(LayerPropagationError),
-    /// Happens when the gradient computation of a layer goes wrong.
-    LayerGradientComputation(LayerGradientComputationError),
-    /// Happens when the differentiation of the inputs of a layer with respect to the loss goes wrong.
-    LayerLossToInputDifferentiation(LayerLossToInputDifferentiationError),
 
+    /// Happens when the gradient computation of a layer goes wrong.
+    ///
+    /// This error also contains the index of the layer at which this error happenned.
+    LayerGradientComputation(usize, LayerGradientComputationError),
+    /// Happens when the differentiation of the inputs of a layer with respect to the loss goes wrong.
+    ///
+    /// This error also contains the index of the layer at which this error happenned.
+    LayerLossToInputDifferentiation(usize, LayerLossToInputDifferentiationError),
+
+    /// Happens when something goes wrong in the prediction of the Model.
+    ModelPrediction(ModelPredictionError),
+
+    /// Happens when the Model has no layers inside of it
+    NoLayers,
     /// Happens when something goes wrong
     LossDerivativesComputation(LossToModelOutputsDerivativesComputationError),
 }
@@ -193,12 +207,17 @@ pub enum ModelGradientApplicationError {
     /// Happens when there is no device in the current opencl state.
     NoDevice,
 
+    /// Happens when the Model has no layers inside of it
+    NoLayers,
     /// Happens when there goes something wrong with OpenCL.
     OpenCL(ClError),
     /// Happens when the propagation of a layer goes wrong.
-    LayerPropagation(LayerPropagationError),
+    ModelPrediction(ModelPredictionError),
     /// Happens when the gradient application of a layer goes wrong.
-    LayerGradientApllication(LayerGradientApplicationError),
+    ///
+    /// This error contains the index of the layer on which th error happenned and the actual
+    /// error.
+    LayerGradientApllication(usize, LayerGradientApplicationError),
 }
 
 #[derive(Debug, FromForAllUnnamedVariants)]
@@ -372,8 +391,21 @@ impl<'a> Model<'a> {
     pub fn predict_with_buffer<'b>(
         &'b mut self,
         input_samples: &'b Buffer<cl_float>,
-    ) -> Result<&Buffer<cl_float>, LayerPropagationError> {
-        assert!(!self.layers.is_empty());
+    ) -> Result<&Buffer<cl_float>, ModelPredictionError> {
+        // should this yield an error? since the layers already do yield an error in this case
+        if self.opencl_state.is_none() {
+            return Err(ModelPredictionError::NotInitialized);
+        }
+
+        let state = self.opencl_state.unwrap();
+
+        if state.queues.len() == 0 {
+            return Err(ModelPredictionError::NoCommandQueue);
+        }
+
+        if self.layers.len() == 0 {
+            return Err(ModelPredictionError::NoLayers);
+        }
 
         let mut current_values: &Buffer<cl_float> = input_samples;
 
@@ -595,6 +627,10 @@ impl<'a> Model<'a> {
 
         let queue = &state.queues[0];
 
+        if self.layers.len() == 0 {
+            return Err(ModelFittingError::NoLayers);
+        }
+
         for (i, layer) in self.layers.iter_mut().enumerate() {
             layer.optimize_parameters(training_options.optimizer, i)?;
         }
@@ -681,13 +717,24 @@ impl<'a> Model<'a> {
             return Err(ModelGradientApplicationError::NoCommandQueue);
         }
 
+        if self.layers.len() == 0 {
+            return Err(ModelGradientApplicationError::NoLayers);
+        }
+
         for (layer_index, (layer, gradients)) in self
             .layers
             .iter_mut()
             .zip(gradients_per_layer.iter().rev())
             .enumerate()
         {
-            layer.apply_gradients(gradients.as_slice(), optimizer, layer_index)?;
+            let result = layer.apply_gradients(gradients.as_slice(), optimizer, layer_index);
+
+            if let Err(err) = result {
+                return Err(ModelGradientApplicationError::LayerGradientApllication(
+                    layer_index,
+                    err,
+                ));
+            }
         }
 
         Ok(())
@@ -718,6 +765,10 @@ impl<'a> Model<'a> {
             return Err(ModelGradientComputationError::NoCommandQueue);
         }
 
+        if self.layers.len() == 0 {
+            return Err(ModelGradientComputationError::NoLayers);
+        }
+
         let first_layer = self.layers.first().unwrap();
 
         let inputs_amount = first_layer.get_inputs_amount();
@@ -736,10 +787,20 @@ impl<'a> Model<'a> {
                 &training_expected_output_samples,
                 samples_amount,
             )?;
-        for layer in self.layers.iter().rev() {
-            gradients.push(layer.compute_gradients(&last_loss_to_outputs_derivatives)?);
-            last_loss_to_outputs_derivatives =
-                layer.compute_loss_to_input_derivatives(&last_loss_to_outputs_derivatives)?;
+        for (i, layer) in self.layers.iter().enumerate().rev() {
+            let gradients_result = layer.compute_gradients(&last_loss_to_outputs_derivatives);
+            if let Ok(layer_gradients) = gradients_result {
+                gradients.push(layer_gradients);
+            } else if let Err(err) = gradients_result {
+                return Err(ModelGradientComputationError::LayerGradientComputation(i, err));
+            }
+
+            let derivatives_result = layer.compute_loss_to_input_derivatives(&last_loss_to_outputs_derivatives); 
+            if let Ok(derivatives) = derivatives_result {
+                last_loss_to_outputs_derivatives = derivatives;
+            } else if let Err(err) = derivatives_result {
+                return Err(ModelGradientComputationError::LayerLossToInputDifferentiation(i, err));
+            } 
         }
 
         Ok(gradients)
