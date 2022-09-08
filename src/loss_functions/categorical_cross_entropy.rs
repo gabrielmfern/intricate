@@ -307,8 +307,8 @@ mod categorical_cross_entropy_tests {
             .iter()
             .zip(&outputs)
             .map(|(expected_output, output)| {
-                -(expected_output * (output + 0.00000000000001).ln()
-                    + (1.0 - expected_output) * (1.0 - output + 0.00000000000001).ln())
+                -(expected_output * (output + 0.0000000000000001).ln()
+                    + (1.0 - expected_output) * (1.0 - output + 0.0000000000000001).ln())
             })
             .sum::<f32>()
             / samples_amount as f32;
