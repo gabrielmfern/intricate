@@ -1,8 +1,8 @@
-const IMAGES_SOURCE: &[u8] = include_bytes!("mnist-train-images.idx3-ubyte");
-const LABELS_SOURCE: &[u8] = include_bytes!("mnist-train-labels.idx1-ubyte");
+const IMAGES_SOURCE: &[u8] = include_bytes!("mnist_data/mnist-train-images.idx3-ubyte");
+const LABELS_SOURCE: &[u8] = include_bytes!("mnist_data/mnist-train-labels.idx1-ubyte");
 
-const TEST_IMAGES_SOURCE: &[u8] = include_bytes!("mnist-test-images.idx3-ubyte");
-const TEST_IMAGES_LABELS: &[u8] = include_bytes!("mnist-test-labels.idx1-ubyte");
+const TEST_IMAGES_SOURCE: &[u8] = include_bytes!("mnist_data/mnist-test-images.idx3-ubyte");
+const TEST_IMAGES_LABELS: &[u8] = include_bytes!("mnist_data/mnist-test-labels.idx1-ubyte");
 
 /// Gets the training images with the pixel in the image flattened into just one vector per
 /// training sample.
