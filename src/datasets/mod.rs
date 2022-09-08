@@ -45,7 +45,7 @@ where
     let mut data: Vec<Vec<Vec<f32>>> = Vec::with_capacity(samples_amount);
 
     for (i, byte) in source.iter().enumerate() {
-        let sample_index = i % (width * height);
+        let sample_index = (i as f64 / (width * height) as f64).floor() as usize;
         let row_index = i % width;
 
         if data.len() == sample_index {
