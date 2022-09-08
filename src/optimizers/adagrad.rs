@@ -16,6 +16,8 @@ pub struct AdagradOptimizer<'a> {
     epsilon: f32,
 
     gradients_history_summation_per_parameter: HashMap<usize, HashMap<String, Buffer<cl_float>>>,
+    // TODO: add a way to perhaps save the Optimizer with this gradient history to train the Model
+    // later
 
     opencl_state: Option<&'a OpenCLState>,
 }
@@ -27,6 +29,7 @@ impl<'a> AdagradOptimizer<'a> {
             learning_rate,
             epsilon,
             gradients_history_summation_per_parameter: HashMap::default(),
+            // gradients_history_summation_per_parameter_host: HashMap::default(),
             opencl_state: None,
         }
     }
