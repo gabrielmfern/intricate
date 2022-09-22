@@ -30,15 +30,10 @@ fn main() -> () {
         // this model does work, but it will not get very far without Conv layers (not yet
         // implemented)
         mnist_model = Model::new(vec![
-            Dense::new(28 * 28, 500),
-            TanH::new(500),
-            Dense::new(500, 450),
-            TanH::new(450),
-            Dense::new(450, 250),
-            TanH::new(250),
-            Dense::new(250, 100),
-            TanH::new(100),
-            Dense::new(100, 10),
+            Dense::new(28 * 28, 128),
+            TanH::new(128),
+
+            Dense::new(128, 10),
             SoftMax::new(10),
         ]);
     }
@@ -57,7 +52,7 @@ fn main() -> () {
             &mut TrainingOptions {
                 loss_fn: &mut loss_fn,
                 optimizer: &mut optimizer,
-                batch_size: 64,
+                batch_size: 128,
                 verbosity: TrainingVerbosity {
                     show_current_epoch: true,
                     show_epoch_progress: true,
