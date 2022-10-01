@@ -8,7 +8,7 @@ use intricate_macros::{EnumLayer, FromForAllUnnamedVariants};
 use crate::{
     layers::{
         activations::{ReLU, Sigmoid, SoftMax, TanH},
-        Dense,
+        Dense, conv2d::Conv2D,
     },
     loss_functions::LossFunction,
     optimizers::Optimizer, utils::opencl::BufferConversionError,
@@ -62,6 +62,8 @@ impl From<String> for KernelNotFoundError {
 #[allow(missing_docs)]
 pub enum ModelLayer<'a> {
     Dense(Dense<'a>),
+    Conv2D(Conv2D<'a>),
+
     TanH(TanH<'a>),
     SoftMax(SoftMax<'a>),
     ReLU(ReLU<'a>),

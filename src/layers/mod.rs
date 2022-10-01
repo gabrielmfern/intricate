@@ -3,29 +3,31 @@
 //! which are used as layers in Intricate.
 
 use intricate_macros::FromForAllUnnamedVariants;
-use opencl3::{
-    device::cl_float,
-    error_codes::ClError,
-    memory::Buffer,
-};
+use opencl3::{device::cl_float, error_codes::ClError, memory::Buffer};
 
 use crate::{
     optimizers::{OptimizationError, Optimizer},
-    utils::{opencl::{EnsureKernelsAndProgramError, BufferOperationError, BufferConversionError}, OpenCLState, BufferOperations}, types::{KernelNotFoundError, ProgramNotFoundError, SyncDataError},
+    types::{KernelNotFoundError, ProgramNotFoundError, SyncDataError},
+    utils::{
+        opencl::{BufferConversionError, BufferOperationError, EnsureKernelsAndProgramError},
+        BufferOperations, OpenCLState,
+    },
 };
 
 pub mod activations;
+pub mod conv2d;
 pub mod dense;
 
 pub use dense::Dense;
 
-use self::{activations::compile_activations, dense::compile_dense};
+use self::{activations::compile_activations, conv2d::compile_conv2d, dense::compile_dense};
 
 pub(crate) fn compile_layers(
     opencl_state: &mut OpenCLState,
 ) -> Result<(), EnsureKernelsAndProgramError> {
     compile_dense(opencl_state)?;
     compile_activations(opencl_state)?;
+    compile_conv2d(opencl_state)?;
 
     Ok(())
 }
@@ -101,7 +103,7 @@ pub enum LayerPropagationError {
     NoDeviceFound,
 
     /// Happens when the layer being propagate was not initialized before propagating.
-    LayerNotInitialized
+    LayerNotInitialized,
 }
 
 #[derive(Debug, FromForAllUnnamedVariants)]
@@ -126,7 +128,7 @@ pub enum LayerGradientComputationError {
     NoDeviceFound,
 
     /// Happens when the layer being propagate was not initialized before propagating.
-    LayerNotInitialized
+    LayerNotInitialized,
 }
 
 #[derive(Debug, FromForAllUnnamedVariants)]
@@ -156,7 +158,7 @@ pub enum LayerGradientApplicationError {
     NoDeviceFound,
 
     /// Happens when the layer being propagate was not initialized before propagating.
-    LayerNotInitialized
+    LayerNotInitialized,
 }
 
 #[derive(Debug, FromForAllUnnamedVariants)]
@@ -181,7 +183,7 @@ pub enum LayerLossToInputDifferentiationError {
     /// Happens when there is no command queue in the OpenCLState.
     NoCommandQueueFound,
     /// Happens when the layer being propagate was not initialized before propagating.
-    LayerNotInitialized
+    LayerNotInitialized,
 }
 
 #[derive(Debug, FromForAllUnnamedVariants)]
@@ -230,7 +232,7 @@ pub trait Layer<'a> {
     /// perhaps after loading the layer from a file.
     fn get_last_outputs(&self) -> Option<&Buffer<cl_float>>;
 
-    /// Gets the amount of inputs this layer is expected to receive. 
+    /// Gets the amount of inputs this layer is expected to receive.
     ///
     /// Some layers may have just have an arbitrary value for this, like activation layers,
     /// but layers like the Dense layer just have a specific amount for the
@@ -238,7 +240,7 @@ pub trait Layer<'a> {
     fn get_inputs_amount(&self) -> usize;
 
     /// Gets the amount of outpust this layer is expected to result in on
-    /// propagation. 
+    /// propagation.
     ///
     /// Some layers may have just have an arbitrary value for this,
     /// like activation layers, that have their outputs_amount = inputs_amount
@@ -270,7 +272,7 @@ pub trait Layer<'a> {
     ///
     /// # Errors
     ///
-    /// This function will return an error if something goes wrong while 
+    /// This function will return an error if something goes wrong while
     /// allocating buffers into the device of the queue.
     fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), LayerInitializationError>;
 
@@ -285,7 +287,10 @@ pub trait Layer<'a> {
     ///
     /// This function will return an error if something goes wrong while executing the layer's
     /// kernels.
-    fn propagate(&mut self, inputs: &Buffer<cl_float>) -> Result<&Buffer<cl_float>, LayerPropagationError>;
+    fn propagate(
+        &mut self,
+        inputs: &Buffer<cl_float>,
+    ) -> Result<&Buffer<cl_float>, LayerPropagationError>;
 
     /// Computes the gradients that will be used to calculate the update vectors that will then be
     /// applied to the

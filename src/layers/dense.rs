@@ -9,8 +9,7 @@ use opencl3::{
 use rand::Rng;
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use savefile_derive::Savefile;
-use std::mem;
-use std::ptr;
+use std::{mem, ptr};
 
 use crate::utils::opencl::{BufferLike, InplaceBufferOperations};
 #[allow(unused_imports)]
@@ -204,6 +203,16 @@ impl<'a> Layer<'a> for Dense<'a> {
     }
 
     fn sync_data_from_buffers_to_host(&mut self) -> Result<(), SyncDataError> {
+        if self.opencl_state.is_none() {
+            return Err(SyncDataError::NotInitialized);
+        }
+
+        let state = self.opencl_state.unwrap();
+
+        if state.queues.is_empty() {
+            return Err(SyncDataError::NoCommandQueue);
+        }
+
         if self.weights_buffer.is_none() {
             return Err(SyncDataError::NotAllocatedInDevice {
                 field_name: "weights_buffer".to_string(),
@@ -219,16 +228,6 @@ impl<'a> Layer<'a> for Dense<'a> {
         }
 
         let biases_buffer = self.biases_buffer.as_ref().unwrap();
-
-        if self.opencl_state.is_none() {
-            return Err(SyncDataError::NotInitialized);
-        }
-
-        let state = self.opencl_state.unwrap();
-
-        if state.queues.is_empty() {
-            return Err(SyncDataError::NoCommandQueue);
-        }
 
         let weights_flat = Vec::<f32>::from_buffer(weights_buffer, false, state)?;
         let biases = Vec::<f32>::from_buffer(biases_buffer, false, state)?;
@@ -272,9 +271,7 @@ impl<'a> Layer<'a> for Dense<'a> {
             .collect::<Vec<f32>>()
             .to_buffer(false, opencl_state)?;
 
-        let biases_buffer = self
-            .biases
-            .to_buffer(false, opencl_state)?;
+        let biases_buffer = self.biases.to_buffer(false, opencl_state)?;
 
         self.weights_buffer = Some(weights_buffer);
         self.biases_buffer = Some(biases_buffer);
@@ -596,9 +593,8 @@ mod dense_tests {
         let input_samples_buffer = inputs.to_buffer(true, &state).unwrap();
         gpu_dense.last_inputs_buffer = Some(input_samples_buffer);
 
-        let loss_to_output_derivatives_buffer = loss_to_output_derivatives
-            .to_buffer(true, &state)
-            .unwrap();
+        let loss_to_output_derivatives_buffer =
+            loss_to_output_derivatives.to_buffer(true, &state).unwrap();
 
         let actual_gradients = gpu_dense
             .compute_gradients(&loss_to_output_derivatives_buffer)
