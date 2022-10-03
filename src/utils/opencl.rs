@@ -55,7 +55,10 @@ const DIVIDE_INPLACE_BUFFER_KERNEL_NAME: &str = "divide_inplace";
 #[allow(missing_docs)]
 pub enum EnsureKernelsAndProgramError {
     OpenCL(ClError),
-    Compilation(String),
+    /// An error that will occur when something goes wrong in kernel compilation
+    /// returning a tuple with the error in the code itself and the name of the program
+    /// in which it failed
+    Compilation(String, String),
 }
 
 /// Will compile all of the kernels listed in **kernel_names** inside of the
@@ -77,18 +80,25 @@ pub(crate) fn ensure_program(
     let context = &opencl_state.context;
 
     if !opencl_state.programs.contains_key(&program_name) {
-        let new_cl_program = Program::create_and_build_from_source(
+        let cl_program_result = Program::create_and_build_from_source(
             context,
             program_source.as_str(),
             &compile_options,
-        )?;
-        opencl_state.programs.insert(
-            program_name.clone(),
-            IntricateProgram {
-                opencl_program: new_cl_program,
-                kernels: HashMap::default(),
-            },
         );
+        if let Ok(new_cl_program) = cl_program_result {
+            opencl_state.programs.insert(
+                program_name.clone(),
+                IntricateProgram {
+                    opencl_program: new_cl_program,
+                    kernels: HashMap::default(),
+                },
+            );
+        } else {
+            return Err(EnsureKernelsAndProgramError::Compilation(
+                cl_program_result.err().unwrap(),
+                program_name,
+            ));
+        }
     }
 
     let program = opencl_state.programs.get_mut(&program_name).unwrap();
@@ -915,8 +925,13 @@ impl BufferOperations for Buffer<cl_float> {
 
             let mut buf_slice = [0.0];
 
-            queue
-                .enqueue_read_buffer(&current_buf, CL_NON_BLOCKING, 0, &mut buf_slice, &[ev.get()])?;
+            queue.enqueue_read_buffer(
+                &current_buf,
+                CL_NON_BLOCKING,
+                0,
+                &mut buf_slice,
+                &[ev.get()],
+            )?;
 
             queue.finish()?;
 
@@ -1086,7 +1101,8 @@ impl BufferLike<cl_float> for Vec<f32> {
         if let Some(queue) = opencl_state.queues.first() {
             let context = &opencl_state.context;
 
-            let mut buffer = Buffer::create(context, CL_MEM_READ_WRITE, self.len(), ptr::null_mut())?;
+            let mut buffer =
+                Buffer::create(context, CL_MEM_READ_WRITE, self.len(), ptr::null_mut())?;
 
             if blocking {
                 queue
@@ -1154,12 +1170,8 @@ mod test_opencl_utils {
             .collect();
         let expected: Vec<f32> = vec1.iter().zip(&vec2).map(|(a, b)| a + b).collect();
 
-        let buff1 = vec1
-            .to_buffer(true, &opencl_state)
-            .unwrap();
-        let buff2 = vec2
-            .to_buffer(true, &opencl_state)
-            .unwrap();
+        let buff1 = vec1.to_buffer(true, &opencl_state).unwrap();
+        let buff2 = vec2.to_buffer(true, &opencl_state).unwrap();
 
         let actual = Vec::<f32>::from_buffer(
             &buff1.add(&buff2, &opencl_state).unwrap(),
@@ -1188,12 +1200,8 @@ mod test_opencl_utils {
             .collect();
         let expected: Vec<f32> = vec1.iter().zip(&vec2).map(|(a, b)| a - b).collect();
 
-        let buff1 = vec1
-            .to_buffer(true, &opencl_state)
-            .unwrap();
-        let buff2 = vec2
-            .to_buffer(true, &opencl_state)
-            .unwrap();
+        let buff1 = vec1.to_buffer(true, &opencl_state).unwrap();
+        let buff2 = vec2.to_buffer(true, &opencl_state).unwrap();
 
         let actual = Vec::<f32>::from_buffer(
             &buff1.subtract(&buff2, &opencl_state).unwrap(),
@@ -1222,12 +1230,8 @@ mod test_opencl_utils {
             .collect();
         let expected: Vec<f32> = vec1.iter().zip(&vec2).map(|(a, b)| a * b).collect();
 
-        let buff1 = vec1
-            .to_buffer(true, &opencl_state)
-            .unwrap();
-        let buff2 = vec2
-            .to_buffer(true, &opencl_state)
-            .unwrap();
+        let buff1 = vec1.to_buffer(true, &opencl_state).unwrap();
+        let buff2 = vec2.to_buffer(true, &opencl_state).unwrap();
 
         let actual = Vec::<f32>::from_buffer(
             &buff1.multiply(&buff2, &opencl_state).unwrap(),
@@ -1256,12 +1260,8 @@ mod test_opencl_utils {
             .collect();
         let expected: Vec<f32> = vec1.iter().zip(&vec2).map(|(a, b)| a / b).collect();
 
-        let buff1 = vec1
-            .to_buffer(true, &opencl_state)
-            .unwrap();
-        let buff2 = vec2
-            .to_buffer(true, &opencl_state)
-            .unwrap();
+        let buff1 = vec1.to_buffer(true, &opencl_state).unwrap();
+        let buff2 = vec2.to_buffer(true, &opencl_state).unwrap();
 
         let actual = Vec::<f32>::from_buffer(
             &buff1.divide(&buff2, &opencl_state).unwrap(),
@@ -1289,9 +1289,7 @@ mod test_opencl_utils {
         let scaler = 0.123;
         let expected: Vec<f32> = vec1.iter().map(|a| a * scaler).collect();
 
-        let buff = vec1
-            .to_buffer(true, &opencl_state)
-            .unwrap();
+        let buff = vec1.to_buffer(true, &opencl_state).unwrap();
 
         let actual = Vec::<f32>::from_buffer(
             &buff.scale(scaler, &opencl_state).unwrap(),
