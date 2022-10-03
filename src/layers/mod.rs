@@ -19,6 +19,7 @@ pub mod conv2d;
 pub mod dense;
 
 pub use dense::Dense;
+pub use conv2d::Conv2D;
 
 use self::{activations::compile_activations, conv2d::compile_conv2d, dense::compile_dense};
 

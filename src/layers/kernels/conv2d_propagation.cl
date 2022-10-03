@@ -65,6 +65,9 @@ kernel void convolute(
         filter_pixel_index,
 
         filter_index,
-        filter_width,
+        0,
+
+        image_width,
+        filter_width
     );
 }

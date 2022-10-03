@@ -232,7 +232,9 @@ impl<'a> Layer<'a> for Conv2D<'a> {
         let kernel = program.get_krnl(PROPAGATION_KERNEL_NAME)?;
 
         ExecuteKernel::new(kernel)
-            .set_arg(input_samples)
+            .set_arg(input_samples);
+
+        todo!()
     }
 
     fn compute_gradients(
