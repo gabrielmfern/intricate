@@ -23,27 +23,22 @@ fn main() -> () {
     let training_inputs = mnist::get_training_inputs();
     let training_outputs = mnist::get_training_outputs();
 
-    let mut mnist_model: Model;
-    if Path::new(MODEL_PATH).exists() {
-        mnist_model = load_file(MODEL_PATH, 0).expect("unable to load the model");
-    } else {
-        // this model does work, but it will not get very far without Conv layers (not yet
-        // implemented)
-        mnist_model = Model::new(vec![
-            Dense::new(28 * 28, 128),
-            TanH::new(128),
+    // this model does work, but it will not get very far without Conv layers (not yet
+    // implemented)
+    let mut mnist_model: Model = Model::new(vec![
+        Dense::new(28 * 28, 128),
+        TanH::new(128),
 
-            Dense::new(128, 10),
-            SoftMax::new(10),
-        ]);
-    }
+        Dense::new(128, 10),
+        SoftMax::new(10),
+    ]);
 
     mnist_model
         .init(&state)
         .expect("unable to initialize Mnist model");
 
     let mut loss_fn = CategoricalCrossEntropy::new();
-    let mut optimizer = AdagradOptimizer::new(0.002, 0.00000001);
+    let mut optimizer = AdagradOptimizer::new(0.01, 0.00000001);
 
     mnist_model
         .fit(
@@ -52,7 +47,8 @@ fn main() -> () {
             &mut TrainingOptions {
                 loss_fn: &mut loss_fn,
                 optimizer: &mut optimizer,
-                batch_size: 128,
+                batch_size: 256, // try increasing this based on how much your GPU can take
+                                 // on by batch
                 verbosity: TrainingVerbosity {
                     show_current_epoch: true,
                     show_epoch_progress: true,
