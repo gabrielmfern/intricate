@@ -219,8 +219,8 @@ mod categorical_cross_entropy_tests {
             .iter()
             .zip(&output_samples)
             .map(|(expected_output, actual_output)| {
-                -(expected_output / (actual_output + 0.000000000000000000000000000001)
-                    - (1.0 - expected_output) / (1.0 - actual_output + 0.000000000000000000000000000001))
+                -(expected_output / (*actual_output as f64 + 0.0000000000000000000000000000000000000000001) as f32
+                    - (1.0 - expected_output) / (1.0 - *actual_output as f64 + 0.0000000000000000000000000000000000000000001) as f32)
             })
             .collect();
 
@@ -292,8 +292,8 @@ mod categorical_cross_entropy_tests {
         loss.init(&opencl_state).unwrap();
 
         let mut rng = thread_rng();
-        let samples_amount = 1;
-        let outputs_amount = 29;
+        let samples_amount = 1000;
+        let outputs_amount = 290;
         let outputs: Vec<f32> = (0..(samples_amount * outputs_amount))
             .into_iter()
             .map(|_| rng.gen_range(0.0_f32..1.0_f32))
@@ -307,8 +307,8 @@ mod categorical_cross_entropy_tests {
             .iter()
             .zip(&outputs)
             .map(|(expected_output, output)| {
-                -(expected_output * (output + 0.000000000000000000000000000001).ln()
-                    + (1.0 - expected_output) * (1.0 - output + 0.000000000000000000000000000001).ln())
+                -(expected_output * (*output as f64 + 0.0000000000000000000000000000000000000000001).ln() as f32
+                    + (1.0 - expected_output) * (1.0 - *output as f64 + 0.0000000000000000000000000000000000000000001).ln() as f32)
             })
             .sum::<f32>()
             / samples_amount as f32;
