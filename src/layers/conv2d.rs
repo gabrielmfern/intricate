@@ -2,14 +2,21 @@
 
 use std::mem;
 
-use opencl3::{device::cl_float, memory::{Buffer, ClMem}, kernel::ExecuteKernel};
+use opencl3::{
+    device::cl_float,
+    kernel::ExecuteKernel,
+    memory::{Buffer, ClMem, CL_MEM_READ_WRITE}, types::cl_int,
+};
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 use savefile_derive::Savefile;
 
 use crate::{
     types::{ModelLayer, SyncDataError},
-    utils::{opencl::{BufferLike, BufferOperations, ensure_program, EnsureKernelsAndProgramError}, OpenCLState},
+    utils::{
+        opencl::{ensure_program, BufferLike, BufferOperations, EnsureKernelsAndProgramError},
+        OpenCLState,
+    },
 };
 
 use super::{Layer, LayerInitializationError, LayerPropagationError};
@@ -44,7 +51,7 @@ pub(crate) fn compile_conv2d(
 /// based on the size of the filter without loosing information.
 ///
 /// This type of layer proves to be extremely useful when working with images,
-/// as it makes both the model much more lightweight as well as it makes it 
+/// as it makes both the model much more lightweight as well as it makes it
 /// perform much, much better.
 ///
 /// # Examples
@@ -199,12 +206,14 @@ impl<'a> Layer<'a> for Conv2D<'a> {
                 .to_buffer(false, opencl_state)?,
         );
 
+        self.opencl_state = Some(opencl_state);
+
         Ok(())
     }
 
     fn propagate(
         &mut self,
-        input_samples: &Buffer<cl_float>,
+        image: &Buffer<cl_float>,
     ) -> Result<&Buffer<cl_float>, LayerPropagationError> {
         if self.opencl_state.is_none() {
             return Err(LayerPropagationError::LayerNotInitialized);
@@ -219,22 +228,51 @@ impl<'a> Layer<'a> for Conv2D<'a> {
         let queue = state.queues.first().unwrap();
         let context = &state.context;
 
-        let inputs_size = input_samples.size()?;
-        let inputs_total_count = inputs_size / mem::size_of::<cl_float>();
+        let image_size = image.size()?;
+        let image_volume = image_size / mem::size_of::<cl_float>();
 
-        if inputs_total_count % self.get_inputs_amount() != 0 {
+        if image_volume % self.get_inputs_amount() != 0 {
             return Err(LayerPropagationError::InputsDontMatchExpectedShape);
         }
 
-        self.last_inputs_buffer = Some(input_samples.clone(state)?);
+        if image_volume / self.inputs_size.0 != self.inputs_size.1 
+        || image_volume / self.inputs_size.1 != self.inputs_size.0 {
+            return Err(LayerPropagationError::InputsDontMatchExpectedShape);
+        }
+
+        self.last_inputs_buffer = Some(image.clone(state)?);
 
         let program = state.get_prgm(CONV2D_PROGRAM_NAME)?;
         let kernel = program.get_krnl(PROPAGATION_KERNEL_NAME)?;
 
-        ExecuteKernel::new(kernel)
-            .set_arg(input_samples);
+        let convolution = Buffer::create(
+            &state.context,
+            CL_MEM_READ_WRITE,
+            self.get_outputs_amount(),
+            std::ptr::null_mut(),
+        )?;
+        
+        let filter_volume = self.filter_size.0 * self.filter_size.1;
 
-        todo!()
+        ExecuteKernel::new(kernel)
+            .set_arg(image)
+            .set_arg(self.filter_pixel_weights_buffer.as_ref().unwrap())
+            .set_arg(&convolution) 
+            // the max size for local workgroups has to fit the filter
+            .set_arg_local_buffer(filter_volume)
+            .set_arg(&(self.inputs_size.0 as cl_int))
+            .set_arg(&(self.filter_size.0 as cl_int))
+            .set_arg(&(self.filter_size.1 as cl_int))
+            .set_arg(&(filter_volume as cl_int))
+            .set_global_work_size(self.get_outputs_amount() * filter_volume)
+            .set_local_work_size(filter_volume)
+            .enqueue_nd_range(queue)?;
+
+        queue.finish()?;
+
+        self.last_outputs_buffer = Some(convolution);
+
+        Ok(self.last_outputs_buffer.as_ref().unwrap())
     }
 
     fn compute_gradients(
@@ -266,5 +304,45 @@ impl<'a> Layer<'a> for Conv2D<'a> {
         layer_output_to_error_derivative: &Buffer<cl_float>,
     ) -> Result<Buffer<cl_float>, super::LayerLossToInputDifferentiationError> {
         todo!()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Conv2D;
+    use crate::{layers::Layer, utils::{setup_opencl, opencl::{DeviceType, BufferLike}}};
+
+    #[test]
+    fn should_convolute_correctly() -> () {
+        let opencl_state = setup_opencl(DeviceType::GPU).expect("unable to setup opencl");
+        let image = vec![
+            0.33f32, 0.14, 0.99, 1.0,
+            0.51, 0.32, 0.91, 0.1,
+            0.8, 0.4, 0.5, 0.2,
+        ].to_buffer(false, &opencl_state).expect("unable to get image buffer");
+        let filter = vec![
+            0.3, 0.4, 0.9,
+            0.1, 0.2, 1.0,
+            0.2, 0.5, 0.81
+        ].to_buffer(false, &opencl_state).expect("unable to get filter buffer");
+        let convolution = vec![
+            0.33 * 0.3 + 0.14 * 0.4 + 0.99 * 0.9 
+          + 0.51 * 0.1 + 0.32 * 0.2 + 0.91 * 1.0 
+          + 0.8 * 0.2 + 0.4 * 0.5 + 0.5 * 0.81,
+
+            0.14 * 0.3 + 0.99 * 0.4 + 1.0 * 0.9 
+          + 0.32 * 0.1 + 0.91 * 0.2 + 0.1 * 1.0
+          + 0.4 * 0.2 + 0.5 * 0.5 + 0.2 * 0.81,
+        ];
+
+        let mut layer = Conv2D::new_raw((4, 3), (3, 3));
+        layer.init(&opencl_state).expect("unable to init Conv2D");
+        layer.filter_pixel_weights_buffer = Some(filter);
+
+        let result_buffer = layer.propagate(&image).expect("unable to propagate conv2d layer");
+        let result = Vec::<f32>::from_buffer(result_buffer, false, &opencl_state)
+            .expect("unable to get resulting convolution buffer");
+
+        assert_eq!(result, convolution);
     }
 }
