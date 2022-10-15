@@ -54,6 +54,10 @@ pub(crate) fn compile_conv2d(
 /// as it makes both the model much more lightweight as well as it makes it
 /// perform much, much better.
 ///
+/// A small caviat about this layer is that is uses **local work groups**
+/// to pass the filter through the image, in a way that the size of the max local work group
+/// in your GPU needs to be the at least the volume of your filter.
+///
 /// # Examples
 ///
 /// ```rust
@@ -246,7 +250,7 @@ impl<'a> Layer<'a> for Conv2D<'a> {
         let kernel = program.get_krnl(PROPAGATION_KERNEL_NAME)?;
 
         let convolution = Buffer::create(
-            &state.context,
+            &context,
             CL_MEM_READ_WRITE,
             self.get_outputs_amount(),
             std::ptr::null_mut(),
@@ -328,11 +332,11 @@ mod tests {
         let convolution = vec![
             0.33 * 0.3 + 0.14 * 0.4 + 0.99 * 0.9 
           + 0.51 * 0.1 + 0.32 * 0.2 + 0.91 * 1.0 
-          + 0.8 * 0.2 + 0.4 * 0.5 + 0.5 * 0.81,
+          + 0.8  * 0.2 + 0.4  * 0.5 + 0.5 * 0.81,
 
             0.14 * 0.3 + 0.99 * 0.4 + 1.0 * 0.9 
           + 0.32 * 0.1 + 0.91 * 0.2 + 0.1 * 1.0
-          + 0.4 * 0.2 + 0.5 * 0.5 + 0.2 * 0.81,
+          + 0.4  * 0.2 + 0.5  * 0.5 + 0.2 * 0.81,
         ];
 
         let mut layer = Conv2D::new_raw((4, 3), (3, 3));
