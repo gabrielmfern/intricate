@@ -5,7 +5,8 @@ use std::mem;
 use opencl3::{
     device::cl_float,
     kernel::ExecuteKernel,
-    memory::{Buffer, ClMem, CL_MEM_READ_WRITE}, types::cl_int,
+    memory::{Buffer, ClMem, CL_MEM_READ_WRITE},
+    types::cl_int,
 };
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
@@ -217,7 +218,7 @@ impl<'a> Layer<'a> for Conv2D<'a> {
 
     fn propagate(
         &mut self,
-        image: &Buffer<cl_float>,
+        inputs: &Buffer<cl_float>,
     ) -> Result<&Buffer<cl_float>, LayerPropagationError> {
         if self.opencl_state.is_none() {
             return Err(LayerPropagationError::LayerNotInitialized);
@@ -232,49 +233,57 @@ impl<'a> Layer<'a> for Conv2D<'a> {
         let queue = state.queues.first().unwrap();
         let context = &state.context;
 
-        let image_size = image.size()?;
-        let image_volume = image_size / mem::size_of::<cl_float>();
+        let inputs_size = inputs.size()?;
+        let inputs_volume = inputs_size / mem::size_of::<cl_float>();
 
-        if image_volume % self.get_inputs_amount() != 0 {
+        let image_volume = self.get_inputs_amount();
+        let convolution_volume = self.get_outputs_amount();
+
+        if inputs_volume % image_volume != 0 {
             return Err(LayerPropagationError::InputsDontMatchExpectedShape);
         }
 
-        if image_volume / self.inputs_size.0 != self.inputs_size.1 
-        || image_volume / self.inputs_size.1 != self.inputs_size.0 {
-            return Err(LayerPropagationError::InputsDontMatchExpectedShape);
-        }
+        let samples_amount = inputs_volume / image_volume;
 
-        self.last_inputs_buffer = Some(image.clone(state)?);
+        self.last_inputs_buffer = Some(inputs.clone(state)?);
 
         let program = state.get_prgm(CONV2D_PROGRAM_NAME)?;
         let kernel = program.get_krnl(PROPAGATION_KERNEL_NAME)?;
 
-        let convolution = Buffer::create(
+        let outputs = Buffer::create(
             &context,
             CL_MEM_READ_WRITE,
-            self.get_outputs_amount(),
+            convolution_volume * samples_amount,
             std::ptr::null_mut(),
         )?;
-        
+
         let filter_volume = self.filter_size.0 * self.filter_size.1;
 
+        let max_local_size = state.devices.first().unwrap().max_work_group_size()?;
+
         ExecuteKernel::new(kernel)
-            .set_arg(image)
+            .set_arg(inputs)
             .set_arg(self.filter_pixel_weights_buffer.as_ref().unwrap())
-            .set_arg(&convolution) 
+            .set_arg(&outputs)
             // the max size for local workgroups has to fit the filter
             .set_arg_local_buffer(filter_volume)
             .set_arg(&(self.inputs_size.0 as cl_int))
+            .set_arg(&(image_volume as cl_int))
+            .set_arg(&(convolution_volume as cl_int))
             .set_arg(&(self.filter_size.0 as cl_int))
             .set_arg(&(self.filter_size.1 as cl_int))
             .set_arg(&(filter_volume as cl_int))
-            .set_global_work_size(self.get_outputs_amount() * filter_volume)
-            .set_local_work_size(filter_volume)
+            .set_arg(&(samples_amount as cl_int))
+            .set_global_work_sizes(&[samples_amount, self.get_outputs_amount() * filter_volume])
+            .set_local_work_sizes(&[
+                (max_local_size / filter_volume).min(samples_amount),
+                filter_volume,
+            ])
             .enqueue_nd_range(queue)?;
 
         queue.finish()?;
 
-        self.last_outputs_buffer = Some(convolution);
+        self.last_outputs_buffer = Some(outputs);
 
         Ok(self.last_outputs_buffer.as_ref().unwrap())
     }
@@ -314,36 +323,72 @@ impl<'a> Layer<'a> for Conv2D<'a> {
 #[cfg(test)]
 mod tests {
     use super::Conv2D;
-    use crate::{layers::Layer, utils::{setup_opencl, opencl::{DeviceType, BufferLike}}};
+    use crate::{
+        layers::Layer,
+        utils::{
+            opencl::{BufferLike, DeviceType},
+            setup_opencl,
+        },
+    };
 
     #[test]
     fn should_convolute_correctly() -> () {
         let opencl_state = setup_opencl(DeviceType::GPU).expect("unable to setup opencl");
         let image = vec![
-            0.33f32, 0.14, 0.99, 1.0,
-            0.51, 0.32, 0.91, 0.1,
-            0.8, 0.4, 0.5, 0.2,
-        ].to_buffer(false, &opencl_state).expect("unable to get image buffer");
-        let filter = vec![
-            0.3, 0.4, 0.9,
-            0.1, 0.2, 1.0,
-            0.2, 0.5, 0.81
-        ].to_buffer(false, &opencl_state).expect("unable to get filter buffer");
+            0.33, 0.14, 0.99, 1.0, 0.51, 0.32, 0.91, 0.1, 0.8, 0.4, 0.5, 0.2, 0.33, 0.14, 0.99,
+            1.0, 0.51, 0.32, 0.91, 0.1, 0.8, 0.4, 0.5, 0.2,
+        ]
+        .to_buffer(false, &opencl_state)
+        .expect("unable to get image buffer");
+        let filter = vec![0.3, 0.4, 0.9, 0.1, 0.2, 1.0, 0.2, 0.5, 0.81]
+            .to_buffer(false, &opencl_state)
+            .expect("unable to get filter buffer");
         let convolution = vec![
-            0.33 * 0.3 + 0.14 * 0.4 + 0.99 * 0.9 
-          + 0.51 * 0.1 + 0.32 * 0.2 + 0.91 * 1.0 
-          + 0.8  * 0.2 + 0.4  * 0.5 + 0.5 * 0.81,
-
-            0.14 * 0.3 + 0.99 * 0.4 + 1.0 * 0.9 
-          + 0.32 * 0.1 + 0.91 * 0.2 + 0.1 * 1.0
-          + 0.4  * 0.2 + 0.5  * 0.5 + 0.2 * 0.81,
+            0.33 * 0.3
+                + 0.14 * 0.4
+                + 0.99 * 0.9
+                + 0.51 * 0.1
+                + 0.32 * 0.2
+                + 0.91 * 1.0
+                + 0.8 * 0.2
+                + 0.4 * 0.5
+                + 0.5 * 0.81,
+            0.14 * 0.3
+                + 0.99 * 0.4
+                + 1.0 * 0.9
+                + 0.32 * 0.1
+                + 0.91 * 0.2
+                + 0.1 * 1.0
+                + 0.4 * 0.2
+                + 0.5 * 0.5
+                + 0.2 * 0.81,
+            0.33 * 0.3
+                + 0.14 * 0.4
+                + 0.99 * 0.9
+                + 0.51 * 0.1
+                + 0.32 * 0.2
+                + 0.91 * 1.0
+                + 0.8 * 0.2
+                + 0.4 * 0.5
+                + 0.5 * 0.81,
+            0.14 * 0.3
+                + 0.99 * 0.4
+                + 1.0 * 0.9
+                + 0.32 * 0.1
+                + 0.91 * 0.2
+                + 0.1 * 1.0
+                + 0.4 * 0.2
+                + 0.5 * 0.5
+                + 0.2 * 0.81,
         ];
 
         let mut layer = Conv2D::new_raw((4, 3), (3, 3));
         layer.init(&opencl_state).expect("unable to init Conv2D");
         layer.filter_pixel_weights_buffer = Some(filter);
 
-        let result_buffer = layer.propagate(&image).expect("unable to propagate conv2d layer");
+        let result_buffer = layer
+            .propagate(&image)
+            .expect("unable to propagate conv2d layer");
         let result = Vec::<f32>::from_buffer(result_buffer, false, &opencl_state)
             .expect("unable to get resulting convolution buffer");
 

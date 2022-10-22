@@ -53,12 +53,24 @@ kernel void convolute(
     local float* filtered,
 
     int image_width,
+    int image_volume,
+
+    int output_image_volume,
+
     int filter_width,
     int filter_height,
-    int filter_volume
+    int filter_volume,
+
+    int samples_amount
 ) {
-    int filter_index = get_group_id(0);
-    int filter_pixel_index = get_local_id(0);
+    int sample_index = get_global_id(0);
+
+    if (sample_index >= samples_amount) {
+        return;
+    }
+
+    int filter_index = get_group_id(1);
+    int filter_pixel_index = get_local_id(1);
 
     int filter_starting_global_pixel_id = filter_index 
         + (filter_width - 1) * (int)floor((float)filter_index / (float)(image_width - filter_width + 1));
@@ -67,13 +79,15 @@ kernel void convolute(
         filter_pixel_index,
 
         filter_index,
-        filter_starting_global_pixel_id ,
+        filter_starting_global_pixel_id,
 
         image_width,
         filter_width
     );
 
-    filtered[filter_pixel_index] = image[pixel_index] * filter[filter_pixel_index];
+    filtered[filter_pixel_index] = 
+        image[sample_index * image_volume + pixel_index] // the pixel
+      * filter[filter_pixel_index]; // multiplied by the respective filter weight
     barrier(CLK_LOCAL_MEM_FENCE);
 
     if (filter_pixel_index == 0) {
@@ -83,6 +97,6 @@ kernel void convolute(
             result += filtered[i];
         }
 
-        output[filter_index] = result;
+        output[sample_index * output_image_volume + filter_index] = result;
     }
 }
