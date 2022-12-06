@@ -20,10 +20,10 @@ use crate::{
     },
 };
 
-use super::{Layer, LayerInitializationError, LayerPropagationError};
+use super::{Layer, LayerInitializationError, LayerPropagationError, ParametersOptimizationError};
 
-const CONV2D_PROGRAM_NAME: &str = "CONV2D_PROPAGATION";
-const PROPAGATION_PROGRAM_SORUCE: &str = include_str!("kernels/conv2d_propagation.cl");
+const CONV2D_PROGRAM_NAME: &str = "CONV2D";
+const PROGRAM_SORUCE: &str = include_str!("kernels/conv2d.cl");
 
 const PROPAGATION_KERNEL_NAME: &str = "convolute";
 
@@ -35,7 +35,7 @@ pub(crate) fn compile_conv2d(
     ensure_program(
         opencl_state,
         CONV2D_PROGRAM_NAME.to_string(),
-        PROPAGATION_PROGRAM_SORUCE.to_string(),
+        PROGRAM_SORUCE.to_string(),
         "".to_string(),
         prop_kernels,
     )?;
@@ -299,8 +299,20 @@ impl<'a> Layer<'a> for Conv2D<'a> {
         &mut self,
         optimizer: &dyn crate::optimizers::Optimizer<'a>,
         layer_index: usize,
-    ) -> Result<(), super::ParametersOptimizationError> {
-        todo!()
+    ) -> Result<(), ParametersOptimizationError> {
+        if self.filter_pixel_weights_buffer.is_none() {
+            return Err(
+                ParametersOptimizationError::EmptyParameter("filter_pixel_weights".to_string())
+            );
+        }
+
+        optimizer.optimize_parameters(
+            self.filter_pixel_weights_buffer.as_mut().unwrap(), 
+            "filter_pixel_weights".to_string(), 
+            layer_index
+        )?;
+
+        Ok(())
     }
 
     fn apply_gradients(
