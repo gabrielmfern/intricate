@@ -15,22 +15,26 @@ use savefile_derive::Savefile;
 use crate::{
     types::{ModelLayer, SyncDataError},
     utils::{
-        opencl::{ensure_program, BufferLike, BufferOperations, EnsureKernelsAndProgramError},
+        opencl::{ensure_program, BufferLike, BufferOperations, EnsureKernelsAndProgramError, empty_buffer},
         OpenCLState,
     },
 };
 
-use super::{Layer, LayerInitializationError, LayerPropagationError, ParametersOptimizationError};
+use super::{Layer, LayerInitializationError, LayerPropagationError, ParametersOptimizationError, LayerGradientComputationError, Gradient};
 
 const CONV2D_PROGRAM_NAME: &str = "CONV2D";
 const PROGRAM_SORUCE: &str = include_str!("kernels/conv2d.cl");
 
 const PROPAGATION_KERNEL_NAME: &str = "convolute";
+const COMPUTE_GRADIENTS_KERNEL_NAME: &str = "compute_gradients";
 
 pub(crate) fn compile_conv2d(
     opencl_state: &mut OpenCLState,
 ) -> Result<(), EnsureKernelsAndProgramError> {
-    let prop_kernels = &[PROPAGATION_KERNEL_NAME.to_string()];
+    let prop_kernels = &[
+        PROPAGATION_KERNEL_NAME.to_string(),
+        COMPUTE_GRADIENTS_KERNEL_NAME.to_string(),
+    ];
 
     ensure_program(
         opencl_state,
@@ -290,9 +294,82 @@ impl<'a> Layer<'a> for Conv2D<'a> {
 
     fn compute_gradients(
         &self,
-        layer_output_to_error_derivative: &Buffer<cl_float>,
-    ) -> Result<Vec<super::Gradient>, super::LayerGradientComputationError> {
-        todo!()
+        layer_error_to_output_derivatives: &Buffer<cl_float>,
+    ) -> Result<Vec<Gradient>, LayerGradientComputationError> {
+        if self.opencl_state.is_none() {
+            return Err(LayerGradientComputationError::LayerNotInitialized);
+        }
+
+        let state = self.opencl_state.unwrap();
+
+        if state.queues.first().is_none() {
+            return Err(LayerGradientComputationError::NoCommandQueueFound);
+        }
+
+        if self.last_inputs_buffer.is_none() || self.last_outputs_buffer.is_none() {
+            return Err(LayerGradientComputationError::HasNotPropagatedBeforeCalculation);
+        }
+
+        let queue = state.queues.first().unwrap();
+        let context = &state.context;
+
+        let derivatives_size = layer_error_to_output_derivatives.size()?;
+        let derivatives_volume = derivatives_size  / mem::size_of::<cl_float>();
+
+        let image_volume = self.get_inputs_amount();
+        let convolution_volume = self.get_outputs_amount();
+
+        if derivatives_volume % convolution_volume != 0 {
+            return Err(LayerGradientComputationError::DerivativesDontMatchExpectedShape);
+        }
+
+        let samples_amount = derivatives_volume / convolution_volume;
+
+        let filters_volume = self.filter_size.0 * self.filter_size.1;
+
+        let mut gradients: Vec<f32> = Vec::with_capacity(filters_volume);
+
+        let program = state.get_prgm(CONV2D_PROGRAM_NAME)?;
+        let kernel = program.get_krnl(COMPUTE_GRADIENTS_KERNEL_NAME)?;
+
+        for pixel_index in 0..filters_volume {
+            let filter_pixel_gradients = empty_buffer(
+                convolution_volume * samples_amount,
+                CL_MEM_READ_WRITE,
+                state
+            )?;
+            
+            let pixel_y = (pixel_index as f32 / self.filter_size.0 as f32).floor();
+            let pixel_x = pixel_index  % self.filter_size.0;
+
+            let convolution_width = self.inputs_size.0 - self.filter_size.0 + 1;
+
+            ExecuteKernel::new(kernel)
+                .set_arg(self.last_inputs_buffer.as_ref().unwrap())
+                .set_arg(layer_error_to_output_derivatives)
+                .set_arg(&filter_pixel_gradients)
+                .set_arg(&(self.inputs_size.0 as cl_int))
+                .set_arg(&(samples_amount as cl_int))
+                .set_arg(&(image_volume as cl_int))
+                .set_arg(&(convolution_width as cl_int))
+                .set_arg(&(convolution_volume as cl_int))
+                .set_arg(&(pixel_y))
+                .set_arg(&(pixel_x))
+                .set_global_work_sizes(&[samples_amount, convolution_volume])
+                .enqueue_nd_range(queue)?;
+
+            queue.finish()?;
+
+            gradients.push(
+                filter_pixel_gradients.sum(state)? / samples_amount as f32
+            );
+        }
+
+        Ok(vec![Gradient {
+            optimizable: true,
+            parameter_id: "filter_pixel_weights".to_string(),
+            value: gradients.to_buffer(false, state)?
+        }])
     }
 
     fn optimize_parameters(

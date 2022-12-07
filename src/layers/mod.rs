@@ -119,9 +119,17 @@ pub enum LayerGradientComputationError {
     /// Happens when a kernel could not be found inside of the program.
     KernelNotFound(KernelNotFoundError),
 
+    /// Happens when some error occurs while trying to convert from/to a buffer to /from a Vec<f32>. 
+    BufferConversionError(BufferConversionError),
+    /// Happens when a buffer operation goes wrong.
+    BufferOperation(BufferOperationError),
+
     /// Happens when the derivatives do not match the expected shape based on the input_amount and
     /// outputs_amount.
     DerivativesDontMatchExpectedShape,
+    /// Happens when either the last_inputs or the last_outputs are missing inside of the alayer's
+    /// internal state
+    HasNotPropagatedBeforeCalculation,
 
     /// Happens when there is no command queue in the OpenCLState.
     NoCommandQueueFound,

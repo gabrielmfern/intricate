@@ -100,3 +100,41 @@ kernel void convolute(
         output[sample_index * output_image_volume + filter_index] = result;
     }
 }
+
+kernel void compute_gradients_for_one_filter_pixel(
+    global float* image,
+    global float* error_to_output_derivatives,
+    global float* filter_pixel_gradients,
+
+    int image_width,
+    
+    int samples_amount,
+
+    int output_width,
+    int output_volume,
+
+    int pixel_y,
+    int pixel_x
+) {
+    int sample_index = get_global_id(0);
+
+    if (sample_index >= samples_amount) {
+        return;
+    }
+
+    int output_index = get_global_id(1);
+
+    if (output_index >= output_volume) {
+        return;
+    }
+
+    int output_y = floor((float)output_index / (float)output_width);
+    int output_x = output_index % output_width;
+
+    int input_y = output_y + pixel_y - 1;
+    int input_x = output_x + pixel_x - 1;
+    int input_index = input_y * image_width + input_x;
+
+    int derivative_index = sample_index * output_volume + output_index;
+    filter_pixel_gradients = image[input_index] * error_to_output_derivatives[derivative_index];
+}
