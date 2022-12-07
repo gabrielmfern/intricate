@@ -311,7 +311,6 @@ impl<'a> Layer<'a> for Conv2D<'a> {
         }
 
         let queue = state.queues.first().unwrap();
-        let context = &state.context;
 
         let derivatives_size = layer_error_to_output_derivatives.size()?;
         let derivatives_volume = derivatives_size  / mem::size_of::<cl_float>();
