@@ -26,7 +26,7 @@ const CONV2D_PROGRAM_NAME: &str = "CONV2D";
 const PROGRAM_SORUCE: &str = include_str!("kernels/conv2d.cl");
 
 const PROPAGATION_KERNEL_NAME: &str = "convolute";
-const COMPUTE_GRADIENTS_KERNEL_NAME: &str = "compute_gradients";
+const COMPUTE_GRADIENTS_KERNEL_NAME: &str = "compute_gradients_for_one_filter_pixel";
 
 pub(crate) fn compile_conv2d(
     opencl_state: &mut OpenCLState,
@@ -348,6 +348,7 @@ impl<'a> Layer<'a> for Conv2D<'a> {
                 .set_arg(layer_error_to_output_derivatives)
                 .set_arg(&filter_pixel_gradients)
                 .set_arg(&(self.inputs_size.0 as cl_int))
+                .set_arg(&(self.filter_size.0 as cl_int))
                 .set_arg(&(samples_amount as cl_int))
                 .set_arg(&(image_volume as cl_int))
                 .set_arg(&(convolution_width as cl_int))

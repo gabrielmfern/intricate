@@ -107,6 +107,7 @@ kernel void compute_gradients_for_one_filter_pixel(
     global float* filter_pixel_gradients,
 
     int image_width,
+    int filter_width,
     
     int samples_amount,
 
@@ -136,5 +137,5 @@ kernel void compute_gradients_for_one_filter_pixel(
     int input_index = input_y * image_width + input_x;
 
     int derivative_index = sample_index * output_volume + output_index;
-    filter_pixel_gradients = image[input_index] * error_to_output_derivatives[derivative_index];
+    filter_pixel_gradients[pixel_y * filter_width + pixel_x] = image[input_index] * error_to_output_derivatives[derivative_index];
 }
