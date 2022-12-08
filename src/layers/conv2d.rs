@@ -294,7 +294,7 @@ impl<'a> Layer<'a> for Conv2D<'a> {
 
     fn compute_gradients(
         &self,
-        layer_error_to_output_derivatives: &Buffer<cl_float>,
+        layer_output_to_error_derivatives: &Buffer<cl_float>,
     ) -> Result<Vec<Gradient>, LayerGradientComputationError> {
         if self.opencl_state.is_none() {
             return Err(LayerGradientComputationError::LayerNotInitialized);
@@ -312,7 +312,7 @@ impl<'a> Layer<'a> for Conv2D<'a> {
 
         let queue = state.queues.first().unwrap();
 
-        let derivatives_size = layer_error_to_output_derivatives.size()?;
+        let derivatives_size = layer_output_to_error_derivatives.size()?;
         let derivatives_volume = derivatives_size  / mem::size_of::<cl_float>();
 
         let image_volume = self.get_inputs_amount();
@@ -324,38 +324,47 @@ impl<'a> Layer<'a> for Conv2D<'a> {
 
         let samples_amount = derivatives_volume / convolution_volume;
 
-        let filters_volume = self.filter_size.0 * self.filter_size.1;
+        let filter_volume = self.filter_size.0 * self.filter_size.1;
 
-        let mut gradients: Vec<f32> = Vec::with_capacity(filters_volume);
+        let mut gradients: Vec<f32> = Vec::with_capacity(filter_volume);
 
         let program = state.get_prgm(CONV2D_PROGRAM_NAME)?;
         let kernel = program.get_krnl(COMPUTE_GRADIENTS_KERNEL_NAME)?;
 
-        for pixel_index in 0..filters_volume {
+        for pixel_index in 0..filter_volume {
             let filter_pixel_gradients = empty_buffer(
                 convolution_volume * samples_amount,
                 CL_MEM_READ_WRITE,
                 state
             )?;
             
-            let pixel_y = (pixel_index as f32 / self.filter_size.0 as f32).floor();
-            let pixel_x = pixel_index  % self.filter_size.0;
+            let pixel_y = ((pixel_index + 1) as f32 / self.filter_size.0 as f32).ceil() as usize - 1;
+            let pixel_x = pixel_index % self.filter_size.0;
 
             let convolution_width = self.inputs_size.0 - self.filter_size.0 + 1;
+            let convolution_height = self.inputs_size.1 - self.filter_size.1 + 1;
 
             ExecuteKernel::new(kernel)
                 .set_arg(self.last_inputs_buffer.as_ref().unwrap())
-                .set_arg(layer_error_to_output_derivatives)
+                .set_arg(layer_output_to_error_derivatives)
                 .set_arg(&filter_pixel_gradients)
+
                 .set_arg(&(self.inputs_size.0 as cl_int))
-                .set_arg(&(self.filter_size.0 as cl_int))
-                .set_arg(&(samples_amount as cl_int))
                 .set_arg(&(image_volume as cl_int))
+
+                .set_arg(&(self.filter_size.0 as cl_int))
+                .set_arg(&(filter_volume as cl_int))
+
+                .set_arg(&(samples_amount as cl_int))
+
                 .set_arg(&(convolution_width as cl_int))
+                .set_arg(&(convolution_height as cl_int))
                 .set_arg(&(convolution_volume as cl_int))
-                .set_arg(&(pixel_y))
-                .set_arg(&(pixel_x))
-                .set_global_work_sizes(&[samples_amount, convolution_volume])
+
+                .set_arg(&(pixel_index as cl_int))
+                .set_arg(&(pixel_y as cl_int))
+                .set_arg(&(pixel_x as cl_int))
+                .set_global_work_sizes(&[samples_amount, convolution_height, convolution_width])
                 .enqueue_nd_range(queue)?;
 
             queue.finish()?;
@@ -435,6 +444,96 @@ mod tests {
             setup_opencl,
         },
     };
+
+    #[test]
+    fn should_compute_gradients_correctly() -> () {
+        let opencl_state = setup_opencl(DeviceType::GPU).expect("unable to setup opencl");
+        let images: Vec<f32> = vec![
+            0.1,  0.3,  0.4,   0.9,
+            0.23, 0.29, 0.34, 0.15,
+            0.93, 0.31, 0.11, 0.44,
+            0.15, 0.14, 0.19, 0.32,
+
+            0.45, 0.21, 0.42,  0.2,
+            0.12, 0.23, 0.21, 0.31,
+            0.86, 0.28, 0.25, 0.83,
+            0.25, 0.11, 0.64, 0.33,
+        ];
+        let output_to_loss_derivatives = vec![
+            0.1, 0.3,
+            0.4, 0.8, 
+
+            0.2, 0.4,
+            0.5, 0.5, 
+        ];
+        let expected_gradients = vec![
+            (0.1 * 0.1 + 0.3  * 0.3 
+          + 0.23 * 0.4 + 0.29 * 0.8 +
+            0.45 * 0.2 + 0.21 * 0.4
+          + 0.12 * 0.5 + 0.23 * 0.5) / 2.0,
+
+            (0.3 * 0.1 + 0.4  * 0.3 
+          + 0.29 * 0.4 + 0.34 * 0.8 +
+            0.21 * 0.2 + 0.42 * 0.4
+          + 0.23 * 0.5 + 0.21 * 0.5) / 2.0,
+
+            (0.4 * 0.1 + 0.9  * 0.3
+          + 0.34 * 0.4 + 0.15 * 0.8 +
+            0.42 * 0.2 + 0.2 * 0.4
+          + 0.21 * 0.5 + 0.31 * 0.5) / 2.0,
+
+
+           (0.23 * 0.1 + 0.29 * 0.3 
+          + 0.93 * 0.4 + 0.31 * 0.8 +
+            0.12 * 0.2 + 0.23 * 0.4
+          + 0.86 * 0.5 + 0.28 * 0.5) / 2.0,
+
+           (0.29 * 0.1 + 0.34 * 0.3
+          + 0.31 * 0.4 + 0.11 * 0.8 +
+            0.23 * 0.2 + 0.21 * 0.4
+          + 0.28 * 0.5 + 0.25 * 0.5) / 2.0,
+
+           (0.34 * 0.1 + 0.15 * 0.3
+          + 0.11 * 0.4 + 0.44 * 0.8 +
+            0.21 * 0.2 + 0.31 * 0.4
+          + 0.25 * 0.5 + 0.83 * 0.5) / 2.0,
+
+
+            (0.93 * 0.1 + 0.31 * 0.3
+          + 0.15 * 0.4 + 0.14 * 0.8 +
+            0.86 * 0.2 + 0.28 * 0.4
+          + 0.25 * 0.5 + 0.11 * 0.5) / 2.0,
+
+           (0.31 * 0.1 + 0.11 * 0.3
+          + 0.14 * 0.4 + 0.19 * 0.8 +
+            0.28 * 0.2 + 0.25 * 0.4
+          + 0.11 * 0.5 + 0.64 * 0.5) / 2.0,
+
+            (0.11 * 0.1 + 0.44 * 0.3
+          + 0.19 * 0.4 + 0.32 * 0.8 +
+            0.25 * 0.2 + 0.83 * 0.4
+          + 0.64 * 0.5 + 0.33 * 0.5) / 2.0,
+        ];
+
+        let samples_buff = images
+            .to_buffer(false, &opencl_state)
+            .expect("unable to get the image's buffer");
+        let output_to_loss_derivatives_buff = output_to_loss_derivatives
+            .to_buffer(false, &opencl_state)
+            .expect("unable to get the output to loss derivatives buffer");
+
+        let mut conv2d = Conv2D::new_raw((4, 4), (3, 3));
+        conv2d.init(&opencl_state).expect("unable to initialize raw conv2D layer");
+
+        conv2d.last_inputs_buffer = Some(samples_buff);
+
+        let actual_gradients_buff = &conv2d.compute_gradients(&output_to_loss_derivatives_buff)
+            .expect("unable to compute conv2d gradients")[0].value;
+
+        let actual_gradients = Vec::<f32>::from_buffer(actual_gradients_buff, false, &opencl_state)
+            .expect("unable to convert from the actual gradients buffer to a vector");
+
+    }
 
     #[test]
     fn should_convolute_correctly() -> () {

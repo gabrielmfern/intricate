@@ -107,13 +107,18 @@ kernel void compute_gradients_for_one_filter_pixel(
     global float* filter_pixel_gradients,
 
     int image_width,
+    int image_volume,
+
     int filter_width,
+    int filter_volume,
     
     int samples_amount,
 
     int output_width,
+    int output_height,
     int output_volume,
 
+    int pixel_index,
     int pixel_y,
     int pixel_x
 ) {
@@ -123,19 +128,25 @@ kernel void compute_gradients_for_one_filter_pixel(
         return;
     }
 
-    int output_index = get_global_id(1);
+    int output_y = get_global_id(1);
 
-    if (output_index >= output_volume) {
+    if (output_y >= output_width) {
         return;
     }
 
-    int output_y = floor((float)output_index / (float)output_width);
-    int output_x = output_index % output_width;
+    int output_x = get_global_id(2);
 
-    int input_y = output_y + pixel_y - 1;
-    int input_x = output_x + pixel_x - 1;
+    if (output_x >= output_height) {
+        return;
+    }
+
+    int input_y = output_y + pixel_y;
+    int input_x = output_x + pixel_x;
+
     int input_index = input_y * image_width + input_x;
 
-    int derivative_index = sample_index * output_volume + output_index;
-    filter_pixel_gradients[pixel_y * filter_width + pixel_x] = image[input_index] * error_to_output_derivatives[derivative_index];
+    int output_index = output_y * output_width + output_x;
+
+    filter_pixel_gradients[output_index] 
+        = (float)image[input_index] * (float)error_to_output_derivatives[output_index];
 }
