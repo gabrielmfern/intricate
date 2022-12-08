@@ -15,12 +15,12 @@ use savefile_derive::Savefile;
 use crate::{
     types::{ModelLayer, SyncDataError},
     utils::{
-        opencl::{ensure_program, BufferLike, BufferOperations, EnsureKernelsAndProgramError, empty_buffer},
+        opencl::{ensure_program, BufferLike, BufferOperations, EnsureKernelsAndProgramError, empty_buffer, InplaceBufferOperations},
         OpenCLState,
     },
 };
 
-use super::{Layer, LayerInitializationError, LayerPropagationError, ParametersOptimizationError, LayerGradientComputationError, Gradient};
+use super::{Layer, LayerInitializationError, LayerPropagationError, ParametersOptimizationError, LayerGradientComputationError, Gradient, LayerGradientApplicationError, compute_update_vectors};
 
 const CONV2D_PROGRAM_NAME: &str = "CONV2D";
 const PROGRAM_SORUCE: &str = include_str!("kernels/conv2d.cl");
@@ -306,7 +306,7 @@ impl<'a> Layer<'a> for Conv2D<'a> {
             return Err(LayerGradientComputationError::NoCommandQueueFound);
         }
 
-        if self.last_inputs_buffer.is_none() || self.last_outputs_buffer.is_none() {
+        if self.last_inputs_buffer.is_none() {
             return Err(LayerGradientComputationError::HasNotPropagatedBeforeCalculation);
         }
 
@@ -397,8 +397,24 @@ impl<'a> Layer<'a> for Conv2D<'a> {
         per_parameter_type_gradients: &[super::Gradient],
         optimizer: &mut dyn crate::optimizers::Optimizer<'a>,
         layer_model_index: usize,
-    ) -> Result<(), super::LayerGradientApplicationError> {
-        todo!()
+    ) -> Result<(), LayerGradientApplicationError> {
+        if self.opencl_state.is_none() {
+            return Err(LayerGradientApplicationError::LayerNotInitialized);
+        }
+
+        let state = self.opencl_state.unwrap();
+
+        if per_parameter_type_gradients.len() != 2 {
+            return Err(LayerGradientApplicationError::GradientsDontMatchExpectedShape);
+        }
+
+        let update_vectors =
+            compute_update_vectors(optimizer, per_parameter_type_gradients, layer_model_index, state)?;
+
+        let filter_pixel_weights_buffer = self.filter_pixel_weights_buffer.as_mut().unwrap();
+        filter_pixel_weights_buffer.subtract_inplc(&update_vectors[0], state)?;
+
+        Ok(())
     }
 
     fn compute_loss_to_input_derivatives(

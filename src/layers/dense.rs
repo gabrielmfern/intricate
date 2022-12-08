@@ -376,7 +376,7 @@ impl<'a> Layer<'a> for Dense<'a> {
             return Err(LayerGradientComputationError::DerivativesDontMatchExpectedShape);
         }
 
-        if self.last_inputs_buffer.is_none() || self.last_outputs_buffer.is_none() {
+        if self.last_inputs_buffer.is_none() {
             return Err(LayerGradientComputationError::HasNotPropagatedBeforeCalculation);
         }
 
