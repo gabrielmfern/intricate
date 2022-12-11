@@ -182,6 +182,9 @@ pub enum LayerLossToInputDifferentiationError {
     /// Happens when a kernel could not be found inside of the program.
     KernelNotFound(KernelNotFoundError),
 
+    /// Happens when there is a missing required parameter for this calculation
+    MissingParameter(&'static str),
+
     /// Happens when the derivatives do not match the expected shape based on the input_amount and
     /// outputs_amount.
     DerivativesDontMatchExpectedShape,

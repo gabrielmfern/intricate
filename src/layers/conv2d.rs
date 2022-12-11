@@ -20,13 +20,14 @@ use crate::{
     },
 };
 
-use super::{Layer, LayerInitializationError, LayerPropagationError, ParametersOptimizationError, LayerGradientComputationError, Gradient, LayerGradientApplicationError, compute_update_vectors};
+use super::{Layer, LayerInitializationError, LayerPropagationError, ParametersOptimizationError, LayerGradientComputationError, Gradient, LayerGradientApplicationError, compute_update_vectors, LayerLossToInputDifferentiationError};
 
 const CONV2D_PROGRAM_NAME: &str = "CONV2D";
 const PROGRAM_SORUCE: &str = include_str!("kernels/conv2d.cl");
 
 const PROPAGATION_KERNEL_NAME: &str = "convolute";
 const COMPUTE_GRADIENTS_KERNEL_NAME: &str = "compute_gradients_for_one_filter_pixel";
+const COMPUTE_LOSS_TO_INPUT_DERIVATIVES_KERNEL_NAME: &str = "compute_loss_to_input_derivatives";
 
 pub(crate) fn compile_conv2d(
     opencl_state: &mut OpenCLState,
@@ -34,6 +35,7 @@ pub(crate) fn compile_conv2d(
     let prop_kernels = &[
         PROPAGATION_KERNEL_NAME.to_string(),
         COMPUTE_GRADIENTS_KERNEL_NAME.to_string(),
+        COMPUTE_LOSS_TO_INPUT_DERIVATIVES_KERNEL_NAME.to_string(),
     ];
 
     ensure_program(
@@ -429,8 +431,66 @@ impl<'a> Layer<'a> for Conv2D<'a> {
     fn compute_loss_to_input_derivatives(
         &self,
         layer_output_to_error_derivative: &Buffer<cl_float>,
-    ) -> Result<Buffer<cl_float>, super::LayerLossToInputDifferentiationError> {
-        todo!()
+    ) -> Result<Buffer<cl_float>, LayerLossToInputDifferentiationError> {
+        if self.opencl_state.is_none() {
+            return Err(LayerLossToInputDifferentiationError::LayerNotInitialized);
+        }
+
+        let state = self.opencl_state.unwrap();
+
+        if state.queues.first().is_none() {
+            return Err(LayerLossToInputDifferentiationError::NoCommandQueueFound);
+        }
+
+        if self.last_inputs_buffer.is_none() {
+            return Err(LayerLossToInputDifferentiationError::HasNotPropagatedBeforeCalculation);
+        }
+
+        let queue = state.queues.first().unwrap();
+
+        let derivatives_size = layer_output_to_error_derivative.size()?;
+        let derivatives_volume = derivatives_size  / mem::size_of::<cl_float>();
+
+        let image_volume = self.get_inputs_amount();
+        let convolution_volume = self.get_outputs_amount();
+
+        if derivatives_volume % convolution_volume != 0 {
+            return Err(LayerLossToInputDifferentiationError::DerivativesDontMatchExpectedShape);
+        }
+
+        if self.filter_pixel_weights_buffer.is_none() {
+            return Err(LayerLossToInputDifferentiationError::MissingParameter("filter_pixel_weights"));
+        }
+
+        let samples_amount = derivatives_volume / convolution_volume;
+        let filter_width = self.filter_size.0;
+        let outputs_width = self.inputs_size.0 - self.filter_size.0 + 1;
+        let outputs_height = self.inputs_size.1 - self.filter_size.1 + 1;
+
+        let program = state.get_prgm(CONV2D_PROGRAM_NAME)?;
+        let kernel = program.get_krnl(COMPUTE_GRADIENTS_KERNEL_NAME)?;
+
+        let loss_to_input_derivatives_buffer = empty_buffer(
+            self.get_inputs_amount() * samples_amount,
+            CL_MEM_READ_WRITE,
+            state
+        )?;
+        
+        ExecuteKernel::new(kernel)
+            .set_arg(self.filter_pixel_weights_buffer.as_ref().unwrap())
+            .set_arg(&loss_to_input_derivatives_buffer)
+            .set_arg(&(samples_amount as cl_int))
+            .set_arg(&(filter_width as cl_int))
+            .set_arg(&(outputs_height as cl_int))
+            .set_arg(&(outputs_width as cl_int))
+            .set_arg(&(image_volume as cl_int))
+            .set_arg(&(self.inputs_size.0 as cl_int))
+            .set_global_work_sizes(&[samples_amount, image_volume])
+            .enqueue_nd_range(queue)?;
+
+        queue.finish()?;
+
+        Ok(loss_to_input_derivatives_buffer)
     }
 }
 
@@ -441,7 +501,7 @@ mod tests {
         layers::Layer,
         utils::{
             opencl::{BufferLike, DeviceType},
-            setup_opencl,
+            setup_opencl, approx_eq,
         },
     };
 
@@ -533,6 +593,7 @@ mod tests {
         let actual_gradients = Vec::<f32>::from_buffer(actual_gradients_buff, false, &opencl_state)
             .expect("unable to convert from the actual gradients buffer to a vector");
 
+        approx_eq::assert_approx_equal(&actual_gradients, &expected_gradients, 1);
     }
 
     #[test]

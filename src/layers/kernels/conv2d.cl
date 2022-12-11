@@ -144,9 +144,57 @@ kernel void compute_gradients_for_one_filter_pixel(
     int input_x = output_x + pixel_x;
 
     int input_index = input_y * image_width + input_x;
+    int global_input_index = sample_index * image_volume + input_index;
 
     int output_index = output_y * output_width + output_x;
+    int global_output_index = sample_index * output_volume + output_index;
 
-    filter_pixel_gradients[output_index] 
-        = (float)image[input_index] * (float)error_to_output_derivatives[output_index];
+    filter_pixel_gradients[global_output_index] 
+        = (float)image[global_input_index] * (float)error_to_output_derivatives[global_output_index];
+}
+
+kernel void compute_loss_to_input_derivatives(
+    constant float* filter,
+    global float* loss_to_output_derivatives,
+    global float* loss_to_input_derivatives,
+
+    int samples_amount,
+
+    int filter_width,
+
+    int output_height,
+    int output_width,
+
+    int inputs_amount,
+    int inputs_width
+) {
+    int sample_index = get_global_id(0);
+
+    if (sample_index >= samples_amount) {
+        return;
+    }
+
+    int input_index = get_global_id(1);
+    
+    if (input_index >= inputs_amount) {
+        return;
+    }
+
+    float loss_to_input_derivative = 0;
+
+    int input_y = (int)floor((float)input_index / (float)inputs_width);
+    int input_x = input_index % inputs_width;
+
+    for (int output_y = input_y; output_y < output_height; output_y++) {
+        int filter_y = input_y - output_y + 1;
+        for (int output_x = input_x; output_x < output_width; output_x++) {
+            int filter_x = input_x - output_x + 1;
+            int filter_index = filter_y * filter_width + filter_x;
+            loss_to_input_derivative += (float)filter[filter_index];
+        }
+    }
+    
+    int input_derivative_index = sample_index * inputs_amount + input_index;
+
+    loss_to_input_derivatives[input_derivative_index] = loss_to_input_derivative;
 }
