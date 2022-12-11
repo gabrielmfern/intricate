@@ -42,6 +42,7 @@ const ADD_BUFFER_KERNEL_NAME: &str = "add";
 const ADD_NUM_BUFFER_KERNEL_NAME: &str = "add_num";
 const ADD_INPLACE_BUFFER_KERNEL_NAME: &str = "add_inplace";
 const SHIFT_INPLACE_BUFFER_KERNEL_NAME: &str = "shift_inplace";
+const ENSURE_BUFFER_KERNEL_NAME: &str = "ensure_buffer";
 const SUBTRACT_BUFFER_KERNEL_NAME: &str = "subtract";
 const SUBTRACT_INPLACE_BUFFER_KERNEL_NAME: &str = "subtract_inplace";
 const MULTIPLY_BUFFER_KERNEL_NAME: &str = "multiply";
@@ -203,6 +204,7 @@ pub(crate) fn compile_buffer_operations_program(
         INVERSE_SQRT_BUFFER_KERNEL_NAME.to_string(),
         SCALE_INPLACE_BUFFER_KERNEL_NAME.to_string(),
         SHIFT_INPLACE_BUFFER_KERNEL_NAME.to_string(),
+        ENSURE_BUFFER_KERNEL_NAME.to_string(),
         INVERSE_SQRT_INPLACE_BUFFER_KERNEL_NAME.to_string(),
         ADD_INPLACE_BUFFER_KERNEL_NAME.to_string(),
         SUBTRACT_INPLACE_BUFFER_KERNEL_NAME.to_string(),
@@ -256,6 +258,13 @@ where
     fn scale_inplc(
         &mut self,
         scaler: f32,
+        opencl_state: &OpenCLState,
+    ) -> Result<(), BufferOperationError>;
+
+    /// Ensures a buffer by just calling an empty OpenCL kernel on it to avoid annoying NVidia
+    /// specific OpenCL error codes
+    fn ensure_buffer(
+        &self,
         opencl_state: &OpenCLState,
     ) -> Result<(), BufferOperationError>;
 
@@ -324,6 +333,29 @@ impl InplaceBufferOperations for Buffer<cl_float> {
             .set_arg(&(scaler as cl_float))
             .set_arg(&(count_self as cl_int))
             .set_global_work_size(count_self)
+            .enqueue_nd_range(queue)?
+            .wait()?;
+
+        Ok(())
+    }
+
+    fn ensure_buffer(
+        &self,
+        opencl_state: &OpenCLState,
+    ) -> Result<(), BufferOperationError> {
+        if opencl_state.queues.is_empty() {
+            return Err(BufferOperationError::NoCommandQueueFoundError);
+        }
+
+        let queue = opencl_state.queues.first().unwrap();
+
+        let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
+        let kernel = program.get_krnl(ENSURE_BUFFER_KERNEL_NAME)?;
+
+        ExecuteKernel::new(kernel)
+            .set_arg(self)
+            .set_arg(&(self.size()? as cl_int))
+            .set_global_work_size(1)
             .enqueue_nd_range(queue)?
             .wait()?;
 
@@ -1089,7 +1121,9 @@ pub(crate) fn empty_buffer(
     flags: cl_mem_flags,
     opencl_state: &OpenCLState,
 ) -> Result<Buffer<cl_float>, ClError> {
-    Buffer::create(&opencl_state.context, flags, count, ptr::null_mut())
+    let buf = Buffer::create(&opencl_state.context, flags, count, ptr::null_mut())?;
+    buf.ensure_buffer(opencl_state).expect("Unable to ensure new buffer");
+    Ok(buf)
 }
 
 impl BufferLike<cl_float> for Vec<f32> {

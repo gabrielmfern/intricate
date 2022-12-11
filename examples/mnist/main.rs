@@ -1,10 +1,8 @@
-use std::path::Path;
-
 use intricate::{
     datasets::mnist,
     layers::{
         activations::{SoftMax, TanH},
-        Dense,
+        Dense, Conv2D,
     },
     loss_functions::CategoricalCrossEntropy,
     optimizers::NesterovMomentumAcceleratedOptimizer,
@@ -12,7 +10,7 @@ use intricate::{
     utils::{opencl::DeviceType, setup_opencl},
     Model,
 };
-use savefile::{save_file, load_file};
+use savefile::save_file;
 
 const MODEL_PATH: &str = "mnist-model.bin";
 
@@ -26,10 +24,10 @@ fn main() -> () {
     // this model does work, but it will not get very far without Conv layers (not yet
     // implemented)
     let mut mnist_model: Model = Model::new(vec![
-        Dense::new(28 * 28, 128),
-        TanH::new(128),
+        Conv2D::new((28, 28), (8, 8)),
+        TanH::new(8 * 8),
 
-        Dense::new(128, 10),
+        Dense::new(8 * 8, 10),
         SoftMax::new(10),
     ]);
 

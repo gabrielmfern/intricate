@@ -52,6 +52,19 @@ kernel void sum_all_values_in_workgroups(
     }
 }
 
+// this is just to avoid annoyting NVidia specific errors (-9999)
+kernel void ensure_buffer(
+    global float *self,
+
+    int size
+) {
+    int index = get_global_id(0);
+
+    if (index >= size) {
+        return;
+    }
+}
+
 kernel void scale_inplace(
     global float *self,
     

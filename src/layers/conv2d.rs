@@ -237,7 +237,6 @@ impl<'a> Layer<'a> for Conv2D<'a> {
         }
 
         let queue = state.queues.first().unwrap();
-        let context = &state.context;
 
         let inputs_size = inputs.size()?;
         let inputs_volume = inputs_size / mem::size_of::<cl_float>();
@@ -256,11 +255,10 @@ impl<'a> Layer<'a> for Conv2D<'a> {
         let program = state.get_prgm(CONV2D_PROGRAM_NAME)?;
         let kernel = program.get_krnl(PROPAGATION_KERNEL_NAME)?;
 
-        let outputs = Buffer::create(
-            &context,
+        let outputs = empty_buffer(
+            convolution_volume * samples_amount, 
             CL_MEM_READ_WRITE,
-            convolution_volume * samples_amount,
-            std::ptr::null_mut(),
+            state
         )?;
 
         let filter_volume = self.filter_size.0 * self.filter_size.1;
@@ -285,9 +283,8 @@ impl<'a> Layer<'a> for Conv2D<'a> {
                 (max_local_size / filter_volume).min(samples_amount),
                 filter_volume,
             ])
-            .enqueue_nd_range(queue)?;
-
-        queue.finish()?;
+            .enqueue_nd_range(queue)?
+            .wait()?;
 
         self.last_outputs_buffer = Some(outputs);
 
@@ -367,14 +364,15 @@ impl<'a> Layer<'a> for Conv2D<'a> {
                 .set_arg(&(pixel_y as cl_int))
                 .set_arg(&(pixel_x as cl_int))
                 .set_global_work_sizes(&[samples_amount, convolution_height, convolution_width])
-                .enqueue_nd_range(queue)?;
-
-            queue.finish()?;
+                .enqueue_nd_range(queue)?
+                .wait()?;
 
             gradients.push(
                 filter_pixel_gradients.sum(state)? / samples_amount as f32
             );
         }
+
+        queue.finish()?;
 
         Ok(vec![Gradient {
             optimizable: true,
@@ -504,6 +502,43 @@ mod tests {
             setup_opencl, approx_eq,
         },
     };
+    
+    // #[test]
+    // fn should_compute_loss_to_input_derivatives_correctly() -> () {
+    //     let opencl_state = setup_opencl(DeviceType::GPU).expect("unable to eetup opencl");
+    //     let images = vec![
+    //         0.1,  0.3,  0.4,   0.9,
+    //         0.23, 0.29, 0.34, 0.15,
+    //         0.93, 0.31, 0.11, 0.44,
+    //         0.15, 0.14, 0.19, 0.32,
+
+    //         0.45, 0.21, 0.42,  0.2,
+    //         0.12, 0.23, 0.21, 0.31,
+    //         0.86, 0.28, 0.25, 0.83,
+    //         0.25, 0.11, 0.64, 0.33,
+    //     ].to_buffer(false, &opencl_state).expect("unable to create images buffer");
+    //     let filter = vec![
+    //         0.51, 0.94, 0.12,
+    //         0.31, 0.44, 0.99,
+    //         0.11, 0.05, 0.31
+    //     ].to_buffer(false, &opencl_state).expect("unable to create filter buffer");
+    //     let loss_to_output_derivatives = vec![
+    //         0.1, 0.3,
+    //         0.4, 0.8, 
+
+    //         0.2, 0.4,
+    //         0.5, 0.5, 
+    //     ].to_buffer(false, &opencl_state).expect("unable to create loss to output derivatives buffer");
+    //     let expected_loss_to_input_derivatives: Vec<f32> = vec![
+    //         0.51 * 0.1,
+    //         0.51 * 0.3 + 0.94 * 0.1,
+    //         0.94 * 0.3 + 0.12 * 0.1,
+    //         0.12 * 0.3,
+    //         0.31 * 0.1 + 0.51 * 0.4,
+    //         0.44 * 0.1 + 0.31 * 0.3 + 0.94 * 0.4 + 0.51 * 0.8,
+    //         0.99 * 0.1 + 0.44 * 0.3 + 0.12 * 0.4 + 0.94 * 0.8,
+    //     ];
+    // }
 
     #[test]
     fn should_compute_gradients_correctly() -> () {
