@@ -1,11 +1,11 @@
 use intricate::{
     datasets::mnist,
     layers::{
-        activations::{SoftMax, TanH},
+        activations::{SoftMax, TanH, ReLU},
         Dense, Conv2D,
     },
     loss_functions::CategoricalCrossEntropy,
-    optimizers::NesterovMomentumAcceleratedOptimizer,
+    optimizers::{NesterovMomentumAcceleratedOptimizer, BasicOptimizer},
     types::{TrainingOptions, TrainingVerbosity},
     utils::{opencl::DeviceType, setup_opencl},
     Model,
@@ -21,13 +21,14 @@ fn main() -> () {
     let training_inputs = mnist::get_training_inputs();
     let training_outputs = mnist::get_training_outputs();
 
-    // this model does work, but it will not get very far without Conv layers (not yet
-    // implemented)
     let mut mnist_model: Model = Model::new(vec![
-        Conv2D::new((28, 28), (8, 8)),
-        TanH::new(8 * 8),
+        Conv2D::new((28, 28), (4, 4)),
+        ReLU::new(25 * 25),
 
-        Dense::new(8 * 8, 10),
+        Conv2D::new((25, 25), (4, 4)),
+        ReLU::new(22 * 22),
+
+        Dense::new(22 * 22, 10),
         SoftMax::new(10),
     ]);
 
@@ -36,7 +37,7 @@ fn main() -> () {
         .expect("unable to initialize Mnist model");
 
     let mut loss_fn = CategoricalCrossEntropy::new();
-    let mut optimizer = NesterovMomentumAcceleratedOptimizer::new(0.02, 0.9);
+    let mut optimizer = NesterovMomentumAcceleratedOptimizer::new(0.01, 0.9);
 
     mnist_model
         .fit(

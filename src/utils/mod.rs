@@ -9,6 +9,30 @@ pub use opencl::{
     OpenCLState
 };
 
+/// Finds a certain divisor of a number closest to another number
+pub fn find_divsor_of_n_closest_to_m(n: usize, m: usize) -> usize {
+    let middle = (n as f32).sqrt().floor() as usize;
+    let (mut closest_up_to_now, mut distance) = (1, m - 1);
+    for k in 2..=middle {
+        if n % k == 0 {
+            let inverse = n / k;
+
+            let k_inverse_distance = (inverse as i32 - m as i32).abs() as usize;
+            if k_inverse_distance < distance {
+                closest_up_to_now = inverse;
+                distance = k_inverse_distance;
+            }
+
+            let k_distance = (k as i32 - m as i32).abs() as usize;
+            if k_distance < distance {
+                closest_up_to_now = k;
+                distance = k_distance;
+            }
+        }
+    }
+    closest_up_to_now
+}
+
 /// Finds the gratest common divisor (gcd) of two numbers **n** and **m** independent of their
 /// ordering.
 ///

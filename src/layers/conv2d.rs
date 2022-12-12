@@ -16,7 +16,8 @@ use crate::{
     types::{ModelLayer, SyncDataError},
     utils::{
         opencl::{ensure_program, BufferLike, BufferOperations, EnsureKernelsAndProgramError, empty_buffer, InplaceBufferOperations},
-        OpenCLState,
+        find_divsor_of_n_closest_to_m,
+        OpenCLState, gcd,
     },
 };
 
@@ -251,26 +252,27 @@ impl<'a> Layer<'a> for Conv2D<'a> {
         let samples_amount = inputs_volume / image_volume;
 
         self.last_inputs_buffer = Some(inputs.clone(state)?);
-
         let program = state.get_prgm(CONV2D_PROGRAM_NAME)?;
         let kernel = program.get_krnl(PROPAGATION_KERNEL_NAME)?;
 
         let outputs = empty_buffer(
-            convolution_volume * samples_amount, 
+            convolution_volume * samples_amount,
             CL_MEM_READ_WRITE,
-            state
+            state,
         )?;
 
         let filter_volume = self.filter_size.0 * self.filter_size.1;
 
         let max_local_size = state.devices.first().unwrap().max_work_group_size()?;
 
+        dbg!(Vec::<f32>::from_buffer(self.filter_pixel_weights_buffer.as_ref().unwrap(), false, state)?);
+
         ExecuteKernel::new(kernel)
             .set_arg(inputs)
             .set_arg(self.filter_pixel_weights_buffer.as_ref().unwrap())
             .set_arg(&outputs)
             // the max size for local workgroups has to fit the filter
-            .set_arg_local_buffer(filter_volume)
+            .set_arg_local_buffer(filter_volume * std::mem::size_of::<f32>())
             .set_arg(&(self.inputs_size.0 as cl_int))
             .set_arg(&(image_volume as cl_int))
             .set_arg(&(convolution_volume as cl_int))
@@ -280,7 +282,7 @@ impl<'a> Layer<'a> for Conv2D<'a> {
             .set_arg(&(samples_amount as cl_int))
             .set_global_work_sizes(&[samples_amount, self.get_outputs_amount() * filter_volume])
             .set_local_work_sizes(&[
-                (max_local_size / filter_volume).min(samples_amount),
+                gcd(find_divsor_of_n_closest_to_m(max_local_size, max_local_size / filter_volume), samples_amount),
                 filter_volume,
             ])
             .enqueue_nd_range(queue)?
@@ -413,7 +415,7 @@ impl<'a> Layer<'a> for Conv2D<'a> {
 
         let state = self.opencl_state.unwrap();
 
-        if per_parameter_type_gradients.len() != 2 {
+        if per_parameter_type_gradients.len() != 1 {
             return Err(LayerGradientApplicationError::GradientsDontMatchExpectedShape);
         }
 
@@ -462,11 +464,12 @@ impl<'a> Layer<'a> for Conv2D<'a> {
 
         let samples_amount = derivatives_volume / convolution_volume;
         let filter_width = self.filter_size.0;
+        let filter_height = self.filter_size.1;
         let outputs_width = self.inputs_size.0 - self.filter_size.0 + 1;
         let outputs_height = self.inputs_size.1 - self.filter_size.1 + 1;
 
         let program = state.get_prgm(CONV2D_PROGRAM_NAME)?;
-        let kernel = program.get_krnl(COMPUTE_GRADIENTS_KERNEL_NAME)?;
+        let kernel = program.get_krnl(COMPUTE_LOSS_TO_INPUT_DERIVATIVES_KERNEL_NAME)?;
 
         let loss_to_input_derivatives_buffer = empty_buffer(
             self.get_inputs_amount() * samples_amount,
@@ -476,9 +479,11 @@ impl<'a> Layer<'a> for Conv2D<'a> {
         
         ExecuteKernel::new(kernel)
             .set_arg(self.filter_pixel_weights_buffer.as_ref().unwrap())
+            .set_arg(layer_output_to_error_derivative)
             .set_arg(&loss_to_input_derivatives_buffer)
             .set_arg(&(samples_amount as cl_int))
             .set_arg(&(filter_width as cl_int))
+            .set_arg(&(filter_height as cl_int))
             .set_arg(&(outputs_height as cl_int))
             .set_arg(&(outputs_width as cl_int))
             .set_arg(&(image_volume as cl_int))

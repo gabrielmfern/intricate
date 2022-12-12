@@ -93,6 +93,8 @@ pub enum LayerPropagationError {
     KernelNotFound(KernelNotFoundError),
     /// Happens when a buffer operation goes wrong.
     BufferOperation(BufferOperationError),
+    /// Happens when a buffer conversion either from or to a Vec goes wrong
+    BufferConversion(BufferConversionError),
 
     /// Happens if the amounts of inputs per sample is not equivalent to the amount of actual
     /// inputs
