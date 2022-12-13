@@ -1,4 +1,6 @@
-# Intricate
+<div align="center">
+  <img src="https://github.com/gabrielmfern/intricate/tree/feature/0.7.0/layers/conv2d/icon.png">
+</div>
 
 [![Crates.io](https://img.shields.io/crates/v/intricate.svg?label=intricate)](https://crates.io/crates/intricate)
 [![Crates.io](https://img.shields.io/crates/dv/intricate)](https://crates.io/crates/intricate)
