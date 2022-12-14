@@ -1,6 +1,8 @@
 <div align="center">
   <img 
     src="https://github.com/gabrielmfern/intricate/blob/feature/0.7.0/layers/conv2d/icon.svg"
+    height="200px"
+    stlye="margin-top: 20px; margin-bottom: 20px"
   >
 </div>
 
