@@ -20,8 +20,8 @@ kernel void compute_loss(
         int flat_i = row_part + output_index;
         float output = (float) output_samples[flat_i];
         float expected_output = (float) expected_output_samples[flat_i];
-        sample_loss -= expected_output * (float)log(max((double)output, 0.00000000000000000000000000000000000000000000000001))
-                            + (1.0f - expected_output) * (float)log(max(1.0 - (double)output, 0.00000000000000000000000000000000000000000000000001));
+        sample_loss -= expected_output * (float)log(max((double)output, 0.0000000000000000000000000000000000000000000000000000000001))
+                            + (1.0f - expected_output) * (float)log(max(1.0 - (double)output, 0.0000000000000000000000000000000000000000000000000000000001));
     }
 
     sample_losses[sample_index] = sample_loss;
@@ -53,6 +53,6 @@ kernel void compute_loss_to_output_derivatives(
     float output = (float) output_samples[flat_i];
     float expected_output = (float) expected_output_samples[flat_i];
 
-    loss_to_output_derivatives[flat_i] = (float) -((double)expected_output / max((double)output, 0.00000000000000000000000000000000000000000000000001)
-                                - (1.0 - (double)expected_output) / max(1.0 - (double)output, 0.00000000000000000000000000000000000000000000000001));
+    loss_to_output_derivatives[flat_i] = (float) -((double)expected_output / max((double)output, 0.0000000000000000000000000000000000000000000000000000000001)
+                                - (1.0 - (double)expected_output) / max(1.0 - (double)output, 0.0000000000000000000000000000000000000000000000000000000001));
 }

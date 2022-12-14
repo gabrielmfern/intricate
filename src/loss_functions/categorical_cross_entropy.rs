@@ -219,8 +219,8 @@ mod categorical_cross_entropy_tests {
             .iter()
             .zip(&output_samples)
             .map(|(expected_output, actual_output)| {
-                -(expected_output / (*actual_output as f64 + 0.0000000000000000000000000000000000000000001) as f32
-                    - (1.0 - expected_output) / (1.0 - *actual_output as f64 + 0.0000000000000000000000000000000000000000001) as f32)
+                -(expected_output / (*actual_output as f64 + 0.0000000000000000000000000000000000000000000000000000000001) as f32
+                    - (1.0 - expected_output) / (1.0 - *actual_output as f64 + 0.0000000000000000000000000000000000000000000000000000000001) as f32)
             })
             .collect();
 
@@ -307,8 +307,8 @@ mod categorical_cross_entropy_tests {
             .iter()
             .zip(&outputs)
             .map(|(expected_output, output)| {
-                -(expected_output * (*output as f64 + 0.0000000000000000000000000000000000000000001).ln() as f32
-                    + (1.0 - expected_output) * (1.0 - *output as f64 + 0.0000000000000000000000000000000000000000001).ln() as f32)
+                -(expected_output * (*output as f64 + 0.0000000000000000000000000000000000000000000000000000000001).ln() as f32
+                    + (1.0 - expected_output) * (1.0 - *output as f64 + 0.0000000000000000000000000000000000000000000000000000000001).ln() as f32)
             })
             .sum::<f32>()
             / samples_amount as f32;

@@ -5,7 +5,7 @@ use intricate::{
         Dense, Conv2D,
     },
     loss_functions::CategoricalCrossEntropy,
-    optimizers::{NesterovMomentumAcceleratedOptimizer, BasicOptimizer},
+    optimizers::{NesterovMomentumAcceleratedOptimizer, BasicOptimizer, AdagradOptimizer},
     types::{TrainingOptions, TrainingVerbosity},
     utils::{opencl::DeviceType, setup_opencl},
     Model,
@@ -37,7 +37,7 @@ fn main() -> () {
         .expect("unable to initialize Mnist model");
 
     let mut loss_fn = CategoricalCrossEntropy::new();
-    let mut optimizer = NesterovMomentumAcceleratedOptimizer::new(0.01, 0.9);
+    let mut optimizer = BasicOptimizer::new(0.01);
 
     mnist_model
         .fit(
@@ -53,12 +53,12 @@ fn main() -> () {
                     show_epoch_progress: true,
                     show_epoch_elapsed: true,
                     print_loss: true,
-                    print_accuracy: false,
+                    print_accuracy: true,
                     halting_condition_warning: false,
                 },
                 halting_condition: None,
                 compute_loss: true,
-                compute_accuracy: false,
+                compute_accuracy: true,
                 epochs: 100,
             },
         )

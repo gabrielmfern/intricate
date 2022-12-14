@@ -265,8 +265,6 @@ impl<'a> Layer<'a> for Conv2D<'a> {
 
         let max_local_size = state.devices.first().unwrap().max_work_group_size()?;
 
-        dbg!(Vec::<f32>::from_buffer(self.filter_pixel_weights_buffer.as_ref().unwrap(), false, state)?);
-
         ExecuteKernel::new(kernel)
             .set_arg(inputs)
             .set_arg(self.filter_pixel_weights_buffer.as_ref().unwrap())

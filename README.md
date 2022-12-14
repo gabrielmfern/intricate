@@ -1,6 +1,6 @@
 <div align="center">
   <img 
-    src="https://github.com/gabrielmfern/intricate/blob/feature/0.7.0/layers/conv2d/icon.png"
+    src="https://github.com/gabrielmfern/intricate/blob/feature/0.7.0/layers/conv2d/icon.svg"
   >
 </div>
 

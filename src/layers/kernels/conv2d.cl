@@ -186,12 +186,16 @@ kernel void compute_loss_to_input_derivatives(
     int input_y = (int)floor((float)input_index / (float)inputs_width);
     int input_x = input_index % inputs_width;
     
-    for (int output_y = max(input_y - filter_height + 1, 0); output_y < min(output_height, input_y + 1); output_y++) {
+    for (int output_y = 0; output_y < output_height; output_y++) {
         int filter_y = input_y - output_y + 1;
-        for (int output_x = max(input_x - filter_width + 1, 0); output_x < min(output_width, input_x + 1); output_x++) {
-            int filter_x = input_x - output_x + 1;
-            int filter_index = filter_y * filter_width + filter_x;
-            loss_to_input_derivative += (float)filter[filter_index];
+        if (filter_y >= 0) {
+            for (int output_x = 0; output_x < output_width; output_x++) {
+                int filter_x = input_x - output_x + 1;
+                if (filter_x >= 0) {
+                    int filter_index = filter_y * filter_width + filter_x;
+                    loss_to_input_derivative += (float)filter[filter_index];
+                }
+            }
         }
     }
     
