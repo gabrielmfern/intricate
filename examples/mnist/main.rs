@@ -1,11 +1,11 @@
 use intricate::{
     datasets::mnist,
     layers::{
-        activations::{SoftMax, TanH, ReLU},
+        activations::{SoftMax, ReLU},
         Dense, Conv2D,
     },
     loss_functions::CategoricalCrossEntropy,
-    optimizers::{NesterovMomentumAcceleratedOptimizer, BasicOptimizer, AdagradOptimizer},
+    optimizers::BasicOptimizer,
     types::{TrainingOptions, TrainingVerbosity},
     utils::{opencl::DeviceType, setup_opencl},
     Model,
@@ -53,12 +53,12 @@ fn main() -> () {
                     show_epoch_progress: true,
                     show_epoch_elapsed: true,
                     print_loss: true,
-                    print_accuracy: true,
+                    print_accuracy: false,
                     halting_condition_warning: false,
                 },
                 halting_condition: None,
                 compute_loss: true,
-                compute_accuracy: true,
+                compute_accuracy: false,
                 epochs: 100,
             },
         )
