@@ -7,7 +7,7 @@ use opencl3::{device::cl_float, error_codes::ClError, memory::Buffer};
 
 use crate::{
     optimizers::{OptimizationError, Optimizer},
-    types::{KernelNotFoundError, ProgramNotFoundError, SyncDataError},
+    types::{KernelNotFoundError, ProgramNotFoundError, SyncDataError, ModelLayer},
     utils::{
         opencl::{BufferConversionError, BufferOperationError, EnsureKernelsAndProgramError},
         BufferOperations, OpenCLState,
@@ -17,11 +17,12 @@ use crate::{
 pub mod activations;
 pub mod conv2d;
 pub mod dense;
+pub mod initializers;
 
 pub use dense::Dense;
 pub use conv2d::Conv2D;
 
-use self::{activations::compile_activations, conv2d::compile_conv2d, dense::compile_dense};
+use self::{activations::compile_activations, conv2d::compile_conv2d, dense::compile_dense, initializers::Initializer};
 
 pub(crate) fn compile_layers(
     opencl_state: &mut OpenCLState,
@@ -230,6 +231,13 @@ pub enum LayerInitializationError {
 /// the loss of the whole Model, and returning derivatives of the loss with respect to the inputs
 /// of the layer.
 pub trait Layer<'a> {
+    fn get_initializer(&self) -> &dyn Initializer;
+
+    /// Sets the parameter initializer for the current layer
+    fn set_initializer(&mut self, initializer: &dyn Initializer) -> ModelLayer<'a>;
+
+    fn initializer_parameters(&mut self) -> ();
+
     /// Gets the last input samples that were used in the 'propagate' method,
     /// having this getter forces a struct that implements Layer to save its
     /// inputs on propagate
@@ -370,6 +378,6 @@ pub trait Layer<'a> {
     /// - There are no drivers for OpenCL.
     fn compute_loss_to_input_derivatives(
         &self,
-        layer_output_to_error_derivative: &Buffer<cl_float>,
+        layer_loss_to_output_derivatives: &Buffer<cl_float>,
     ) -> Result<Buffer<cl_float>, LayerLossToInputDifferentiationError>;
 }

@@ -4,7 +4,7 @@ version = "0.7.0"
 edition = "2021"
 license = "MIT"
 authors = ["Gabriel Miranda"]
-keywords = ["neural-networks", "machine-learning", "backpropagation"]
+keywords = ["neural-networks", "machine-learning"]
 description = "A GPU accelerated library that creates/trains/runs machine learning prediction models in safe Rust code."
 repository = "https://github.com/gabrielmfern/intricate"
 readme = "README.md"
@@ -15,12 +15,13 @@ mnist = []
 [dependencies]
 rayon = "1.5.3"
 rand = "0.8.5"
+rand_distr = "0.4.3"
 savefile-derive="0.10"
 savefile="0.10"
 opencl3="0.8.1"
 indicatif="0.17.0"
-intricate-macros="0.6.0"
-# intricate-macros={ path="./intricate-macros/" }
+# intricate-macros="0.6.0"
+intricate-macros={ path="./intricate-macros/" }
 
 [[example]]
 name = "xor"
