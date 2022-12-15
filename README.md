@@ -251,8 +251,9 @@ to use the Model after loading it, you **must** call the `init` method in the `l
 
 ## Things to be done still
 
-- implement convolutional layers and perhaps even solve some image classification problems in a example
-- have some feature of Intricate, should be optional, that would contain preloaded datasets, such as MNIST and others
+- Implement MaxPooling or other Pooling type of layers.
 - add a way to send into the training process a callback closure that would be called everytime a epoch finished or even a step too with some cool info
 - make an example after doing the thing above ^, that uses that same function to plot the loss realtime using a crate like `textplots`
 - add embedding layers for text such as bag of words with an expected vocabulary size
+- add initializers into the code as to have some more flexbility
+- add some more optimizers like Adam
