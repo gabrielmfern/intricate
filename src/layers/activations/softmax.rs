@@ -12,12 +12,12 @@ use savefile_derive::Savefile;
 use crate::{
     layers::{
         Gradient, Layer, LayerLossToInputDifferentiationError, LayerPropagationError,
-        SyncDataError, ParametersOptimizationError, LayerInitializationError,
+        SyncDataError, ParametersOptimizationError, LayerInitializationError, initializers::Initializer,
     },
     utils::{
         opencl::{empty_buffer, ensure_program, BufferOperations, EnsureKernelsAndProgramError},
         OpenCLState,
-    }, optimizers::Optimizer,
+    }, optimizers::Optimizer, types::ModelLayer,
 };
 
 const PROGRAM_NAME: &str = "SOFTMAX";
@@ -95,6 +95,14 @@ impl<'a> SoftMax<'a> {
 }
 
 impl<'a> Layer<'a> for SoftMax<'a> {
+    fn get_initializer(&self) -> Option<&'a Initializer> {
+        None
+    }
+
+    fn set_initializer(self, _initializer: Initializer) -> ModelLayer<'a> {
+        self.into()
+    }
+
     fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), LayerInitializationError> {
         self.opencl_state = Some(opencl_state);
 

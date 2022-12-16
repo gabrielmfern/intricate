@@ -8,7 +8,6 @@ use opencl3::{
     memory::{Buffer, ClMem, CL_MEM_READ_WRITE},
     types::cl_int,
 };
-use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 use savefile_derive::Savefile;
 
@@ -21,7 +20,7 @@ use crate::{
     },
 };
 
-use super::{Layer, LayerInitializationError, LayerPropagationError, ParametersOptimizationError, LayerGradientComputationError, Gradient, LayerGradientApplicationError, compute_update_vectors, LayerLossToInputDifferentiationError};
+use super::{Layer, LayerInitializationError, LayerPropagationError, ParametersOptimizationError, LayerGradientComputationError, Gradient, LayerGradientApplicationError, compute_update_vectors, LayerLossToInputDifferentiationError, initializers::{InitializerTrait, GlorotUniformInitializer, Initializer}};
 
 const CONV2D_PROGRAM_NAME: &str = "CONV2D";
 const PROGRAM_SORUCE: &str = include_str!("kernels/conv2d.cl");
@@ -85,6 +84,10 @@ pub struct Conv2D<'a> {
     /// This a vec that contains rows instead of columns.
     pub filter_pixel_weights: Vec<Vec<f32>>,
 
+    /// The initializer that will be used to generate the initial parameters for the filter's
+    /// weights.
+    pub initializer: Initializer,
+
     #[savefile_ignore]
     #[savefile_introspect_ignore]
     /// The allocated buffer with OpenCL that contains the flattened filter pixel weights.
@@ -115,17 +118,11 @@ impl<'a> Conv2D<'a> {
 
     /// Crates a new raw 2D Convolutional layer with a random filter.
     pub fn new_raw(inputs_size: (usize, usize), filter_size: (usize, usize)) -> Self {
-        let mut rng = thread_rng();
         Conv2D {
             inputs_size,
             filter_size,
-            filter_pixel_weights: (0..filter_size.1)
-                .map(|_| {
-                    (0..filter_size.0)
-                        .map(|_| rng.gen_range(-1f32..1f32))
-                        .collect()
-                })
-                .collect(),
+            filter_pixel_weights: Vec::default(),
+            initializer: GlorotUniformInitializer::new().into(),
             filter_pixel_weights_buffer: None,
             last_inputs_buffer: None,
             last_outputs_buffer: None,
@@ -135,6 +132,15 @@ impl<'a> Conv2D<'a> {
 }
 
 impl<'a> Layer<'a> for Conv2D<'a> {
+    fn get_initializer<'b>(&'b self) -> Option<&'b Initializer> {
+        Some(&self.initializer)
+    }
+
+    fn set_initializer(mut self, initializer: Initializer) -> ModelLayer<'a> {
+        self.initializer = initializer;
+        self.into()
+    }
+
     fn get_last_inputs(&self) -> Option<&Buffer<cl_float>> {
         self.last_inputs_buffer.as_ref()
     }
@@ -204,9 +210,7 @@ impl<'a> Layer<'a> for Conv2D<'a> {
 
     fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), LayerInitializationError> {
         if self.filter_pixel_weights.is_empty() {
-            return Err(LayerInitializationError::EmptyParameter(
-                "filter_pixel_weights".to_string(),
-            ));
+            self.filter_pixel_weights = self.initializer.initialize_2d(self.filter_size, self)
         }
 
         self.filter_pixel_weights_buffer = Some(

@@ -1,10 +1,10 @@
 [package]
 name = "intricate-macros"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 license = "MIT"
 authors = ["Gabriel Miranda"]
-keywords = ["neural-networks", "machine-learning", "backpropagation"]
+keywords = ["neural-networks", "machine-learning"]
 description = "The macros used for the Intricate library, a machine learning library with GPU acceleration written with OpenCL"
 readme = "README.md"
 repository = "https://github.com/gabrielmfern/intricate"

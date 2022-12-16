@@ -6,7 +6,6 @@ use opencl3::{
     kernel::ExecuteKernel,
     memory::{Buffer, ClMem, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE},
 };
-use rand::Rng;
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use savefile_derive::Savefile;
 use std::{mem, ptr};
@@ -25,7 +24,8 @@ use crate::{
 use super::{
     compute_update_vectors, Gradient, Layer, LayerGradientApplicationError,
     LayerGradientComputationError, LayerInitializationError, LayerLossToInputDifferentiationError,
-    LayerPropagationError, ParametersOptimizationError,
+    LayerPropagationError, ParametersOptimizationError, 
+    initializers::{Initializer, InitializerTrait, GlorotUniformInitializer},
 };
 
 const DENSE_PROP_PROGRAM_NAME: &str = "DENSE_PROPAGATION";
@@ -94,6 +94,9 @@ pub struct Dense<'a> {
     /// The biases of this Dense layer, but stored in the CPU instead of in a OpenCL buffer.
     pub biases: Vec<f32>, // TODO: make biases optional
 
+    /// The initializer that will generate the initial weights and biases for the Dense.
+    pub initializer: Initializer,
+
     #[savefile_ignore]
     #[savefile_introspect_ignore]
     /// The allocated buffer with OpenCL that contains the flattened weights of this Dense layer.
@@ -126,29 +129,31 @@ pub struct Dense<'a> {
 impl<'a> Dense<'a> {
     /// Creates a new Dense layer but without being inside of the ModelLayer enum.
     pub fn new_raw(inputs_amount: usize, outputs_amount: usize) -> Dense<'a> {
-        let mut rng = rand::thread_rng(); //                much more convenient
+        // let mut rng = rand::thread_rng(); //                much more convenient
 
-        let weights = (0..inputs_amount)
-            .into_iter()
-            .map(|_| {
-                (0..outputs_amount)
-                    .into_iter()
-                    .map(|_| rng.gen_range(-1.0_f32..=1.0_f32))
-                    .collect::<Vec<f32>>()
-            })
-            .collect::<Vec<Vec<f32>>>();
+        // let weights = (0..inputs_amount)
+        //     .into_iter()
+        //     .map(|_| {
+        //         (0..outputs_amount)
+        //             .into_iter()
+        //             .map(|_| rng.gen_range(-1.0_f32..=1.0_f32))
+        //             .collect::<Vec<f32>>()
+        //     })
+        //     .collect::<Vec<Vec<f32>>>();
 
-        let biases = (0..outputs_amount)
-            .into_iter()
-            .map(|_| rng.gen_range(-1.0_f32..=1.0_f32))
-            .collect::<Vec<f32>>();
+        // let biases = (0..outputs_amount)
+        //     .into_iter()
+        //     .map(|_| rng.gen_range(-1.0_f32..=1.0_f32))
+        //     .collect::<Vec<f32>>();
 
         Dense {
             inputs_amount,
             outputs_amount,
 
-            weights,
-            biases,
+            initializer: GlorotUniformInitializer::new().into(),
+
+            weights: Vec::default(),
+            biases: Vec::default(),
 
             weights_buffer: None,
             biases_buffer: None,
@@ -168,6 +173,15 @@ impl<'a> Dense<'a> {
 }
 
 impl<'a> Layer<'a> for Dense<'a> {
+    fn get_initializer<'b>(&'b self) -> Option<&'b Initializer> {
+        Some(&self.initializer)
+    }
+
+    fn set_initializer(mut self, initializer: Initializer) -> ModelLayer<'a> {
+        self.initializer = initializer;
+        self.into()
+    }
+
     fn get_last_inputs(&self) -> Option<&Buffer<cl_float>> {
         self.last_inputs_buffer.as_ref()
     }
@@ -252,15 +266,11 @@ impl<'a> Layer<'a> for Dense<'a> {
 
     fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), LayerInitializationError> {
         if self.weights.is_empty() {
-            return Err(LayerInitializationError::EmptyParameter(
-                "weights".to_string(),
-            ));
+            self.weights = self.initializer.initialize_2d((self.inputs_amount, self.outputs_amount), self);
         }
 
         if self.biases.is_empty() {
-            return Err(LayerInitializationError::EmptyParameter(
-                "biases".to_string(),
-            ));
+            self.biases = self.initializer.initialize_1d(self.outputs_amount, self);
         }
 
         let weights_buffer = self
@@ -434,33 +444,6 @@ impl<'a> Layer<'a> for Dense<'a> {
         ])
     }
 
-    fn apply_gradients(
-        &mut self,
-        per_parameter_type_gradients: &[Gradient],
-        optimizer: &mut dyn Optimizer<'a>,
-        layer_index: usize,
-    ) -> Result<(), LayerGradientApplicationError> {
-        if self.opencl_state.is_none() {
-            return Err(LayerGradientApplicationError::LayerNotInitialized);
-        }
-
-        let state = self.opencl_state.unwrap();
-
-        if per_parameter_type_gradients.len() != 2 {
-            return Err(LayerGradientApplicationError::GradientsDontMatchExpectedShape);
-        }
-
-        let update_vectors =
-            compute_update_vectors(optimizer, per_parameter_type_gradients, layer_index, state)?;
-
-        let weights_buffer = self.weights_buffer.as_mut().unwrap();
-        let biases_buffer = self.biases_buffer.as_mut().unwrap();
-        weights_buffer.subtract_inplc(&update_vectors[0], state)?;
-        biases_buffer.subtract_inplc(&update_vectors[1], state)?;
-
-        Ok(())
-    }
-
     fn optimize_parameters(
         &mut self,
         optimizer: &dyn Optimizer<'a>,
@@ -488,6 +471,33 @@ impl<'a> Layer<'a> for Dense<'a> {
             "biases".to_string(),
             layer_index,
         )?;
+
+        Ok(())
+    }
+
+    fn apply_gradients(
+        &mut self,
+        per_parameter_type_gradients: &[Gradient],
+        optimizer: &mut dyn Optimizer<'a>,
+        layer_index: usize,
+    ) -> Result<(), LayerGradientApplicationError> {
+        if self.opencl_state.is_none() {
+            return Err(LayerGradientApplicationError::LayerNotInitialized);
+        }
+
+        let state = self.opencl_state.unwrap();
+
+        if per_parameter_type_gradients.len() != 2 {
+            return Err(LayerGradientApplicationError::GradientsDontMatchExpectedShape);
+        }
+
+        let update_vectors =
+            compute_update_vectors(optimizer, per_parameter_type_gradients, layer_index, state)?;
+
+        let weights_buffer = self.weights_buffer.as_mut().unwrap();
+        let biases_buffer = self.biases_buffer.as_mut().unwrap();
+        weights_buffer.subtract_inplc(&update_vectors[0], state)?;
+        biases_buffer.subtract_inplc(&update_vectors[1], state)?;
 
         Ok(())
     }

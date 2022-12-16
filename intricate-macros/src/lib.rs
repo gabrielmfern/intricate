@@ -77,24 +77,42 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
     // not sure how this is actually to be implemented
     // compiler keeps complaining that quote! moves layer_names
     // so I cant use it twice because it would be a use of a moved value
-    let layer_names_2 = layer_variants.iter().map(|variant| &variant.ident);
-    let layer_names_3 = layer_variants.iter().map(|variant| &variant.ident);
-    let layer_names_4 = layer_variants.iter().map(|variant| &variant.ident);
-    let layer_names_5 = layer_variants.iter().map(|variant| &variant.ident);
-    let layer_names_6 = layer_variants.iter().map(|variant| &variant.ident);
-    let layer_names_7 = layer_variants.iter().map(|variant| &variant.ident);
-    let layer_names_8 = layer_variants.iter().map(|variant| &variant.ident);
-    let layer_names_9 = layer_variants.iter().map(|variant| &variant.ident);
-    let layer_names_10 = layer_names_9.clone();
-    let layer_names_11 = layer_names_9.clone();
-    let layer_names_12 = layer_names_9.clone();
+    let layer_names_2 = layer_names.clone();
+    let layer_names_3 = layer_names.clone();
+    let layer_names_4 = layer_names.clone();
+    let layer_names_5 = layer_names.clone();
+    let layer_names_6 = layer_names.clone();
+    let layer_names_7 = layer_names.clone();
+    let layer_names_8 = layer_names.clone();
+    let layer_names_9 = layer_names.clone();
+    let layer_names_10 = layer_names.clone();
+    let layer_names_11 = layer_names.clone();
+    let layer_names_12 = layer_names.clone();
+    let layer_names_13 = layer_names.clone();
+    let layer_names_14 = layer_names.clone();
 
     TokenStream::from(quote! {
         impl<'a> crate::layers::Layer<'a> for #enum_name<'a> {
+            fn get_initializer<'b>(&'b self) -> Option<&'b crate::layers::initializers::Initializer> {
+                match self {
+                    #(
+                        #enum_name::#layer_names(layer) => layer.get_initializer(),
+                    )*
+                }
+            }
+
+            fn set_initializer(self, initializer: crate::layers::initializers::Initializer) -> ModelLayer<'a> {
+                match self {
+                    #(
+                        #enum_name::#layer_names_2(layer) => layer.set_initializer(initializer),
+                    )*
+                }
+            }
+
             fn get_last_inputs(&self) -> Option<&opencl3::memory::Buffer<opencl3::device::cl_float>> {
                 match self {
                     #(
-                        #enum_name::#layer_names(layer) => layer.get_last_inputs(),
+                        #enum_name::#layer_names_3(layer) => layer.get_last_inputs(),
                     )*
                 }
             }
@@ -102,7 +120,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             fn get_last_outputs(&self) -> Option<&opencl3::memory::Buffer<opencl3::device::cl_float>> {
                 match self {
                     #(
-                        #enum_name::#layer_names_2(layer) => layer.get_last_outputs(),
+                        #enum_name::#layer_names_4(layer) => layer.get_last_outputs(),
                     )*
                 }
             }
@@ -110,7 +128,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             fn get_inputs_amount(&self) -> usize {
                 match self {
                     #(
-                        #enum_name::#layer_names_3(layer) => layer.get_inputs_amount(),
+                        #enum_name::#layer_names_5(layer) => layer.get_inputs_amount(),
                     )*
                 }
             }
@@ -118,7 +136,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             fn get_outputs_amount(&self) -> usize {
                 match self {
                     #(
-                        #enum_name::#layer_names_4(layer) => layer.get_outputs_amount(),
+                        #enum_name::#layer_names_6(layer) => layer.get_outputs_amount(),
                     )*
                 }
             }
@@ -129,7 +147,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             ) -> Result<(), crate::layers::LayerInitializationError> {
                 match self {
                     #(
-                        #enum_name::#layer_names_5(layer) => layer.init(opencl_state),
+                        #enum_name::#layer_names_7(layer) => layer.init(opencl_state),
                     )*
                 }
             }
@@ -137,7 +155,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             fn clean_up_gpu_state(&mut self) -> () {
                 match self {
                     #(
-                        #enum_name::#layer_names_6(layer) => layer.clean_up_gpu_state(),
+                        #enum_name::#layer_names_8(layer) => layer.clean_up_gpu_state(),
                     )*
                 }
             }
@@ -145,7 +163,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             fn sync_data_from_buffers_to_host(&mut self) -> Result<(), crate::types::SyncDataError> {
                 match self {
                     #(
-                        #enum_name::#layer_names_7(layer) => layer.sync_data_from_buffers_to_host(),
+                        #enum_name::#layer_names_9(layer) => layer.sync_data_from_buffers_to_host(),
                     )*
                 }
             }
@@ -159,7 +177,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             > {
                 match self {
                     #(
-                        #enum_name::#layer_names_8(layer) => layer.propagate(inputs),
+                        #enum_name::#layer_names_10(layer) => layer.propagate(inputs),
                     )*
                 }
             }
@@ -170,7 +188,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             ) -> Result<Vec<crate::layers::Gradient>, crate::layers::LayerGradientComputationError> {
                 match self {
                     #(
-                        #enum_name::#layer_names_9(layer) => layer.compute_gradients(
+                        #enum_name::#layer_names_11(layer) => layer.compute_gradients(
                             layer_output_to_error_derivative,
                         ),
                     )*
@@ -185,7 +203,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             ) -> Result<(), crate::layers::LayerGradientApplicationError> {
                 match self {
                     #(
-                        #enum_name::#layer_names_10(layer) => layer.apply_gradients(
+                        #enum_name::#layer_names_12(layer) => layer.apply_gradients(
                             per_parameter_type_gradients,
                             optimizer,
                             layer_index,
@@ -200,7 +218,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             ) -> Result<opencl3::memory::Buffer<opencl3::device::cl_float>, crate::layers::LayerLossToInputDifferentiationError> {
                 match self {
                     #(
-                        #enum_name::#layer_names_11(layer) => layer.compute_loss_to_input_derivatives(
+                        #enum_name::#layer_names_13(layer) => layer.compute_loss_to_input_derivatives(
                             layer_output_to_error_derivative,
                         ),
                     )*
@@ -214,7 +232,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
             ) -> Result<(), crate::layers::ParametersOptimizationError> {
                 match self {
                     #(
-                        #enum_name::#layer_names_12(layer) => layer.optimize_parameters(
+                        #enum_name::#layer_names_14(layer) => layer.optimize_parameters(
                             optimizer,
                             layer_index,
                         ),
@@ -289,6 +307,14 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
         use crate::utils::opencl::BufferOperations;
 
         impl<'a> crate::layers::Layer<'a> for #activation_name<'a> {
+            fn get_initializer<'b>(&'b self) -> Option<&'b crate::layers::initializers::Initializer> {
+                None
+            }
+
+            fn set_initializer(self, _initializer: crate::layers::initializers::Initializer) -> crate::types::ModelLayer<'a> {
+                self.into()
+            }
+
             fn init(
                 &mut self,
                 opencl_state: &'a crate::utils::OpenCLState,

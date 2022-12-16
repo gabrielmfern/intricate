@@ -182,7 +182,7 @@ dependencies = [
 
 [[package]]
 name = "intricate-macros"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "quote 1.0.21",
  "syn 1.0.99",

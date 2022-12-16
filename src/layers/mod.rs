@@ -217,9 +217,9 @@ pub enum LayerInitializationError {
     /// Happens when something goes wrong trying to convert the Layer's parameters into OpenCL
     /// Buffers.
     BufferConversion(BufferConversionError),
-    /// Happens when a parameter that is going to be converted into a OpenCL Buffer is empty. Such
-    /// as an empty Vec.
-    EmptyParameter(String),
+    // /// Happens when a parameter that is going to be converted into a OpenCL Buffer is empty. Such
+    // /// as an empty Vec.
+    // EmptyParameter(String),
     /// Happens when there is no OpenCL Command Queue when needed.
     NoCommandQueue,
 }
@@ -231,12 +231,13 @@ pub enum LayerInitializationError {
 /// the loss of the whole Model, and returning derivatives of the loss with respect to the inputs
 /// of the layer.
 pub trait Layer<'a> {
-    fn get_initializer(&self) -> &dyn Initializer;
+    /// Gets the layer's current initializer or just returns None for a layer that does not have
+    /// parameters.
+    fn get_initializer<'b>(&'b self) -> Option<&'b Initializer>;
 
-    /// Sets the parameter initializer for the current layer
-    fn set_initializer(&mut self, initializer: &dyn Initializer) -> ModelLayer<'a>;
-
-    fn initializer_parameters(&mut self) -> ();
+    /// Sets the parameter initializer for the current layer, or does nothing on a layer that has
+    /// no parameters.
+    fn set_initializer(self, initializer: Initializer) -> ModelLayer<'a>;
 
     /// Gets the last input samples that were used in the 'propagate' method,
     /// having this getter forces a struct that implements Layer to save its
@@ -291,6 +292,9 @@ pub trait Layer<'a> {
     /// mostly used after loading the layer using load_file and then
     /// there is a need to resend the data to the GPU since Savefile doesn't
     /// load the data into the GPU by itself
+    ///
+    /// This method will also generate all the initial parameters using the layer's initializer
+    /// if the paremeters are not defined.
     ///
     /// # Errors
     ///
