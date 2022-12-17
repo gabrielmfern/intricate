@@ -4,11 +4,13 @@ pub mod basic;
 pub mod momentum;
 pub mod nesterov;
 pub mod adagrad;
+pub mod adam;
 
 pub use basic::BasicOptimizer;
 pub use momentum::MomentumOptimizer;
-pub use nesterov::NesterovMomentumAcceleratedOptimizer;
+pub use nesterov::NesterovOptimizer;
 pub use adagrad::AdagradOptimizer;
+pub use adam::AdamOptimizer;
 
 use intricate_macros::FromForAllUnnamedVariants;
 use opencl3::{device::cl_float, error_codes::ClError, memory::Buffer};
@@ -53,6 +55,7 @@ pub trait Optimizer<'a> {
         &self,
         parameters: &mut Buffer<cl_float>,
         parameter_id: String,
+        timestep: usize,
         layer_index: usize,
     ) -> Result<(), OptimizationError>;
 
@@ -67,6 +70,7 @@ pub trait Optimizer<'a> {
         &mut self,
         gradients: &Buffer<cl_float>,
         parameter_id: String,
+        timestep: usize,
         layer_index: usize,
     ) -> Result<Buffer<cl_float>, OptimizationError>;
 }

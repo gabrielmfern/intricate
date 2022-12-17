@@ -46,6 +46,7 @@ impl<'a> Optimizer<'a> for AdagradOptimizer<'a> {
         &self,
         _parameters: &mut Buffer<cl_float>,
         _parameter_id: String,
+        _timestep: usize, 
         _layer_index: usize,
     ) -> Result<(), OptimizationError> {
         Ok(())
@@ -55,6 +56,7 @@ impl<'a> Optimizer<'a> for AdagradOptimizer<'a> {
         &mut self,
         gradients: &Buffer<cl_float>,
         parameter_id: String,
+        _timestep: usize, 
         layer_index: usize,
     ) -> Result<Buffer<cl_float>, OptimizationError> {
         if self.opencl_state.is_none() {

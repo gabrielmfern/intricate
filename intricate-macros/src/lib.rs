@@ -200,6 +200,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
                 per_parameter_type_gradients: &[crate::layers::Gradient],
                 optimizer: &mut dyn crate::optimizers::Optimizer<'a>,
                 layer_index: usize,
+                timestep: usize,
             ) -> Result<(), crate::layers::LayerGradientApplicationError> {
                 match self {
                     #(
@@ -207,6 +208,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
                             per_parameter_type_gradients,
                             optimizer,
                             layer_index,
+                            timestep,
                         ),
                     )*
                 }
@@ -229,12 +231,14 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
                 &mut self,
                 optimizer: &dyn crate::optimizers::Optimizer<'a>,
                 layer_index: usize,
+                timestep: usize,
             ) -> Result<(), crate::layers::ParametersOptimizationError> {
                 match self {
                     #(
                         #enum_name::#layer_names_14(layer) => layer.optimize_parameters(
                             optimizer,
                             layer_index,
+                            timestep
                         ),
                     )*
                 }
@@ -421,6 +425,7 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                 _per_parameter_type_gradients: &[crate::layers::Gradient],
                 _optimizer: &mut dyn crate::optimizers::Optimizer<'a>,
                 _layer_index: usize,
+                _timestep: usize,
             ) -> Result<(), crate::layers::LayerGradientApplicationError> {
                 Ok(())
             }
@@ -429,6 +434,7 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
                 &mut self,
                 _optimizer: &dyn crate::optimizers::Optimizer<'a>,
                 _layer_index: usize,
+                _timestep: usize,
             ) -> Result<(), crate::layers::ParametersOptimizationError> {
                 Ok(())
             }

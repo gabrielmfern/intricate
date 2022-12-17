@@ -83,6 +83,34 @@ kernel void scale(
     result[index] = (float)nums[index] * scaler;
 }
 
+kernel void sqrt_inplace(
+    global float *buf,
+    int size
+) {
+    int index = get_global_id(0);
+    
+    if (index >= size) {
+        return;
+    }
+
+    buf[index] = sqrt(buf[index]);
+}
+
+kernel void squareroot(
+    global float *first,
+    global float *result,
+
+    int size
+) {
+    int index = get_global_id(0);
+    
+    if (index >= size) {
+        return;
+    }
+
+    result[index] = sqrt(first[index]);
+}
+
 kernel void inverse_sqrt_inplace(
     global float *buf,
     int size

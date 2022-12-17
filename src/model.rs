@@ -487,6 +487,8 @@ impl<'a> Model<'a> {
             outputs_amount,
         )?;
 
+        let mut timestep: usize = 1;
+
         for epoch_index in 0..training_options.epochs {
             let start = Instant::now();
 
@@ -523,6 +525,8 @@ impl<'a> Model<'a> {
             let mut epoch_accuracies: Vec<f32> = Vec::with_capacity(steps_amount);
 
             for i_batch in 0..steps_amount {
+                timestep += 1;
+
                 let batch_inputs = &per_step_inputs[i_batch];
                 let batch_outputs = &per_step_outputs[i_batch];
 
@@ -538,6 +542,7 @@ impl<'a> Model<'a> {
                     batch_inputs,
                     batch_outputs,
                     local_batch_size,
+                    timestep,
                     training_options,
                 )?;
 
@@ -625,6 +630,7 @@ impl<'a> Model<'a> {
         input_samples: &Buffer<cl_float>,
         expected_output_samples: &Buffer<cl_float>,
         samples_amount: usize,
+        timestep: usize,
         training_options: &mut TrainingOptions<'a>,
     ) -> Result<(Option<f32>, Option<f32>), ModelFittingError> {
         if self.opencl_state.is_none() {
@@ -644,7 +650,7 @@ impl<'a> Model<'a> {
         }
 
         for (i, layer) in self.layers.iter_mut().enumerate() {
-            if let Err(err) = layer.optimize_parameters(training_options.optimizer, i) {
+            if let Err(err) = layer.optimize_parameters(training_options.optimizer, i, timestep) {
                 return Err(ModelFittingError::ParameterOptimization(i, err));
             }
         }
@@ -655,7 +661,7 @@ impl<'a> Model<'a> {
             training_options.loss_fn,
         )?;
 
-        self.apply_gradients(gradients.as_slice(), training_options.optimizer)?;
+        self.apply_gradients(gradients.as_slice(), training_options.optimizer, timestep)?;
 
         let loss;
         let accuracy;
@@ -720,6 +726,7 @@ impl<'a> Model<'a> {
         &mut self,
         gradients_per_layer: &[Vec<Gradient>],
         optimizer: &mut dyn Optimizer<'a>, //ModelOptimizer<'a>,
+        timestep: usize,
     ) -> Result<(), ModelGradientApplicationError> {
         if self.opencl_state.is_none() {
             return Err(ModelGradientApplicationError::NotInitialized);
@@ -741,7 +748,12 @@ impl<'a> Model<'a> {
             .zip(gradients_per_layer.iter().rev())
             .enumerate()
         {
-            let result = layer.apply_gradients(gradients.as_slice(), optimizer, layer_index);
+            let result = layer.apply_gradients(
+                gradients.as_slice(), 
+                optimizer, 
+                layer_index,
+                timestep,
+            );
 
             if let Err(err) = result {
                 return Err(ModelGradientApplicationError::LayerGradientApllication(

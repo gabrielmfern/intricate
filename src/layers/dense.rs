@@ -448,6 +448,7 @@ impl<'a> Layer<'a> for Dense<'a> {
         &mut self,
         optimizer: &dyn Optimizer<'a>,
         layer_index: usize,
+        timestep: usize,
     ) -> Result<(), ParametersOptimizationError> {
         if self.weights_buffer.is_none() {
             return Err(ParametersOptimizationError::EmptyParameter(
@@ -464,11 +465,13 @@ impl<'a> Layer<'a> for Dense<'a> {
         optimizer.optimize_parameters(
             self.weights_buffer.as_mut().unwrap(),
             "weights".to_string(),
+            timestep,
             layer_index,
         )?;
         optimizer.optimize_parameters(
             self.biases_buffer.as_mut().unwrap(),
             "biases".to_string(),
+            timestep,
             layer_index,
         )?;
 
@@ -480,6 +483,7 @@ impl<'a> Layer<'a> for Dense<'a> {
         per_parameter_type_gradients: &[Gradient],
         optimizer: &mut dyn Optimizer<'a>,
         layer_index: usize,
+        timestep: usize,
     ) -> Result<(), LayerGradientApplicationError> {
         if self.opencl_state.is_none() {
             return Err(LayerGradientApplicationError::LayerNotInitialized);
@@ -491,8 +495,13 @@ impl<'a> Layer<'a> for Dense<'a> {
             return Err(LayerGradientApplicationError::GradientsDontMatchExpectedShape);
         }
 
-        let update_vectors =
-            compute_update_vectors(optimizer, per_parameter_type_gradients, layer_index, state)?;
+        let update_vectors = compute_update_vectors(
+            optimizer, 
+            per_parameter_type_gradients, 
+            layer_index, 
+            timestep, 
+            state
+        )?;
 
         let weights_buffer = self.weights_buffer.as_mut().unwrap();
         let biases_buffer = self.biases_buffer.as_mut().unwrap();

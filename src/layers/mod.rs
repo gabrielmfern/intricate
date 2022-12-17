@@ -63,6 +63,7 @@ pub(crate) fn compute_update_vectors<'a>(
     optimizer: &mut dyn Optimizer<'a>,
     all_gradients: &[Gradient],
     layer_index: usize,
+    timestep: usize,
     state: &OpenCLState,
 ) -> Result<Vec<Buffer<cl_float>>, UpdateVectorsComputationError> {
     let mut update_vectors: Vec<Buffer<cl_float>> = Vec::with_capacity(all_gradients.len());
@@ -72,6 +73,7 @@ pub(crate) fn compute_update_vectors<'a>(
             update_vectors.push(optimizer.compute_update_vectors(
                 &gradients.value,
                 gradients.parameter_id.to_string(),
+                timestep,
                 layer_index,
             )?);
         } else {
@@ -345,6 +347,7 @@ pub trait Layer<'a> {
         &mut self,
         optimizer: &dyn Optimizer<'a>,
         layer_index: usize,
+        timestep: usize,
     ) -> Result<(), ParametersOptimizationError>;
 
     /// Applies all of the gradients given by **compute_gradients** of the current layer using a
@@ -366,6 +369,7 @@ pub trait Layer<'a> {
         per_parameter_type_gradients: &[Gradient],
         optimizer: &mut dyn Optimizer<'a>,
         layer_model_index: usize,
+        timestep: usize,
     ) -> Result<(), LayerGradientApplicationError>;
 
     /// Computes the derivatives of the Model's loss with respect to all of the inputs in each

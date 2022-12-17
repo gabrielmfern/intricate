@@ -1,4 +1,4 @@
-//! A module with some utilities for dealing with OpenCL such as an **OpenCLState** that holds the
+//! A module with sgme utilities for dealing with OpenCL such as an **OpenCLState** that holds the
 //! current programs and kernels that have been compiled.
 
 use std::{collections::HashMap, mem, ptr};
@@ -37,6 +37,9 @@ const SCALE_BUFFER_KERNEL_NAME: &str = "scale";
 
 const INVERSE_SQRT_BUFFER_KERNEL_NAME: &str = "inverse_sqrt";
 const INVERSE_SQRT_INPLACE_BUFFER_KERNEL_NAME: &str = "inverse_sqrt_inplace";
+
+const SQRT_BUFFER_KERNEL_NAME: &str = "squareroot";
+const SQRT_INPLACE_BUFFER_KERNEL_NAME: &str = "sqrt_inplace";
 
 const ADD_BUFFER_KERNEL_NAME: &str = "add";
 const ADD_NUM_BUFFER_KERNEL_NAME: &str = "add_num";
@@ -201,9 +204,11 @@ pub(crate) fn compile_buffer_operations_program(
         SCALE_BUFFER_KERNEL_NAME.to_string(),
         ADD_NUM_BUFFER_KERNEL_NAME.to_string(),
         INVERSE_SQRT_BUFFER_KERNEL_NAME.to_string(),
+        SQRT_BUFFER_KERNEL_NAME.to_string(),
         SCALE_INPLACE_BUFFER_KERNEL_NAME.to_string(),
         SHIFT_INPLACE_BUFFER_KERNEL_NAME.to_string(),
         INVERSE_SQRT_INPLACE_BUFFER_KERNEL_NAME.to_string(),
+        SQRT_INPLACE_BUFFER_KERNEL_NAME.to_string(),
         ADD_INPLACE_BUFFER_KERNEL_NAME.to_string(),
         SUBTRACT_INPLACE_BUFFER_KERNEL_NAME.to_string(),
         MULTIPLY_INPLACE_BUFFER_KERNEL_NAME.to_string(),
@@ -286,6 +291,12 @@ where
         opencl_state: &OpenCLState,
     ) -> Result<(), BufferOperationError>;
 
+    /// Takes the sqrt of Self
+    fn sqrt_inplc(
+        &mut self,
+        opencl_state: &OpenCLState,
+    ) -> Result<(), BufferOperationError>;
+
     /// Will just multiply all of the numbers of the `other` buffer into self.
     fn multiply_inplc(
         &mut self,
@@ -322,6 +333,32 @@ impl InplaceBufferOperations for Buffer<cl_float> {
         ExecuteKernel::new(kernel)
             .set_arg(self)
             .set_arg(&(scaler as cl_float))
+            .set_arg(&(count_self as cl_int))
+            .set_global_work_size(count_self)
+            .enqueue_nd_range(queue)?
+            .wait()?;
+
+        Ok(())
+    }
+
+    fn sqrt_inplc(
+        &mut self,
+        opencl_state: &OpenCLState,
+    ) -> Result<(), BufferOperationError> {
+        if opencl_state.queues.is_empty() {
+            return Err(BufferOperationError::NoCommandQueueFoundError);
+        }
+
+        let queue = opencl_state.queues.first().unwrap();
+
+        let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
+        let kernel = program.get_krnl(SQRT_INPLACE_BUFFER_KERNEL_NAME)?;
+
+        let size_self = self.size()?;
+        let count_self = size_self / mem::size_of::<cl_float>();
+
+        ExecuteKernel::new(kernel)
+            .set_arg(self)
             .set_arg(&(count_self as cl_int))
             .set_global_work_size(count_self)
             .enqueue_nd_range(queue)?
@@ -587,6 +624,10 @@ where
     /// Takes the inverse sqrt of each one of the numbers
     fn inverse_sqrt(&self, opencl_state: &OpenCLState) -> Result<Self, BufferOperationError>;
 
+    /// Takes the sqrt of each one of the numbers inside Self
+    /// and returns a new Buffer with the resultign nubmers
+    fn sqrt(&self, opencl_state: &OpenCLState) -> Result<Self, BufferOperationError>;
+
     /// Divides each respective number of the current buffer and another buffer.
     fn divide(
         &self,
@@ -677,6 +718,34 @@ impl BufferOperations for Buffer<cl_float> {
             .set_arg(self)
             .set_arg(&result)
             .set_arg(&(num as cl_float))
+            .set_arg(&(count_self as cl_int))
+            .set_global_work_size(count_self)
+            .enqueue_nd_range(queue)?
+            .wait()?;
+
+        Ok(result)
+    }
+
+    fn sqrt(&self, opencl_state: &OpenCLState) -> Result<Self, BufferOperationError> {
+        if opencl_state.queues.is_empty() {
+            return Err(BufferOperationError::NoCommandQueueFoundError);
+        }
+
+        let context = &opencl_state.context;
+        let queue = opencl_state.queues.first().unwrap();
+
+        let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
+
+        let kernel = program.get_krnl(SQRT_BUFFER_KERNEL_NAME)?;
+
+        let size_self = self.size()?;
+
+        let count_self = size_self / mem::size_of::<cl_float>();
+        let result = Buffer::create(context, CL_MEM_READ_WRITE, count_self, ptr::null_mut())?;
+
+        ExecuteKernel::new(kernel)
+            .set_arg(self)
+            .set_arg(&result)
             .set_arg(&(count_self as cl_int))
             .set_global_work_size(count_self)
             .enqueue_nd_range(queue)?

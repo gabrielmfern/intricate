@@ -389,6 +389,7 @@ impl<'a> Layer<'a> for Conv2D<'a> {
         &mut self,
         optimizer: &dyn crate::optimizers::Optimizer<'a>,
         layer_index: usize,
+        timestep: usize,
     ) -> Result<(), ParametersOptimizationError> {
         if self.filter_pixel_weights_buffer.is_none() {
             return Err(
@@ -399,6 +400,7 @@ impl<'a> Layer<'a> for Conv2D<'a> {
         optimizer.optimize_parameters(
             self.filter_pixel_weights_buffer.as_mut().unwrap(), 
             "filter_pixel_weights".to_string(), 
+            timestep,
             layer_index
         )?;
 
@@ -410,6 +412,7 @@ impl<'a> Layer<'a> for Conv2D<'a> {
         per_parameter_type_gradients: &[super::Gradient],
         optimizer: &mut dyn crate::optimizers::Optimizer<'a>,
         layer_model_index: usize,
+        timestep: usize,
     ) -> Result<(), LayerGradientApplicationError> {
         if self.opencl_state.is_none() {
             return Err(LayerGradientApplicationError::LayerNotInitialized);
@@ -421,8 +424,13 @@ impl<'a> Layer<'a> for Conv2D<'a> {
             return Err(LayerGradientApplicationError::GradientsDontMatchExpectedShape);
         }
 
-        let update_vectors =
-            compute_update_vectors(optimizer, per_parameter_type_gradients, layer_model_index, state)?;
+        let update_vectors = compute_update_vectors(
+            optimizer, 
+            per_parameter_type_gradients, 
+            layer_model_index, 
+            timestep,
+            state
+        )?;
 
         let filter_pixel_weights_buffer = self.filter_pixel_weights_buffer.as_mut().unwrap();
         filter_pixel_weights_buffer.subtract_inplc(&update_vectors[0], state)?;

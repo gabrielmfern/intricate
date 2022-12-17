@@ -15,7 +15,7 @@ use crate::utils::{opencl::InplaceBufferOperations, BufferOperations, OpenCLStat
 /// The momentum based optimizer is one that tries to simulate momentum using a `gamma` constant
 /// that defines how much of the last update vector should be added together with the current
 /// update vector as to further improve the training process.
-pub struct NesterovMomentumAcceleratedOptimizer<'a> {
+pub struct NesterovOptimizer<'a> {
     learning_rate: f32,
     momentum_gamma: f32,
 
@@ -24,14 +24,14 @@ pub struct NesterovMomentumAcceleratedOptimizer<'a> {
     opencl_state: Option<&'a OpenCLState>,
 }
 
-impl<'a> NesterovMomentumAcceleratedOptimizer<'a> {
+impl<'a> NesterovOptimizer<'a> {
     /// Creates a new instance of a Optimizer based on Momentum, that tries to speed up the
     /// training process in the right direction.
     ///
     /// The **momentum_gamma** parameter here is how much of the last update vector should be
     /// considered in the current one as to simulate momentum. This value is usually just `0.9`.
     pub fn new(learning_rate: f32, momentum_gamma: f32) -> Self {
-        NesterovMomentumAcceleratedOptimizer {
+        NesterovOptimizer {
             learning_rate,
             momentum_gamma,
 
@@ -42,7 +42,7 @@ impl<'a> NesterovMomentumAcceleratedOptimizer<'a> {
     }
 }
 
-impl<'a> Optimizer<'a> for NesterovMomentumAcceleratedOptimizer<'a> {
+impl<'a> Optimizer<'a> for NesterovOptimizer<'a> {
     fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), opencl3::error_codes::ClError> {
         self.opencl_state = Some(opencl_state);
 
@@ -53,6 +53,7 @@ impl<'a> Optimizer<'a> for NesterovMomentumAcceleratedOptimizer<'a> {
         &self,
         parameters: &mut Buffer<cl_float>,
         parameter_id: String,
+        _timestep: usize, 
         layer_index: usize,
     ) -> Result<(), OptimizationError> {
         if self.opencl_state.is_none() {
@@ -80,6 +81,7 @@ impl<'a> Optimizer<'a> for NesterovMomentumAcceleratedOptimizer<'a> {
         &mut self,
         gradients: &Buffer<cl_float>,
         parameter_id: String,
+        _timestep: usize, 
         layer_index: usize,
     ) -> Result<Buffer<cl_float>, OptimizationError> {
         if self.opencl_state.is_none() {
@@ -129,7 +131,7 @@ mod nesterov_tests {
         },
     };
 
-    use super::NesterovMomentumAcceleratedOptimizer;
+    use super::NesterovOptimizer;
 
     #[test]
     fn should_compute_update_vectors_correctly() {
@@ -153,7 +155,7 @@ mod nesterov_tests {
             .to_buffer(false, &state)
             .unwrap();
 
-        let mut optimizer = NesterovMomentumAcceleratedOptimizer::new(learning_rate, gamma);
+        let mut optimizer = NesterovOptimizer::new(learning_rate, gamma);
         optimizer.init(&state).unwrap();
 
         let initial_update_buf = optimizer
@@ -204,7 +206,7 @@ mod nesterov_tests {
             .to_buffer(false, &state)
             .unwrap();
 
-        let mut optimizer = NesterovMomentumAcceleratedOptimizer::new(learning_rate, gamma);
+        let mut optimizer = NesterovOptimizer::new(learning_rate, gamma);
         optimizer.init(&state).unwrap();
 
         optimizer
