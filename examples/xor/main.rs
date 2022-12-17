@@ -2,7 +2,7 @@ use intricate::layers::activations::TanH;
 use intricate::layers::Dense;
 
 use intricate::loss_functions::MeanSquared;
-use intricate::optimizers::BasicOptimizer;
+use intricate::optimizers;
 use intricate::types::{ModelLayer, TrainingOptions, TrainingVerbosity, HaltingCondition};
 use intricate::utils::opencl::DeviceType;
 use intricate::utils::setup_opencl;
@@ -41,7 +41,7 @@ fn main() -> () {
     xor_model.init(&opencl_state).unwrap();
 
     let mut loss = MeanSquared::new();
-    let mut optimizer = BasicOptimizer::new(0.1);
+    let mut optimizer = optimizers::Basic::new(0.1);
 
     // Fit the model however many times we want
     xor_model

@@ -4,7 +4,7 @@ use opencl3::error_codes::ClError;
 use crate::{
     layers::activations::TanH,
     layers::Dense,
-    optimizers::BasicOptimizer,
+    optimizers,
     loss_functions::MeanSquared,
     loss_functions::LossFunction,
     model::Model,
@@ -44,7 +44,7 @@ fn should_decrease_error() -> () {
 
 
     let mut loss = MeanSquared::new();
-    let mut optimizer = BasicOptimizer::new(0.1);
+    let mut optimizer = optimizers::Basic::new(0.1);
 
     // Fit the model however many times we want
     let training_results = model

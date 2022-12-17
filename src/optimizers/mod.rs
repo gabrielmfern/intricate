@@ -6,11 +6,11 @@ pub mod nesterov;
 pub mod adagrad;
 pub mod adam;
 
-pub use basic::BasicOptimizer;
-pub use momentum::MomentumOptimizer;
-pub use nesterov::NesterovOptimizer;
-pub use adagrad::AdagradOptimizer;
-pub use adam::AdamOptimizer;
+pub use basic::BasicOptimizer as Basic;
+pub use momentum::MomentumOptimizer as Momentum;
+pub use nesterov::NesterovOptimizer as Nesterov;
+pub use adagrad::AdagradOptimizer as Adagrad;
+pub use adam::AdamOptimizer as Adam;
 
 use intricate_macros::FromForAllUnnamedVariants;
 use opencl3::{device::cl_float, error_codes::ClError, memory::Buffer};
