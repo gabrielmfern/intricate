@@ -22,13 +22,10 @@ fn main() -> () {
     let training_outputs = mnist::get_training_outputs();
 
     let mut mnist_model: Model = Model::new(vec![
-        Conv2D::new((28, 28), (4, 4)),
-        ReLU::new(25 * 25),
+        Conv2D::new((28, 28), (8, 8)),
+        ReLU::new(21 * 21),
 
-        Conv2D::new((25, 25), (4, 4)),
-        ReLU::new(22 * 22),
-
-        Dense::new(22 * 22, 10),
+        Dense::new(21 * 21, 10),
         SoftMax::new(10),
     ]);
 
@@ -37,7 +34,7 @@ fn main() -> () {
         .expect("unable to initialize Mnist model");
 
     let mut loss_fn = CategoricalCrossEntropy::new();
-    let mut optimizer = NesterovMomentumAcceleratedOptimizer::new(0.0, 0.9);
+    let mut optimizer = NesterovMomentumAcceleratedOptimizer::new(0.01, 0.7);
 
     mnist_model
         .fit(
