@@ -20,6 +20,32 @@ pub fn get_training_inputs() -> Vec<Vec<f32>> {
         .collect()
 }
 
+#[test]
+fn should_get_training_inputs_correctly() {
+    let training_inputs = get_training_inputs();
+    let training_outputs = get_training_outputs();
+    const IMAGE_WIDTH: usize = 28;
+    const IMAGE_HEIGHT: usize = 28;
+
+    let mut first_digit = [[0.0; IMAGE_WIDTH]; IMAGE_HEIGHT];
+
+    training_inputs[1].iter().enumerate().for_each(|(i, p)| {
+        let y = (i as f32 / IMAGE_WIDTH as f32).floor() as usize;
+        let x = i % IMAGE_WIDTH;
+
+        first_digit[y][x] = *p;
+    });
+
+    first_digit.iter().for_each(|row| {
+        row.iter().for_each(|pixel| {
+            print!("{:.1}", pixel);
+        });
+        print!("\n");
+    });
+
+    assert_eq!(training_outputs[1], vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+}
+
 /// Gets the training labels of the MNIST dataset ready to be given as input to a Intricate model.
 pub fn get_training_outputs() -> Vec<Vec<f32>> {
     println!("reading the MNIST digit database labels");

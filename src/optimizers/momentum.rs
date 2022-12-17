@@ -141,10 +141,10 @@ mod momentum_tests {
         optimizer.init(&state).unwrap();
 
         let initial_update_buf = optimizer
-            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0)
+            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0, 0)
             .unwrap();
         let secondary_update_buf = optimizer
-            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0)
+            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0, 0)
             .unwrap();
 
         let initial_update_vector =

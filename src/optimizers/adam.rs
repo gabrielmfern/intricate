@@ -122,8 +122,8 @@ impl<'a> Optimizer<'a> for AdamOptimizer<'a> {
         )?;
 
         Ok(
-            current_moment_second_esteimate.divide(
-                &current_moment_first_estimate.sqrt(state)?
+            current_moment_first_estimate.divide(
+                &current_moment_second_esteimate.sqrt(state)?
                     .shift(self.safety_epsilon, state)?,
                 state
             )?

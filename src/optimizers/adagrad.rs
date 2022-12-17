@@ -135,13 +135,13 @@ mod tests {
         optimizer.init(&state).unwrap();
 
         let first_update_buf = optimizer
-            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0)
+            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0, 0)
             .unwrap();
         let second_update_buf = optimizer
-            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0)
+            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0, 0)
             .unwrap();
         let third_update_buf = optimizer
-            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0)
+            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0, 0)
             .unwrap();
 
         let first_update_vector =

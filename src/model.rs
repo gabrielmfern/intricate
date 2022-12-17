@@ -487,7 +487,7 @@ impl<'a> Model<'a> {
             outputs_amount,
         )?;
 
-        let mut timestep: usize = 1;
+        let mut timestep: usize = 0;
 
         for epoch_index in 0..training_options.epochs {
             let start = Instant::now();
@@ -508,13 +508,13 @@ impl<'a> Model<'a> {
                     ProgressStyle::with_template("[{bar:10}] [{per_second}/s] {pos}/{len} {elapsed}/{eta} {msg}")
                         .expect("unable to create epoch training steps progress bar")
                         .with_key("elapsed", |state: &ProgressState, w: &mut dyn Write| {
-                            write!(w, "{}", format!("{:.?}", state.elapsed())).unwrap()
+                            write!(w, "{}", format!("{:.2}s", state.elapsed().as_secs_f32())).unwrap()
                         })
                         .with_key("per_second", |state: &ProgressState, w: &mut dyn Write| {
-                            write!(w, "{}", format!("{:.2}", state.per_sec())).unwrap()
+                            write!(w, "{}", format!("{:.2}s", state.per_sec())).unwrap()
                         })
                         .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
-                            write!(w, "{}", format!("{:.?}", state.eta())).unwrap()
+                            write!(w, "{}", format!("{:.2}s", state.eta().as_secs_f32())).unwrap()
                         })
                         .progress_chars("=> "),
                 );
@@ -560,7 +560,7 @@ impl<'a> Model<'a> {
                     let pbar = progress.as_ref().unwrap();
                     pbar.inc(1);
                     if training_options.verbosity.print_loss || training_options.compute_loss {
-                        pbar.set_message(format!("(loss: {})", losses.last().unwrap()));
+                        pbar.set_message(format!("(loss: {:.3})", losses.last().unwrap()));
                     }
                 }
             }
@@ -573,18 +573,18 @@ impl<'a> Model<'a> {
             let epoch_accuracy = epoch_accuracies.iter().sum::<f32>() / steps_amount as f32;
 
             if training_options.verbosity.print_loss {
-                println!("got a loss of {} after epoch", epoch_loss);
+                println!("got a loss of {:.3} after epoch", epoch_loss);
             }
 
             if training_options.verbosity.print_accuracy {
                 println!(
-                    "got a accuracy of {} after epoch",
+                    "got a accuracy of {:.3} after epoch",
                     epoch_accuracy
                 );
             }
 
             if training_options.verbosity.show_epoch_elapsed {
-                println!("{:?} elapsed on epoch", start.elapsed());
+                println!("{:.3}s elapsed on epoch", start.elapsed().as_secs_f32());
             }
 
             if let Some(halting_condition) = &training_options.halting_condition {

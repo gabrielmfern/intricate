@@ -159,10 +159,10 @@ mod nesterov_tests {
         optimizer.init(&state).unwrap();
 
         let initial_update_buf = optimizer
-            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0)
+            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0, 0)
             .unwrap();
         let secondary_update_buf = optimizer
-            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0)
+            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0, 0)
             .unwrap();
 
         let initial_update_vector =
@@ -210,11 +210,11 @@ mod nesterov_tests {
         optimizer.init(&state).unwrap();
 
         optimizer
-            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0)
+            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0, 0)
             .unwrap();
 
         optimizer
-            .optimize_parameters(&mut parameters_buf, "parameter".to_string(), 0)
+            .optimize_parameters(&mut parameters_buf, "parameter".to_string(), 0, 0)
             .unwrap();
 
         let optimized_parameters = Vec::<f32>::from_buffer(&parameters_buf, false, &state).unwrap();

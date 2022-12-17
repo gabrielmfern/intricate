@@ -97,7 +97,7 @@ mod tests {
         optimizer.init(&state).unwrap();
 
         let update_buf = optimizer
-            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0)
+            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0, 0)
             .unwrap();
 
         let update_vector =

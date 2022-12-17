@@ -22,10 +22,11 @@ fn main() -> () {
     let training_outputs = mnist::get_training_outputs();
 
     let mut mnist_model: Model = Model::new(vec![
-        Conv2D::new((28, 28), (8, 8)),
-        ReLU::new(21 * 21),
+        // Conv2D::new((28, 28), (8, 8)),
+        Dense::new(28 * 28, 10 * 10),
+        ReLU::new(10 * 10),
 
-        Dense::new(21 * 21, 10),
+        Dense::new(100, 10),
         SoftMax::new(10),
     ]);
 
@@ -56,7 +57,7 @@ fn main() -> () {
                 halting_condition: None,
                 compute_loss: true,
                 compute_accuracy: false,
-                epochs: 100,
+                epochs: 30,
             },
         )
         .expect("unable to fit Mnist model");
