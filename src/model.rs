@@ -519,6 +519,9 @@ impl<'a> Model<'a> {
                 progress = Some(pbar);
             }
 
+            let mut epoch_losses: Vec<f32> = Vec::with_capacity(steps_amount);
+            let mut epoch_accuracies: Vec<f32> = Vec::with_capacity(steps_amount);
+
             for i_batch in 0..steps_amount {
                 let batch_inputs = &per_step_inputs[i_batch];
                 let batch_outputs = &per_step_outputs[i_batch];
@@ -540,10 +543,12 @@ impl<'a> Model<'a> {
 
                 if let Some(loss) = optional_loss {
                     losses.push(loss);
+                    epoch_losses.push(loss);
                 }
 
                 if let Some(accuracy) = optional_accuracy {
                     accuracies.push(accuracy);
+                    epoch_accuracies.push(accuracy);
                 }
 
                 if progress.is_some() {
@@ -559,14 +564,17 @@ impl<'a> Model<'a> {
                 progress.as_ref().unwrap().finish_and_clear();
             }
 
+            let epoch_loss = epoch_losses.iter().sum::<f32>() / steps_amount as f32;
+            let epoch_accuracy = epoch_accuracies.iter().sum::<f32>() / steps_amount as f32;
+
             if training_options.verbosity.print_loss {
-                println!("got a loss of {} after epoch", losses.last().unwrap());
+                println!("got a loss of {} after epoch", epoch_loss);
             }
 
             if training_options.verbosity.print_accuracy {
                 println!(
                     "got a accuracy of {} after epoch",
-                    accuracies.last().unwrap()
+                    epoch_accuracy
                 );
             }
 
@@ -581,9 +589,7 @@ impl<'a> Model<'a> {
                             return Err(ModelFittingError::NoLossForHaltingCondition);
                         }
 
-                        let epoch_loss = losses.last().unwrap();
-
-                        if min_loss >= epoch_loss {
+                        if min_loss >= &epoch_loss {
                             if training_options.verbosity.halting_condition_warning {
                                 println!("stopping training process due to MinLossReached halting condition...");
                             }
@@ -596,9 +602,7 @@ impl<'a> Model<'a> {
                             return Err(ModelFittingError::NoAccuracyForHaltingCondition);
                         }
 
-                        let acc = accuracies.last().unwrap();
-
-                        if min_acc <= acc {
+                        if min_acc <= &epoch_accuracy {
                             if training_options.verbosity.halting_condition_warning {
                                 println!("stopping training process due to MinAccuracyReached halting condition...");
                             }
