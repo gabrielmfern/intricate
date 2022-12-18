@@ -30,7 +30,7 @@ pub struct AdamOptimizer<'a> {
 impl<'a> AdamOptimizer<'a> {
     /// Creates a new instance of the Adam optimizer.
     ///
-    /// The hyper parameters here are usually just 0.001, 0.9, 0.99 and 0.00000001 respectively.
+    /// The hyper parameters here are usually just 0.001, 0.9, 0.999 and 0.0000001 respectively.
     pub fn new(
         learning_rate: f32, 
         decay_rate_beta_1: f32, 

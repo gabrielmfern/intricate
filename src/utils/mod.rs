@@ -9,16 +9,15 @@ pub use opencl::{
     OpenCLState
 };
 
-/// Finds a certain divisor of a number closest to another number
-pub fn find_divsor_of_n_closest_to_m(n: usize, m: usize) -> usize {
+pub(crate) fn find_divsor_of_n_closest_to_m(n: usize, m: usize) -> usize {
     let middle = (n as f32).sqrt().floor() as usize;
     let (mut closest_up_to_now, mut distance) = (1, m - 1);
-    for k in 2..=middle {
+    for k in 2..=middle.min(m) {
         if n % k == 0 {
             let inverse = n / k;
 
             let k_inverse_distance = (inverse as i32 - m as i32).abs() as usize;
-            if k_inverse_distance < distance {
+            if k_inverse_distance < distance && inverse < m {
                 closest_up_to_now = inverse;
                 distance = k_inverse_distance;
             }
@@ -31,6 +30,17 @@ pub fn find_divsor_of_n_closest_to_m(n: usize, m: usize) -> usize {
         }
     }
     closest_up_to_now
+}
+
+pub(crate) fn find_multiple_of_n_closest_to_m(n: usize, m: usize) -> usize {
+    let floor_multiple = (m as f32 / n as f32).floor() * n as f32;
+    let ceil_multiple = (m as f32 / n as f32).ceil() * n as f32;
+
+    if (floor_multiple - m as f32).abs() < (ceil_multiple - m as f32).abs() {
+        floor_multiple as usize
+    } else {
+        ceil_multiple as usize
+    }
 }
 
 /// Finds the gratest common divisor (gcd) of two numbers **n** and **m** independent of their

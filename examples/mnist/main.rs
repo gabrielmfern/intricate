@@ -22,8 +22,10 @@ fn main() -> () {
     let training_outputs = mnist::get_training_outputs();
 
     let mut mnist_model: Model = Model::new(vec![
-        // Conv2D::new((28, 28), (8, 8)),
-        Dense::new(28 * 28, 10 * 10),
+        Conv2D::new((28, 28), (3, 3)),
+        ReLU::new(26 * 26),
+
+        Dense::new(26 * 26, 10 * 10),
         ReLU::new(10 * 10),
 
         Dense::new(100, 10),
@@ -35,7 +37,7 @@ fn main() -> () {
         .expect("unable to initialize Mnist model");
 
     let mut loss_fn = CategoricalCrossEntropy::new();
-    let mut optimizer = optimizers::Adam::new(0.001, 0.9, 0.99, 0.00000001);
+    let mut optimizer = optimizers::Adam::new(0.001, 0.9, 0.999, 0.0000001);
 
     mnist_model
         .fit(
@@ -44,7 +46,7 @@ fn main() -> () {
             &mut TrainingOptions {
                 loss_fn: &mut loss_fn,
                 optimizer: &mut optimizer,
-                batch_size: 256, // try increasing this based on how much your GPU can take
+                batch_size: 512, // try increasing this based on how much your GPU can take
                                  // on by batch
                 verbosity: TrainingVerbosity {
                     show_current_epoch: true,
@@ -57,7 +59,7 @@ fn main() -> () {
                 halting_condition: None,
                 compute_loss: true,
                 compute_accuracy: false,
-                epochs: 30,
+                epochs: 15,
             },
         )
         .expect("unable to fit Mnist model");

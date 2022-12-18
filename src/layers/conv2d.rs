@@ -16,7 +16,7 @@ use crate::{
     utils::{
         opencl::{ensure_program, BufferLike, BufferOperations, EnsureKernelsAndProgramError, empty_buffer, InplaceBufferOperations},
         find_divsor_of_n_closest_to_m,
-        OpenCLState, gcd,
+        OpenCLState, gcd, find_multiple_of_n_closest_to_m,
     },
 };
 
@@ -269,6 +269,10 @@ impl<'a> Layer<'a> for Conv2D<'a> {
 
         let max_local_size = state.devices.first().unwrap().max_work_group_size()?;
 
+        // can be like this because inside the kernel the threads that run with a glboal id above
+        // the samples_amount stay inactive
+        let samples_global_size = find_multiple_of_n_closest_to_m(max_local_size, samples_amount);
+
         ExecuteKernel::new(kernel)
             .set_arg(inputs)
             .set_arg(self.filter_pixel_weights_buffer.as_ref().unwrap())
@@ -282,9 +286,13 @@ impl<'a> Layer<'a> for Conv2D<'a> {
             .set_arg(&(self.filter_size.1 as cl_int))
             .set_arg(&(filter_volume as cl_int))
             .set_arg(&(samples_amount as cl_int))
-            .set_global_work_sizes(&[samples_amount, self.get_outputs_amount() * filter_volume])
+            .set_global_work_sizes(&[
+                samples_global_size, 
+                self.get_outputs_amount() * filter_volume
+            ])
             .set_local_work_sizes(&[
-                gcd(find_divsor_of_n_closest_to_m(max_local_size, max_local_size / filter_volume), samples_amount),
+                // gcd(find_divsor_of_n_closest_to_m(max_local_size, max_local_size / filter_volume), samples_amount),
+                find_divsor_of_n_closest_to_m(max_local_size, max_local_size / filter_volume),
                 filter_volume,
             ])
             .enqueue_nd_range(queue)?

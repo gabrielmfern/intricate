@@ -270,7 +270,7 @@ impl<'a> Layer<'a> for Dense<'a> {
         }
 
         if self.biases.is_empty() {
-            self.biases = self.initializer.initialize_1d(self.outputs_amount, self);
+            self.biases = vec![0.0; self.outputs_amount];// self.initializer.initialize_1d(self.outputs_amount, self);
         }
 
         let weights_buffer = self
