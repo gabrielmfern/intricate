@@ -8,7 +8,7 @@ use opencl3::{
 };
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use savefile_derive::Savefile;
-use std::{mem, ptr};
+use std::{mem, ptr, collections::HashMap};
 
 use crate::utils::opencl::{BufferLike, InplaceBufferOperations};
 #[allow(unused_imports)]
@@ -25,7 +25,7 @@ use super::{
     compute_update_vectors, Gradient, Layer, LayerGradientApplicationError,
     LayerGradientComputationError, LayerInitializationError, LayerLossToInputDifferentiationError,
     LayerPropagationError, ParametersOptimizationError, 
-    initializers::{Initializer, InitializerTrait, GlorotUniformInitializer},
+    initializers::{Initializer, InitializerTrait, GlorotUniformInitializer, ConstantInitializer},
 };
 
 const DENSE_PROP_PROGRAM_NAME: &str = "DENSE_PROPAGATION";
@@ -94,8 +94,9 @@ pub struct Dense<'a> {
     /// The biases of this Dense layer, but stored in the CPU instead of in a OpenCL buffer.
     pub biases: Vec<f32>, // TODO: make biases optional
 
-    /// The initializer that will generate the initial weights and biases for the Dense.
-    pub initializer: Initializer,
+    /// The initializers that will generate the initial parameters for the Dense (weights and
+    /// biases).
+    pub initializers: HashMap<String, Initializer>,
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
@@ -129,28 +130,15 @@ pub struct Dense<'a> {
 impl<'a> Dense<'a> {
     /// Creates a new Dense layer but without being inside of the ModelLayer enum.
     pub fn new_raw(inputs_amount: usize, outputs_amount: usize) -> Dense<'a> {
-        // let mut rng = rand::thread_rng(); //                much more convenient
-
-        // let weights = (0..inputs_amount)
-        //     .into_iter()
-        //     .map(|_| {
-        //         (0..outputs_amount)
-        //             .into_iter()
-        //             .map(|_| rng.gen_range(-1.0_f32..=1.0_f32))
-        //             .collect::<Vec<f32>>()
-        //     })
-        //     .collect::<Vec<Vec<f32>>>();
-
-        // let biases = (0..outputs_amount)
-        //     .into_iter()
-        //     .map(|_| rng.gen_range(-1.0_f32..=1.0_f32))
-        //     .collect::<Vec<f32>>();
+        let mut initializers = HashMap::with_capacity(2);
+        initializers.insert("weights".to_string(), GlorotUniformInitializer::new().into());
+        initializers.insert("biases".to_string(), ConstantInitializer::new(0.0).into());
 
         Dense {
             inputs_amount,
             outputs_amount,
 
-            initializer: GlorotUniformInitializer::new().into(),
+            initializers,
 
             weights: Vec::default(),
             biases: Vec::default(),
@@ -173,12 +161,16 @@ impl<'a> Dense<'a> {
 }
 
 impl<'a> Layer<'a> for Dense<'a> {
-    fn get_initializer<'b>(&'b self) -> Option<&'b Initializer> {
-        Some(&self.initializer)
+    fn get_initializer_for_parameter<'b>(&'b self, parameter: &str) -> Option<&'b Initializer> {
+        self.initializers.get(parameter)
     }
 
-    fn set_initializer(mut self, initializer: Initializer) -> ModelLayer<'a> {
-        self.initializer = initializer;
+    fn set_initializer_for_parameter(
+        mut self, 
+        initializer: Initializer,
+        parameter: &str,
+    ) -> ModelLayer<'a> {
+        self.initializers.insert(parameter.to_string(), initializer);
         self.into()
     }
 
@@ -266,11 +258,19 @@ impl<'a> Layer<'a> for Dense<'a> {
 
     fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), LayerInitializationError> {
         if self.weights.is_empty() {
-            self.weights = self.initializer.initialize_2d((self.inputs_amount, self.outputs_amount), self);
+            if let Some(initializer) = self.initializers.get("weights") {
+                self.weights = initializer.initialize_2d((self.inputs_amount, self.outputs_amount), self);
+            } else {
+                return Err(LayerInitializationError::MissingParameterInitializer("weights"));
+            }
         }
 
         if self.biases.is_empty() {
-            self.biases = vec![0.0; self.outputs_amount];// self.initializer.initialize_1d(self.outputs_amount, self);
+            if let Some(initializer) = self.initializers.get("biases") {
+                self.biases = initializer.initialize_1d(self.outputs_amount, self);
+            } else {
+                return Err(LayerInitializationError::MissingParameterInitializer("biases"));
+            }
         }
 
         let weights_buffer = self

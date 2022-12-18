@@ -93,18 +93,30 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
 
     TokenStream::from(quote! {
         impl<'a> crate::layers::Layer<'a> for #enum_name<'a> {
-            fn get_initializer<'b>(&'b self) -> Option<&'b crate::layers::initializers::Initializer> {
+            fn get_initializer_for_parameter<'b>(
+                &'b self, 
+                parameter: &str
+            ) -> Option<&'b crate::layers::initializers::Initializer> {
                 match self {
                     #(
-                        #enum_name::#layer_names(layer) => layer.get_initializer(),
+                        #enum_name::#layer_names(layer) => layer.get_initializer_for_parameter(
+                            parameter
+                        ),
                     )*
                 }
             }
 
-            fn set_initializer(self, initializer: crate::layers::initializers::Initializer) -> ModelLayer<'a> {
+            fn set_initializer_for_parameter(
+                self, 
+                initializer: crate::layers::initializers::Initializer, 
+                parameter: &'a str,
+            ) -> ModelLayer<'a> {
                 match self {
                     #(
-                        #enum_name::#layer_names_2(layer) => layer.set_initializer(initializer),
+                        #enum_name::#layer_names_2(layer) => layer.set_initializer_for_parameter(
+                            initializer, 
+                            parameter
+                        ),
                     )*
                 }
             }
@@ -311,11 +323,18 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
         use crate::utils::opencl::BufferOperations;
 
         impl<'a> crate::layers::Layer<'a> for #activation_name<'a> {
-            fn get_initializer<'b>(&'b self) -> Option<&'b crate::layers::initializers::Initializer> {
+            fn get_initializer_for_parameter<'b>(
+                &'b self, 
+                _parameter: &str
+            ) -> Option<&'b crate::layers::initializers::Initializer> {
                 None
             }
 
-            fn set_initializer(self, _initializer: crate::layers::initializers::Initializer) -> crate::types::ModelLayer<'a> {
+            fn set_initializer_for_parameter(
+                self, 
+                _initializer: crate::layers::initializers::Initializer,
+                _parameter: &str,
+            ) -> crate::types::ModelLayer<'a> {
                 self.into()
             }
 

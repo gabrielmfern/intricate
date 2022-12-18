@@ -1,6 +1,6 @@
 //! The module that defines the covolutional layer
 
-use std::mem;
+use std::{mem, collections::HashMap};
 
 use opencl3::{
     device::cl_float,
@@ -16,17 +16,18 @@ use crate::{
     utils::{
         opencl::{ensure_program, BufferLike, BufferOperations, EnsureKernelsAndProgramError, empty_buffer, InplaceBufferOperations},
         find_divsor_of_n_closest_to_m,
-        OpenCLState, gcd, find_multiple_of_n_closest_to_m,
-    },
+        OpenCLState, find_multiple_of_n_closest_to_m,
+    }, optimizers::Optimizer,
 };
 
-use super::{Layer, LayerInitializationError, LayerPropagationError, ParametersOptimizationError, LayerGradientComputationError, Gradient, LayerGradientApplicationError, compute_update_vectors, LayerLossToInputDifferentiationError, initializers::{InitializerTrait, GlorotUniformInitializer, Initializer}};
+use super::{initializers::{Initializer, GlorotUniformInitializer, ConstantInitializer, InitializerTrait}, Layer, LayerInitializationError, LayerPropagationError, Gradient, LayerGradientComputationError, ParametersOptimizationError, LayerGradientApplicationError, compute_update_vectors, LayerLossToInputDifferentiationError};
 
 const CONV2D_PROGRAM_NAME: &str = "CONV2D";
 const PROGRAM_SORUCE: &str = include_str!("kernels/conv2d.cl");
 
 const PROPAGATION_KERNEL_NAME: &str = "convolute";
-const COMPUTE_GRADIENTS_KERNEL_NAME: &str = "compute_gradients_for_one_filter_pixel";
+const COMPUTE_WEIGHT_GRADIENTS_KERNEL_NAME: &str = "compute_gradients_for_one_filter_pixel";
+const COMPUTE_BIAS_GRADIENTS_KERNEL_NAME: &str = "compute_gradients_for_biases";
 const COMPUTE_LOSS_TO_INPUT_DERIVATIVES_KERNEL_NAME: &str = "compute_loss_to_input_derivatives";
 
 pub(crate) fn compile_conv2d(
@@ -34,7 +35,8 @@ pub(crate) fn compile_conv2d(
 ) -> Result<(), EnsureKernelsAndProgramError> {
     let prop_kernels = &[
         PROPAGATION_KERNEL_NAME.to_string(),
-        COMPUTE_GRADIENTS_KERNEL_NAME.to_string(),
+        COMPUTE_WEIGHT_GRADIENTS_KERNEL_NAME.to_string(),
+        COMPUTE_BIAS_GRADIENTS_KERNEL_NAME.to_string(),
         COMPUTE_LOSS_TO_INPUT_DERIVATIVES_KERNEL_NAME.to_string(),
     ];
 
@@ -81,17 +83,24 @@ pub struct Conv2D<'a> {
     pub filter_size: (usize, usize),
 
     /// This is a vec containing the certain weight for a pixel in the filter.
-    /// This a vec that contains rows instead of columns.
-    pub filter_pixel_weights: Vec<Vec<f32>>,
+    pub weights: Vec<Vec<f32>>,
+
+    /// This is a vec containing the biases for a pixel in the filter.
+    pub biases: Vec<Vec<f32>>,
 
     /// The initializer that will be used to generate the initial parameters for the filter's
     /// weights.
-    pub initializer: Initializer,
+    pub initializers: HashMap<String, Initializer>,
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
     /// The allocated buffer with OpenCL that contains the flattened filter pixel weights.
-    pub filter_pixel_weights_buffer: Option<Buffer<cl_float>>,
+    pub weights_buff: Option<Buffer<cl_float>>,
+
+    #[savefile_ignore]
+    #[savefile_introspect_ignore]
+    /// The allocated buffer with OpenCL that contains the flattened filter biases.
+    pub biases_buff: Option<Buffer<cl_float>>,
 
     #[savefile_ignore]
     #[savefile_introspect_ignore]
@@ -118,12 +127,18 @@ impl<'a> Conv2D<'a> {
 
     /// Crates a new raw 2D Convolutional layer with a random filter.
     pub fn new_raw(inputs_size: (usize, usize), filter_size: (usize, usize)) -> Self {
+        let mut initializers = HashMap::with_capacity(2);
+        initializers.insert("weights".to_string(), GlorotUniformInitializer::new().into());
+        initializers.insert("biases".to_string(), ConstantInitializer::new(0.0).into());
+
         Conv2D {
             inputs_size,
             filter_size,
-            filter_pixel_weights: Vec::default(),
-            initializer: GlorotUniformInitializer::new().into(),
-            filter_pixel_weights_buffer: None,
+            weights: Vec::default(),
+            biases: Vec::default(),
+            initializers,
+            weights_buff: None,
+            biases_buff: None,
             last_inputs_buffer: None,
             last_outputs_buffer: None,
             opencl_state: None,
@@ -132,12 +147,12 @@ impl<'a> Conv2D<'a> {
 }
 
 impl<'a> Layer<'a> for Conv2D<'a> {
-    fn get_initializer<'b>(&'b self) -> Option<&'b Initializer> {
-        Some(&self.initializer)
+    fn get_initializer_for_parameter<'b>(&'b self, parameter: &str) -> Option<&'b Initializer> {
+        self.initializers.get(parameter)
     }
 
-    fn set_initializer(mut self, initializer: Initializer) -> ModelLayer<'a> {
-        self.initializer = initializer;
+    fn set_initializer_for_parameter(mut self, initializer: Initializer, parameter: &'a str) -> ModelLayer<'a> {
+        self.initializers.insert(parameter.to_string(), initializer);
         self.into()
     }
 
@@ -159,8 +174,8 @@ impl<'a> Layer<'a> for Conv2D<'a> {
     }
 
     fn clean_up_gpu_state(&mut self) -> () {
-        if self.filter_pixel_weights_buffer.is_some() {
-            drop(self.filter_pixel_weights_buffer.as_ref().unwrap());
+        if self.weights_buff.is_some() {
+            drop(self.weights_buff.as_ref().unwrap());
         }
 
         if self.last_inputs_buffer.is_some() {
@@ -183,17 +198,17 @@ impl<'a> Layer<'a> for Conv2D<'a> {
             return Err(SyncDataError::NoCommandQueue);
         }
 
-        if self.filter_pixel_weights_buffer.is_none() {
+        if self.weights_buff.is_none() {
             return Err(SyncDataError::NotAllocatedInDevice {
                 field_name: "filter_pixel_weights_buffer".to_string(),
             });
         }
 
-        let filter_weights_buffer = self.filter_pixel_weights_buffer.as_ref().unwrap();
+        let filter_weights_buffer = self.weights_buff.as_ref().unwrap();
 
         let filter_weights = Vec::<f32>::from_buffer(filter_weights_buffer, false, state)?;
 
-        self.filter_pixel_weights = (0..self.filter_size.1)
+        self.weights = (0..self.filter_size.1)
             .into_par_iter()
             .map(|y| {
                 (0..self.filter_size.0)
@@ -209,12 +224,39 @@ impl<'a> Layer<'a> for Conv2D<'a> {
     }
 
     fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), LayerInitializationError> {
-        if self.filter_pixel_weights.is_empty() {
-            self.filter_pixel_weights = self.initializer.initialize_2d(self.filter_size, self)
+        if self.weights.is_empty() {
+            if let Some(initializer) = self.get_initializer_for_parameter("weights") {
+                self.weights = initializer.initialize_2d(self.filter_size, self);
+            } else {
+                return Err(LayerInitializationError::MissingParameterInitializer("weights"))
+            }
         }
 
-        self.filter_pixel_weights_buffer = Some(
-            self.filter_pixel_weights
+        if self.biases.is_empty() {
+            if let Some(initializer) = self.get_initializer_for_parameter("biases") {
+                self.biases = initializer.initialize_2d(
+                    (
+                        self.inputs_size.0 - self.filter_size.0 + 1, // the output width
+                        self.inputs_size.1 - self.filter_size.1 + 1 // the output height
+                    ), 
+                    self
+                );
+            } else {
+                return Err(LayerInitializationError::MissingParameterInitializer("biases"))
+            }
+        }
+
+        self.weights_buff = Some(
+            self.weights
+                .par_iter()
+                .flatten()
+                .map(|x| *x)
+                .collect::<Vec<f32>>()
+                .to_buffer(false, opencl_state)?,
+        );
+
+        self.biases_buff = Some(
+            self.biases
                 .par_iter()
                 .flatten()
                 .map(|x| *x)
@@ -275,7 +317,8 @@ impl<'a> Layer<'a> for Conv2D<'a> {
 
         ExecuteKernel::new(kernel)
             .set_arg(inputs)
-            .set_arg(self.filter_pixel_weights_buffer.as_ref().unwrap())
+            .set_arg(self.weights_buff.as_ref().unwrap())
+            .set_arg(self.biases_buff.as_ref().unwrap())
             .set_arg(&outputs)
             // the max size for local workgroups has to fit the filter
             .set_arg_local_buffer(filter_volume * std::mem::size_of::<f32>())
@@ -337,10 +380,11 @@ impl<'a> Layer<'a> for Conv2D<'a> {
 
         let filter_volume = self.filter_size.0 * self.filter_size.1;
 
-        let mut gradients: Vec<f32> = Vec::with_capacity(filter_volume);
+        let mut weights_gradients: Vec<f32> = Vec::with_capacity(filter_volume);
 
         let program = state.get_prgm(CONV2D_PROGRAM_NAME)?;
-        let kernel = program.get_krnl(COMPUTE_GRADIENTS_KERNEL_NAME)?;
+        let compute_gradient_weights_kernel = program.get_krnl(COMPUTE_WEIGHT_GRADIENTS_KERNEL_NAME)?;
+        let compute_gradient_biases_kernel = program.get_krnl(COMPUTE_BIAS_GRADIENTS_KERNEL_NAME)?;
 
         for pixel_index in 0..filter_volume {
             let filter_pixel_gradients = empty_buffer(
@@ -355,7 +399,7 @@ impl<'a> Layer<'a> for Conv2D<'a> {
             let convolution_width = self.inputs_size.0 - self.filter_size.0 + 1;
             let convolution_height = self.inputs_size.1 - self.filter_size.1 + 1;
 
-            ExecuteKernel::new(kernel)
+            ExecuteKernel::new(compute_gradient_weights_kernel)
                 .set_arg(self.last_inputs_buffer.as_ref().unwrap())
                 .set_arg(layer_output_to_error_derivatives)
                 .set_arg(&filter_pixel_gradients)
@@ -366,7 +410,7 @@ impl<'a> Layer<'a> for Conv2D<'a> {
                 .set_arg(&(self.filter_size.0 as cl_int))
                 .set_arg(&(filter_volume as cl_int))
 
-                .set_arg(&(samples_amount as cl_int))
+                .set_arg(&(samples_amount.clone() as cl_int))
 
                 .set_arg(&(convolution_width as cl_int))
                 .set_arg(&(convolution_height as cl_int))
@@ -379,18 +423,42 @@ impl<'a> Layer<'a> for Conv2D<'a> {
                 .enqueue_nd_range(queue)?
                 .wait()?;
 
-            gradients.push(
+            weights_gradients.push(
                 filter_pixel_gradients.sum(state)? / samples_amount as f32
             );
         }
 
+
+        let bias_gradients = empty_buffer(
+            self.get_outputs_amount(), 
+            CL_MEM_READ_WRITE, 
+            state
+        )?;
+
+        ExecuteKernel::new(compute_gradient_biases_kernel)
+            .set_arg(layer_output_to_error_derivatives)
+            .set_arg(&bias_gradients)
+
+            .set_arg(&(samples_amount as cl_int))
+            .set_arg(&(convolution_volume as cl_int))
+            .set_global_work_size(convolution_volume)
+            .enqueue_nd_range(queue)?
+            .wait()?;
+
         queue.finish()?;
 
-        Ok(vec![Gradient {
-            optimizable: true,
-            parameter_id: "filter_pixel_weights".to_string(),
-            value: gradients.to_buffer(false, state)?
-        }])
+        Ok(vec![
+           Gradient {
+               optimizable: true,
+               parameter_id: "weights".to_string(),
+               value: weights_gradients.to_buffer(false, state)? 
+           },
+           Gradient {
+               optimizable: true,
+               parameter_id: "biases".to_string(),
+               value: bias_gradients
+           }
+        ])
     }
 
     fn optimize_parameters(
@@ -399,15 +467,28 @@ impl<'a> Layer<'a> for Conv2D<'a> {
         layer_index: usize,
         timestep: usize,
     ) -> Result<(), ParametersOptimizationError> {
-        if self.filter_pixel_weights_buffer.is_none() {
+        if self.weights_buff.is_none() {
             return Err(
-                ParametersOptimizationError::EmptyParameter("filter_pixel_weights".to_string())
+                ParametersOptimizationError::EmptyParameter("weights".to_string())
+            );
+        }
+
+        if self.biases_buff.is_none() {
+            return Err(
+                ParametersOptimizationError::EmptyParameter("biases".to_string())
             );
         }
 
         optimizer.optimize_parameters(
-            self.filter_pixel_weights_buffer.as_mut().unwrap(), 
-            "filter_pixel_weights".to_string(), 
+            self.weights_buff.as_mut().unwrap(), 
+            "weights".to_string(), 
+            timestep,
+            layer_index
+        )?;
+
+        optimizer.optimize_parameters(
+            self.biases_buff.as_mut().unwrap(), 
+            "biases".to_string(), 
             timestep,
             layer_index
         )?;
@@ -417,8 +498,8 @@ impl<'a> Layer<'a> for Conv2D<'a> {
 
     fn apply_gradients(
         &mut self,
-        per_parameter_type_gradients: &[super::Gradient],
-        optimizer: &mut dyn crate::optimizers::Optimizer<'a>,
+        per_parameter_type_gradients: &[Gradient],
+        optimizer: &mut dyn Optimizer<'a>,
         layer_model_index: usize,
         timestep: usize,
     ) -> Result<(), LayerGradientApplicationError> {
@@ -428,7 +509,7 @@ impl<'a> Layer<'a> for Conv2D<'a> {
 
         let state = self.opencl_state.unwrap();
 
-        if per_parameter_type_gradients.len() != 1 {
+        if per_parameter_type_gradients.len() != 2 {
             return Err(LayerGradientApplicationError::GradientsDontMatchExpectedShape);
         }
 
@@ -440,8 +521,10 @@ impl<'a> Layer<'a> for Conv2D<'a> {
             state
         )?;
 
-        let filter_pixel_weights_buffer = self.filter_pixel_weights_buffer.as_mut().unwrap();
-        filter_pixel_weights_buffer.subtract_inplc(&update_vectors[0], state)?;
+        let weights_buff = self.weights_buff.as_mut().unwrap();
+        weights_buff.subtract_inplc(&update_vectors[0], state)?;
+        let biases_buff = self.biases_buff.as_mut().unwrap();
+        biases_buff.subtract_inplc(&update_vectors[1], state)?;
 
         Ok(())
     }
@@ -476,7 +559,7 @@ impl<'a> Layer<'a> for Conv2D<'a> {
             return Err(LayerLossToInputDifferentiationError::DerivativesDontMatchExpectedShape);
         }
 
-        if self.filter_pixel_weights_buffer.is_none() {
+        if self.weights_buff.is_none() {
             return Err(LayerLossToInputDifferentiationError::MissingParameter("filter_pixel_weights"));
         }
 
@@ -496,7 +579,7 @@ impl<'a> Layer<'a> for Conv2D<'a> {
         )?;
         
         ExecuteKernel::new(kernel)
-            .set_arg(self.filter_pixel_weights_buffer.as_ref().unwrap())
+            .set_arg(self.weights_buff.as_ref().unwrap())
             .set_arg(layer_output_to_error_derivative)
             .set_arg(&loss_to_input_derivatives_buffer)
             .set_arg(&(samples_amount as cl_int))
@@ -707,7 +790,7 @@ mod tests {
 
         let mut layer = Conv2D::new_raw((4, 3), (3, 3));
         layer.init(&opencl_state).expect("unable to init Conv2D");
-        layer.filter_pixel_weights_buffer = Some(filter);
+        layer.weights_buff = Some(filter);
 
         let result_buffer = layer
             .propagate(&image)

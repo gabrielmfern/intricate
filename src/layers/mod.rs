@@ -219,9 +219,9 @@ pub enum LayerInitializationError {
     /// Happens when something goes wrong trying to convert the Layer's parameters into OpenCL
     /// Buffers.
     BufferConversion(BufferConversionError),
-    // /// Happens when a parameter that is going to be converted into a OpenCL Buffer is empty. Such
-    // /// as an empty Vec.
-    // EmptyParameter(String),
+    /// Happens when there is not Initializer defined for the parameter specified by the &'static
+    /// str
+    MissingParameterInitializer(&'static str),
     /// Happens when there is no OpenCL Command Queue when needed.
     NoCommandQueue,
 }
@@ -233,13 +233,13 @@ pub enum LayerInitializationError {
 /// the loss of the whole Model, and returning derivatives of the loss with respect to the inputs
 /// of the layer.
 pub trait Layer<'a> {
-    /// Gets the layer's current initializer or just returns None for a layer that does not have
-    /// parameters.
-    fn get_initializer<'b>(&'b self) -> Option<&'b Initializer>;
+    /// Gets the layer's current initializer for a certain parameter 
+    /// or just returns None if an initializer is not found for that parameter.
+    fn get_initializer_for_parameter<'b>(&'b self, parameter: &str) -> Option<&'b Initializer>;
 
-    /// Sets the parameter initializer for the current layer, or does nothing on a layer that has
-    /// no parameters.
-    fn set_initializer(self, initializer: Initializer) -> ModelLayer<'a>;
+    /// Sets the initializer for the current layer and for a specific layer's parameter, 
+    /// or does nothing on a layer that has no parameters.
+    fn set_initializer_for_parameter(self, initializer: Initializer, parameter: &'a str) -> ModelLayer<'a>;
 
     /// Gets the last input samples that were used in the 'propagate' method,
     /// having this getter forces a struct that implements Layer to save its
@@ -300,8 +300,12 @@ pub trait Layer<'a> {
     ///
     /// # Errors
     ///
-    /// This function will return an error if something goes wrong while
-    /// allocating buffers into the device of the queue.
+    /// - This function will return an error if something goes wrong while
+    /// allocating buffers into the device of the queue;
+    /// - This function will return an error along with the parameter name if there is no defined
+    /// initializer for the parameter specified;
+    /// - This function may return an error if there is no command queue defined in the
+    /// OpenCLState.
     fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), LayerInitializationError>;
 
     /// Should calculate the outputs of the layer based on the inputs

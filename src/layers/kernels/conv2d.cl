@@ -48,6 +48,7 @@ int get_image_pixel_id(
 kernel void convolute(
     global float* image,
     constant float* filter,
+    global float* biases,
     global float* output,
 
     local float* filtered,
@@ -97,7 +98,7 @@ kernel void convolute(
             result += filtered[i];
         }
 
-        output[sample_index * output_image_volume + filter_index] = result;
+        output[sample_index * output_image_volume + filter_index] = result + (float)biases[filter_index];
     }
 }
 
@@ -151,6 +152,29 @@ kernel void compute_gradients_for_one_filter_pixel(
 
     filter_pixel_gradients[global_output_index] 
         = (float)image[global_input_index] * (float)error_to_output_derivatives[global_output_index];
+}
+
+kernel void compute_gradients_for_biases(
+    global float* loss_to_output_derivatives,
+    global float* gradients,
+
+    int samples_amount,
+    int outputs_amount
+) {
+    int output_index = get_global_id(0);
+    if (output_index >= outputs_amount) {
+        return;
+    }
+
+    float bias_gradient = 0.0f;
+
+    for (int sample_index = 0; sample_index < samples_amount; sample_index++) {
+        int flat_output_i = sample_index * outputs_amount + output_index;
+
+        bias_gradient += (float)loss_to_output_derivatives[flat_output_i];
+    }
+
+    gradients[output_index] = bias_gradient / (float)samples_amount;
 }
 
 kernel void compute_loss_to_input_derivatives(

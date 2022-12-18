@@ -95,11 +95,11 @@ impl<'a> SoftMax<'a> {
 }
 
 impl<'a> Layer<'a> for SoftMax<'a> {
-    fn get_initializer(&self) -> Option<&'a Initializer> {
+    fn get_initializer_for_parameter<'b>(&'b self, _parameter: &str) -> Option<&'b Initializer> {
         None
     }
 
-    fn set_initializer(self, _initializer: Initializer) -> ModelLayer<'a> {
+    fn set_initializer_for_parameter(self, _initializer: Initializer, _parameter: &'a str) -> ModelLayer<'a> {
         self.into()
     }
 
