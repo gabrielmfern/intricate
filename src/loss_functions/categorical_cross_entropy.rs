@@ -2,6 +2,7 @@
 
 use std::mem;
 
+use intricate_macros::FromForAllUnnamedVariants;
 use opencl3::{
     device::cl_float,
     error_codes::{cl_int, ClError},
@@ -9,7 +10,7 @@ use opencl3::{
     memory::{Buffer, ClMem, CL_MEM_READ_WRITE},
 };
 
-use crate::loss_functions::LossFunction;
+use crate::{loss_functions::LossFunction, utils::opencl::{BufferOperationError, BufferConversionError}};
 use crate::utils::opencl::empty_buffer;
 use crate::utils::opencl::ensure_program;
 use crate::utils::opencl::EnsureKernelsAndProgramError;
@@ -22,6 +23,7 @@ use super::LossToModelOutputsDerivativesComputationError;
 const PROGRAM_NAME: &str = "CATEGORICAL_CROSS_ENTROPY";
 const PROGRAM_SOURCE: &str = include_str!("kernels/categorical_cross_entropy.cl");
 const COMPUTE_LOSS_KERNEL: &str = "compute_loss";
+const NORMALIZE_OUTPUTS_KERNEL: &str = "normalize_outputs";
 const COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL: &str = "compute_loss_to_output_derivatives";
 
 pub(crate) fn compile_categorical_cross_entropy(
@@ -29,6 +31,7 @@ pub(crate) fn compile_categorical_cross_entropy(
 ) -> Result<(), EnsureKernelsAndProgramError> {
     let kernels = &[
         COMPUTE_LOSS_KERNEL.to_string(),
+        NORMALIZE_OUTPUTS_KERNEL.to_string(),
         COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL.to_string(),
     ];
 
@@ -64,6 +67,39 @@ impl<'a> CategoricalCrossEntropy<'a> {
         CategoricalCrossEntropy { opencl_state: None }
     }
 }
+
+#[derive(Debug, FromForAllUnnamedVariants)]
+/// An enum containing all of the possible errors that can happen when reducing the output samples
+/// into the summation of the outputs per sample
+pub enum ReduceOutputsPerSampleError {
+    /// Happens when something goes wrong with OpenCL directly
+    OpenCL(ClError),
+    /// Happens when something goes wrong with a Buffer Operation
+    BufferOperation(BufferOperationError),
+    /// Happens when something goes wrong with a Buffer Conversion
+    BufferConversion(BufferConversionError),
+}
+
+// pub(crate) fn sum_outputs_per_sample(
+//     state: &OpenCLState,
+//     outputs: &Buffer<cl_float>,
+//     outputs_amount: usize,
+//     samples_amount: usize,
+// ) -> Result<Buffer<cl_float>, ReduceOutputsPerSampleError> {
+//     let mut resulting_vec = Vec::with_capacity(samples_amount);
+
+//     for sample_index in 0..samples_amount {
+//         let offset = sample_index * outputs_amount;
+//         let count = outputs_amount;
+//         let outputs_for_sample = outputs.create_sub_buffer(CL_MEM_READ_WRITE, offset, count)?;
+
+//         resulting_vec.push(
+//             outputs_for_sample.sum(state)?
+//         );
+//     }
+
+//     Ok(dbg!(resulting_vec).to_buffer(false, state)?)
+// }
 
 impl<'a> LossFunction<'a> for CategoricalCrossEntropy<'a> {
     fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), ClError> {
@@ -104,9 +140,31 @@ impl<'a> LossFunction<'a> for CategoricalCrossEntropy<'a> {
 
         let outputs_amount = outputs_total_count / samples_amount;
 
-        let sample_losses_buffer = empty_buffer(samples_amount, CL_MEM_READ_WRITE, state)?;
+        // let outputs_summation_per_sample = sum_outputs_per_sample(
+        //     state, 
+        //     output_samples, 
+        //     outputs_amount, 
+        //     samples_amount
+        // )?;
+        // let mut normalized_outputs = empty_buffer(outputs_total_count, CL_MEM_READ_WRITE, state)?;
 
         let program = state.get_prgm(PROGRAM_NAME)?;
+
+        // let normalize_outputs_kernel = program.get_krnl(NORMALIZE_OUTPUTS_KERNEL)?;
+
+        // ExecuteKernel::new(normalize_outputs_kernel)
+        //     .set_arg(output_samples)
+        //     .set_arg(&outputs_summation_per_sample)
+        //     .set_arg(&normalized_outputs)
+        //     .set_arg(&(samples_amount as cl_int))
+        //     .set_arg(&(outputs_amount as cl_int))
+        //     .set_global_work_sizes(&[samples_amount, outputs_amount])
+        //     .enqueue_nd_range(queue)?
+        //     .wait()?;
+
+        // normalized_outputs.clip_min_max_inplace(0.0000001, 1.0 - 0.0000001, state)?;
+        
+        let sample_losses_buffer = empty_buffer(samples_amount, CL_MEM_READ_WRITE, state)?;
 
         let compute_loss_kernel = program.get_krnl(COMPUTE_LOSS_KERNEL)?;
 
@@ -158,9 +216,34 @@ impl<'a> LossFunction<'a> for CategoricalCrossEntropy<'a> {
 
         let outputs_amount = outputs_total_count / samples_amount;
 
-        let derivatives_buffer = empty_buffer(outputs_total_count, CL_MEM_READ_WRITE, state)?;
+        // let outputs_summation_per_sample = sum_outputs_per_sample(
+        //     state, 
+        //     output_samples, 
+        //     outputs_amount, 
+        //     samples_amount
+        // )?;
+        // let mut normalized_outputs = empty_buffer(outputs_total_count, CL_MEM_READ_WRITE, state)?;
 
         let program = state.get_prgm(PROGRAM_NAME)?;
+
+        // let normalize_outputs_kernel = program.get_krnl(NORMALIZE_OUTPUTS_KERNEL)?;
+
+        // ExecuteKernel::new(normalize_outputs_kernel)
+        //     .set_arg(output_samples)
+        //     .set_arg(&outputs_summation_per_sample)
+        //     .set_arg(&normalized_outputs)
+        //     .set_arg(&(samples_amount as cl_int))
+        //     .set_arg(&(outputs_amount as cl_int))
+        //     .set_global_work_sizes(&[samples_amount, outputs_amount])
+        //     .enqueue_nd_range(queue)?
+        //     .wait()?;
+
+        // normalized_outputs.clip_min_max_inplace(0.0000001, 1.0 - 0.0000001, state)?;
+
+        // queue.finish()?;
+
+        let derivatives_buffer = empty_buffer(outputs_total_count, CL_MEM_READ_WRITE, state)?;
+
         let loss_to_output_deriv_kernel =
             program.get_krnl(COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL)?;
 
@@ -219,8 +302,8 @@ mod categorical_cross_entropy_tests {
             .iter()
             .zip(&output_samples)
             .map(|(expected_output, actual_output)| {
-                -(expected_output / (*actual_output as f64 + 0.0000000000000000000000000000000000000000000000000000000001) as f32
-                    - (1.0 - expected_output) / (1.0 - *actual_output as f64 + 0.0000000000000000000000000000000000000000000000000000000001) as f32)
+                -(expected_output / (*actual_output as f64).max(0.0000000000000000000000000000000000000000000000000000000001) as f32
+                    - (1.0 - expected_output) / (1.0 - *actual_output as f64).max(0.0000000000000000000000000000000000000000000000000000000001) as f32)
             })
             .collect();
 
@@ -307,8 +390,8 @@ mod categorical_cross_entropy_tests {
             .iter()
             .zip(&outputs)
             .map(|(expected_output, output)| {
-                -(expected_output * (*output as f64 + 0.0000000000000000000000000000000000000000000000000000000001).ln() as f32
-                    + (1.0 - expected_output) * (1.0 - *output as f64 + 0.0000000000000000000000000000000000000000000000000000000001).ln() as f32)
+                -(expected_output * (*output as f64).max(0.0000000000000000000000000000000000000000000000000000000001).ln() as f32
+                    + (1.0 - expected_output) * (1.0 - *output as f64).max(0.0000000000000000000000000000000000000000000000000000000001).ln() as f32)
             })
             .sum::<f32>()
             / samples_amount as f32;

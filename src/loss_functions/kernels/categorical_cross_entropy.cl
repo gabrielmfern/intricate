@@ -20,8 +20,9 @@ kernel void compute_loss(
         int flat_i = row_part + output_index;
         float output = (float) output_samples[flat_i];
         float expected_output = (float) expected_output_samples[flat_i];
-        sample_loss -= expected_output * (float)log(max((double)output, 0.0000000000000000000000000000000000000000000000000000000001))
-                            + (1.0f - expected_output) * (float)log(max(1.0 - (double)output, 0.0000000000000000000000000000000000000000000000000000000001));
+        output = max(min(output, 0.0000001f), 0.9999999f);
+        sample_loss -= expected_output * log(output)
+            + (1.0f - expected_output) * log(1.0f - output);
     }
 
     sample_losses[sample_index] = sample_loss;
@@ -52,7 +53,31 @@ kernel void compute_loss_to_output_derivatives(
 
     float output = (float) output_samples[flat_i];
     float expected_output = (float) expected_output_samples[flat_i];
+    output = max(min(output, 0.0000001f), 0.9999999f);
 
-    loss_to_output_derivatives[flat_i] = (float) -((double)expected_output / max((double)output, 0.0000000000000000000000000000000000000000000000000000000001)
-                                - (1.0 - (double)expected_output) / max(1.0 - (double)output, 0.0000000000000000000000000000000000000000000000000000000001));
+    loss_to_output_derivatives[flat_i] = -expected_output / output
+        + (1.0f - expected_output) / (1.0f - output);
+}
+
+kernel void normalize_outputs(
+    global float* outputs,
+    global float* per_sample_total_sum,
+    global float* normalized_outputs,
+
+    int samples_amount,
+    int outputs_amount
+) {
+    int sample_index = get_global_id(0);
+    if (sample_index >= samples_amount) {
+        return;
+    }
+
+    int output_index = get_global_id(1);
+    if (output_index >= outputs_amount) {
+        return;
+    }
+
+    int global_output_index = sample_index * outputs_amount + output_index;
+
+    normalized_outputs[global_output_index] = outputs[global_output_index] / per_sample_total_sum[sample_index];
 }

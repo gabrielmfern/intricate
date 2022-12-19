@@ -1,8 +1,8 @@
 use intricate::{
     datasets::mnist,
     layers::{
-        activations::{SoftMax, ReLU},
-        Dense, Conv2D,
+        activations::{ReLU, SoftMax},
+        Conv2D, Dense, Layer,
     },
     loss_functions::CategoricalCrossEntropy,
     optimizers,
@@ -18,17 +18,11 @@ fn main() -> () {
     // don't really recommend using CPU for this, but it is possible as long as you have drivers
     let state = setup_opencl(DeviceType::GPU).expect("unable to setup OpenCL");
 
-    let training_inputs = mnist::get_training_inputs();
-    let training_outputs = mnist::get_training_outputs();
-
     let mut mnist_model: Model = Model::new(vec![
         Conv2D::new((28, 28), (3, 3)),
         ReLU::new(26 * 26),
 
-        Dense::new(26 * 26, 10 * 10),
-        ReLU::new(10 * 10),
-
-        Dense::new(100, 10),
+        Dense::new(26 * 26, 10),
         SoftMax::new(10),
     ]);
 
@@ -39,6 +33,10 @@ fn main() -> () {
     let mut loss_fn = CategoricalCrossEntropy::new();
     let mut optimizer = optimizers::Adam::new(0.001, 0.9, 0.999, 0.0000001);
 
+    let training_inputs = mnist::get_training_inputs();
+    let training_outputs = mnist::get_training_outputs();
+
+
     mnist_model
         .fit(
             &training_inputs,
@@ -46,8 +44,8 @@ fn main() -> () {
             &mut TrainingOptions {
                 loss_fn: &mut loss_fn,
                 optimizer: &mut optimizer,
-                batch_size: 512, // try increasing this based on how much your GPU can take
-                                 // on by batch
+                batch_size: 256, // try increasing this based on how much your GPU can take
+                // on by batch
                 verbosity: TrainingVerbosity {
                     show_current_epoch: true,
                     show_epoch_progress: true,
@@ -67,6 +65,9 @@ fn main() -> () {
     mnist_model
         .sync_data_from_buffers_to_host()
         .expect("unable to sync weights from the GPU");
+
+    dbg!(mnist_model.layers[0].get_flattened_parameter_data("weights"));
+    dbg!(mnist_model.layers[0].get_flattened_parameter_data("biases"));
 
     save_file(MODEL_PATH, 0, &mnist_model).expect("unable to save Mnist model");
 }

@@ -95,6 +95,10 @@ impl<'a> SoftMax<'a> {
 }
 
 impl<'a> Layer<'a> for SoftMax<'a> {
+    fn get_flattened_parameter_data(&self, _parameter: &str) -> Option<Vec<f32>> {
+        None
+    }
+
     fn get_initializer_for_parameter<'b>(&'b self, _parameter: &str) -> Option<&'b Initializer> {
         None
     }
@@ -225,6 +229,8 @@ impl<'a> Layer<'a> for SoftMax<'a> {
             .enqueue_nd_range(queue)?;
 
         queue.finish()?;
+
+        // dbg!(Vec::<f32>::from_buffer(&outputs_buffer, false, state).unwrap());
 
         self.last_outputs_buffer = Some(outputs_buffer);
 

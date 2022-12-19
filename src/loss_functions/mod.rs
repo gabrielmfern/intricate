@@ -20,7 +20,7 @@ use intricate_macros::FromForAllUnnamedVariants;
 use opencl3::{device::cl_float, error_codes::ClError, memory::Buffer};
 
 use self::{
-    categorical_cross_entropy::compile_categorical_cross_entropy,
+    categorical_cross_entropy::{compile_categorical_cross_entropy, ReduceOutputsPerSampleError},
     mean_squared::compile_mean_squared,
     mean_absolute::compile_mean_absolute, mean_bias::compile_mean_bias,
 };
@@ -48,6 +48,9 @@ pub enum LossComputationError {
     /// Happens when something goes wrong with OpenCL.
     OpenCL(ClError),
 
+    /// Happens when something goes wrong whle trying to sum the outputs for each sample separetly 
+    /// (used in the Categorical Cross Entropy loss fn)
+    SumOutputsPerSmaple(ReduceOutputsPerSampleError),
     /// Happens when the **expected outputs** and the **actual outputs** do not match in size.
     OutputsAndExpectedOutputsDoNotMatch,
     /// Happens when the given training data does not have the amount of samples specified inside
@@ -74,6 +77,9 @@ pub enum LossToModelOutputsDerivativesComputationError {
 
     /// Happens when something goes wrong with OpenCL.
     OpenCL(ClError),
+    /// Happens when something goes wrong whle trying to sum the outputs for each sample separetly 
+    /// (used in the Categorical Cross Entropy loss fn)
+    SumOutputsPerSmaple(ReduceOutputsPerSampleError),
 
     /// Happens when the **expected outputs** and the **actual outputs** do not match in size.
     OutputsAndExpectedOutputsDoNotMatch,

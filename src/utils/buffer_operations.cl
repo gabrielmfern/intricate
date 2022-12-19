@@ -52,6 +52,22 @@ kernel void sum_all_values_in_workgroups(
     }
 }
 
+kernel void clip_min_max_inplace(
+    global float *self,
+    
+    float _min,
+    float _max,
+    int size
+) {
+    int index = get_global_id(0);
+
+    if (index >= size) {
+        return;
+    }
+
+    self[index] = max(min((float)self[index], _min), _max);
+}
+
 kernel void scale_inplace(
     global float *self,
     

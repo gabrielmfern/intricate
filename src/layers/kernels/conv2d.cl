@@ -70,16 +70,16 @@ kernel void convolute(
         return;
     }
 
-    int filter_index = get_group_id(1);
+    int output_index = get_group_id(1);
     int filter_pixel_index = get_local_id(1);
 
-    int filter_starting_global_pixel_id = filter_index 
-        + (filter_width - 1) * (int)floor((float)filter_index / (float)(image_width - filter_width + 1));
+    int filter_starting_global_pixel_id = output_index  
+        + (filter_width - 1) * (int)floor((float)output_index / (float)(image_width - filter_width + 1));
 
     int pixel_index = get_image_pixel_id(
         filter_pixel_index,
 
-        filter_index,
+        output_index,
         filter_starting_global_pixel_id,
 
         image_width,
@@ -98,7 +98,7 @@ kernel void convolute(
             result += filtered[i];
         }
 
-        output[sample_index * output_image_volume + filter_index] = result + (float)biases[filter_index];
+        output[sample_index * output_image_volume + output_index] = result + (float)biases[0];
     }
 }
 
@@ -154,28 +154,28 @@ kernel void compute_gradients_for_one_filter_pixel(
         = (float)image[global_input_index] * (float)error_to_output_derivatives[global_output_index];
 }
 
-kernel void compute_gradients_for_biases(
-    global float* loss_to_output_derivatives,
-    global float* gradients,
-
-    int samples_amount,
-    int outputs_amount
-) {
-    int output_index = get_global_id(0);
-    if (output_index >= outputs_amount) {
-        return;
-    }
-
-    float bias_gradient = 0.0f;
-
-    for (int sample_index = 0; sample_index < samples_amount; sample_index++) {
-        int flat_output_i = sample_index * outputs_amount + output_index;
-
-        bias_gradient += (float)loss_to_output_derivatives[flat_output_i];
-    }
-
-    gradients[output_index] = bias_gradient / (float)samples_amount;
-}
+// kernel void compute_gradients_for_biases(
+//    global float* loss_to_output_derivatives,
+//    global float* gradients,
+// 
+//    int samples_amount,
+//    int outputs_amount
+//  {
+//    int output_index = get_global_id(0);
+//    if (output_index >= outputs_amount) {
+//        return;
+//    }
+// 
+//    float bias_gradient = 0.0f;
+// 
+//    for (int sample_index = 0; sample_index < samples_amount; sample_index++) {
+//        int flat_output_i = sample_index * outputs_amount + output_index;
+// 
+//        bias_gradient += (float)loss_to_output_derivatives[flat_output_i];
+//    }
+// 
+//    gradients[output_index] = bias_gradient / (float)samples_amount;
+// 
 
 kernel void compute_loss_to_input_derivatives(
     constant float* filter,

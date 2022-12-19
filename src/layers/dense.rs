@@ -165,6 +165,20 @@ impl<'a> Layer<'a> for Dense<'a> {
         self.initializers.get(parameter)
     }
 
+    fn get_flattened_parameter_data(&self, parameter: &str) -> Option<Vec<f32>> {
+        match parameter {
+            "weights" => {
+                Some(self.weights.par_iter().flatten().map(|x| *x).collect())
+            },
+            "biases" => {
+                Some(self.biases.to_vec())
+            },
+            _ => {
+                None
+            }
+        }
+    }
+
     fn set_initializer_for_parameter(
         mut self, 
         initializer: Initializer,

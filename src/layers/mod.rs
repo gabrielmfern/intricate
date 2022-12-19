@@ -241,6 +241,10 @@ pub trait Layer<'a> {
     /// or does nothing on a layer that has no parameters.
     fn set_initializer_for_parameter(self, initializer: Initializer, parameter: &'a str) -> ModelLayer<'a>;
 
+    /// Gets the stored parameter data (not in a OpenCL device) and returns it
+    /// flattened since it is not possible to return the acutal type specifically
+    fn get_flattened_parameter_data(&self, parameter: &str) -> Option<Vec<f32>>;
+
     /// Gets the last input samples that were used in the 'propagate' method,
     /// having this getter forces a struct that implements Layer to save its
     /// inputs on propagate

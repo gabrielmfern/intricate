@@ -51,6 +51,7 @@ const MULTIPLY_BUFFER_KERNEL_NAME: &str = "multiply";
 const MULTIPLY_INPLACE_BUFFER_KERNEL_NAME: &str = "multiply_inplace";
 const DIVIDE_BUFFER_KERNEL_NAME: &str = "divide";
 const DIVIDE_INPLACE_BUFFER_KERNEL_NAME: &str = "divide_inplace";
+const CLIP_MIN_MAX_INPLACE_BUFFER_KERNEL_NAME: &str = "clip_min_max_inplace";
 
 #[derive(Debug, FromForAllUnnamedVariants)]
 /// An error that happens in the `ensure_program` function, if either the compilation goes wrong of
@@ -213,6 +214,7 @@ pub(crate) fn compile_buffer_operations_program(
         SUBTRACT_INPLACE_BUFFER_KERNEL_NAME.to_string(),
         MULTIPLY_INPLACE_BUFFER_KERNEL_NAME.to_string(),
         DIVIDE_INPLACE_BUFFER_KERNEL_NAME.to_string(),
+        CLIP_MIN_MAX_INPLACE_BUFFER_KERNEL_NAME.to_string(),
     ];
 
     ensure_program(
@@ -278,6 +280,14 @@ where
         opencl_state: &OpenCLState,
     ) -> Result<(), BufferOperationError>;
 
+    /// Clips all of the values inside of the buffer using the min and max function
+    fn clip_min_max_inplace(
+        &mut self,
+        min: f32,
+        max: f32,
+        opencl_state: &OpenCLState,
+    ) -> Result<(), BufferOperationError>;
+
     /// Adds a number to every single number inside of Self
     fn shift_inplc(
         &mut self,
@@ -292,10 +302,7 @@ where
     ) -> Result<(), BufferOperationError>;
 
     /// Takes the sqrt of Self
-    fn sqrt_inplc(
-        &mut self,
-        opencl_state: &OpenCLState,
-    ) -> Result<(), BufferOperationError>;
+    fn sqrt_inplc(&mut self, opencl_state: &OpenCLState) -> Result<(), BufferOperationError>;
 
     /// Will just multiply all of the numbers of the `other` buffer into self.
     fn multiply_inplc(
@@ -341,10 +348,37 @@ impl InplaceBufferOperations for Buffer<cl_float> {
         Ok(())
     }
 
-    fn sqrt_inplc(
+    fn clip_min_max_inplace(
         &mut self,
+        min: f32,
+        max: f32,
         opencl_state: &OpenCLState,
     ) -> Result<(), BufferOperationError> {
+        if opencl_state.queues.is_empty() {
+            return Err(BufferOperationError::NoCommandQueueFoundError);
+        }
+
+        let queue = opencl_state.queues.first().unwrap();
+
+        let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
+        let kernel = program.get_krnl(CLIP_MIN_MAX_INPLACE_BUFFER_KERNEL_NAME)?;
+
+        let size_self = self.size()?;
+        let count_self = size_self / mem::size_of::<cl_float>();
+
+        ExecuteKernel::new(kernel)
+            .set_arg(self)
+            .set_arg(&(min as cl_float))
+            .set_arg(&(max as cl_float))
+            .set_arg(&(count_self as cl_int))
+            .set_global_work_size(count_self)
+            .enqueue_nd_range(queue)?
+            .wait()?;
+
+        Ok(())
+    }
+
+    fn sqrt_inplc(&mut self, opencl_state: &OpenCLState) -> Result<(), BufferOperationError> {
         if opencl_state.queues.is_empty() {
             return Err(BufferOperationError::NoCommandQueueFoundError);
         }

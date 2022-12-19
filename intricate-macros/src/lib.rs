@@ -90,6 +90,7 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
     let layer_names_12 = layer_names.clone();
     let layer_names_13 = layer_names.clone();
     let layer_names_14 = layer_names.clone();
+    let layer_names_15 = layer_names.clone();
 
     TokenStream::from(quote! {
         impl<'a> crate::layers::Layer<'a> for #enum_name<'a> {
@@ -100,6 +101,16 @@ pub fn enum_layer(_input: TokenStream) -> TokenStream {
                 match self {
                     #(
                         #enum_name::#layer_names(layer) => layer.get_initializer_for_parameter(
+                            parameter
+                        ),
+                    )*
+                }
+            }
+
+            fn get_flattened_parameter_data(&self, parameter: &str) -> Option<Vec<f32>> {
+                match self {
+                    #(
+                        #enum_name::#layer_names_15(layer) => layer.get_flattened_parameter_data(
                             parameter
                         ),
                     )*
@@ -323,6 +334,10 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
         use crate::utils::opencl::BufferOperations;
 
         impl<'a> crate::layers::Layer<'a> for #activation_name<'a> {
+            fn get_flattened_parameter_data(&self, _parameter: &str) -> Option<Vec<f32>> {
+                None
+            }
+
             fn get_initializer_for_parameter<'b>(
                 &'b self, 
                 _parameter: &str

@@ -511,7 +511,7 @@ impl<'a> Model<'a> {
                             write!(w, "{}", format!("{:.2}s", state.elapsed().as_secs_f32())).unwrap()
                         })
                         .with_key("per_second", |state: &ProgressState, w: &mut dyn Write| {
-                            write!(w, "{}", format!("{:.2}s", state.per_sec())).unwrap()
+                            write!(w, "{}", format!("{:.2}", state.per_sec())).unwrap()
                         })
                         .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
                             write!(w, "{}", format!("{:.2}s", state.eta().as_secs_f32())).unwrap()
