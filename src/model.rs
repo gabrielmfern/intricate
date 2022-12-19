@@ -288,13 +288,11 @@ impl<'a> Model<'a> {
     ///
     /// # Errors
     ///
-    /// This function will yield an error ClError if something goes wrong while reading the data
-    /// inside of the GPU.
-    ///
-    /// # Panics
-    ///
-    /// Will panic if the 'init' method was not called setting the **opencl_state**, if there
-    /// is no layers in the model or if there is not outputs in the last layer.
+    /// Yields an error if:
+    /// - The Model was not intialized;
+    /// - THe Model has no layers;
+    /// - The Model has not yet predicted;
+    /// - Something goes wrong when reading the data from the outputs buffer.
     pub fn get_last_prediction(&self) -> Result<Vec<f32>, ModelGetLastPredictionError> {
         if self.opencl_state.is_none() {
             return Err(ModelGetLastPredictionError::NotInitialized);
@@ -324,12 +322,11 @@ impl<'a> Model<'a> {
     ///
     /// # Errors
     ///
-    /// Will yield an error if something goes wrong with OpenCL, perhaps running some kernels, or
-    /// with buffer allocation.
-    ///
-    /// # Panics
-    ///
-    /// Will panic if the `init` was not called on the Model, or if the model has no layers.
+    /// Yields an error if:
+    /// - The Model was not initialized;
+    /// - There is no command queue in the OpenCLState;
+    /// - Something goes wrong in the Vec to Buffer conversion;
+    /// - Something goes wrong when predicting with a moved buffer on the Model.
     pub fn predict(
         &mut self,
         input_samples: &Vec<Vec<f32>>,
@@ -385,8 +382,11 @@ impl<'a> Model<'a> {
     ///
     /// # Errors
     ///
-    /// Will yield an error if something goes wrong in executing kernels inside of any of the
-    /// layers inside of the Model.
+    /// Yields an error if:
+    /// - The Model was not initialized;
+    /// - There is no OpenCL command queue in the OpenCLState;
+    /// - THere is no layers in the Mode;
+    /// - Something goes wrong in the Model's propagation.
     pub fn predict_with_buffer<'b>(
         &'b mut self,
         input_samples: &'b Buffer<cl_float>,
@@ -422,10 +422,23 @@ impl<'a> Model<'a> {
     ///
     /// # Errors
     ///
-    /// This function will return an error if some compilation error
-    /// happens while compiling the OpenCL programs for the Loss Function
-    /// defined in the training options, or some error happens running the kernels
-    /// at some point in the method calls.
+    /// Yields an error if:
+    /// - the Model is not initialized;
+    /// - there is no command queue in the OpenCLState;
+    /// - there are no layers in the Model;
+    /// - something goes wrong in the initialization of the loss function;
+    /// - something goes wrong in the initialization of the optimizer;
+    /// - something goes wrong when trying to convert the training_inputs samples into a buffer;
+    /// - something goes wrong when trying to convert the training_expected_output_samples into a
+    /// buffer;
+    /// - there are no calculated losses for a HaltingCondition of MinLoss;
+    /// - there are no calculated accuracies for a HaltingCondition of MinAccuracy;
+    /// - something goes wrong inside of parameter optimization;
+    /// - something goes wrong in the gradients computation method;
+    /// - something goes wrong in the gradients application;
+    /// - something goes wrong in the prediction of the Model;
+    /// - something goes wrong in the loss computation;
+    /// - something goes wrong inside OpenCL.
     pub fn fit(
         &mut self,
         training_input_samples: &Vec<Vec<f32>>,
@@ -719,9 +732,11 @@ impl<'a> Model<'a> {
     ///
     /// # Errors
     ///
-    /// This function will return an error if the Model was not initialized, if there is no command
-    /// queue in the current `OpenCLState` and if the apply_gradients in any of the layers fails as
-    /// well.
+    /// Yields an error if:
+    /// - the Model was not initialiazed;
+    /// - there is no command queue inside the OpenCLState;
+    /// - there are no layers inside the Model;
+    /// - something goes wrong in the gradient application on a specific layer.
     pub fn apply_gradients(
         &mut self,
         gradients_per_layer: &[Vec<Gradient>],
@@ -771,9 +786,15 @@ impl<'a> Model<'a> {
     ///
     /// # Errors
     ///
-    /// This function will return an error if the Model was not initialized, if there is no command
-    /// queue, if the prediction of the Model fails, if the computation of derivatives of inputs
-    /// with respect to the loss fail or if the computation of a Layer's gradients fails..
+    /// Yields an error if:
+    /// - the model was not initialized;
+    /// - there is no command queue in the OpenClState;
+    /// - there are no layers in the Model;
+    /// - something goes wrong trying to compute the size of the training_input_samples size;
+    /// - something goes wrong in the predicting with a buffer;
+    /// - something goes wrong in the initial loss fn gradients computation;
+    /// - something goes wrong in the layer gradient computation;
+    /// - something goes wrong when trying to pass on the derivatives between the layers.
     pub fn compute_gradients(
         &mut self,
         training_input_samples: &Buffer<cl_float>,
