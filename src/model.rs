@@ -289,10 +289,10 @@ impl<'a> Model<'a> {
     /// # Errors
     ///
     /// Yields an error if:
-    /// - The Model was not intialized;
-    /// - THe Model has no layers;
-    /// - The Model has not yet predicted;
-    /// - Something goes wrong when reading the data from the outputs buffer.
+    /// - the Model was not intialized;
+    /// - tHe Model has no layers;
+    /// - the Model has not yet predicted;
+    /// - something goes wrong when reading the data from the outputs buffer.
     pub fn get_last_prediction(&self) -> Result<Vec<f32>, ModelGetLastPredictionError> {
         if self.opencl_state.is_none() {
             return Err(ModelGetLastPredictionError::NotInitialized);
@@ -323,10 +323,10 @@ impl<'a> Model<'a> {
     /// # Errors
     ///
     /// Yields an error if:
-    /// - The Model was not initialized;
-    /// - There is no command queue in the OpenCLState;
-    /// - Something goes wrong in the Vec to Buffer conversion;
-    /// - Something goes wrong when predicting with a moved buffer on the Model.
+    /// - the Model was not initialized;
+    /// - there is no command queue in the OpenCLState;
+    /// - something goes wrong in the Vec to Buffer conversion;
+    /// - something goes wrong when predicting with a moved buffer on the Model.
     pub fn predict(
         &mut self,
         input_samples: &Vec<Vec<f32>>,
@@ -383,10 +383,10 @@ impl<'a> Model<'a> {
     /// # Errors
     ///
     /// Yields an error if:
-    /// - The Model was not initialized;
-    /// - There is no OpenCL command queue in the OpenCLState;
-    /// - THere is no layers in the Mode;
-    /// - Something goes wrong in the Model's propagation.
+    /// - the Model was not initialized;
+    /// - there is no OpenCL command queue in the OpenCLState;
+    /// - tHere is no layers in the Mode;
+    /// - something goes wrong in the Model's propagation.
     pub fn predict_with_buffer<'b>(
         &'b mut self,
         input_samples: &'b Buffer<cl_float>,
