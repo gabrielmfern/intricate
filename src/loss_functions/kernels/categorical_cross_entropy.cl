@@ -28,6 +28,35 @@ kernel void compute_loss(
     sample_losses[sample_index] = sample_loss;
 }
 
+kernel void compute_loss_to_output_derivatives_optimized_for_softmax(
+    global float* activated_output_samples,
+    global float* expected_output_samples,
+
+    global float* loss_to_output_derivatives,
+
+    int samples_amount,
+    int outputs_amount
+) {
+    int sample_index = get_global_id(0);
+
+    if (sample_index >= samples_amount) {
+        return;
+    }
+
+    int output_index = get_global_id(1);
+    
+    if (output_index > outputs_amount) {
+        return;
+    }
+
+    int flat_i = sample_index * outputs_amount + output_index;
+
+    float activeted_output = (float) activated_output_samples[flat_i];
+    float expected_output = (float) expected_output_samples[flat_i];
+
+    loss_to_output_derivatives[flat_i] = activated_output - expected_output;
+}
+
 kernel void compute_loss_to_output_derivatives(
     global float* output_samples,
     global float* expected_output_samples,
@@ -39,11 +68,11 @@ kernel void compute_loss_to_output_derivatives(
 ) {
     int sample_index = get_global_id(0);
 
-    int output_index = get_global_id(1);
-
     if (sample_index >= samples_amount) {
         return;
     }
+
+    int output_index = get_global_id(1);
     
     if (output_index > outputs_amount) {
         return;
