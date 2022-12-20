@@ -16,6 +16,8 @@ pub mod utils;
 pub mod optimizers;
 
 pub use model::Model;
+pub use types::TrainingOptions;
+pub use types::TrainingVerbosity;
 
 pub mod types;
 
