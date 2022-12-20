@@ -34,13 +34,13 @@ A GPU accelerated library that creates/trains/runs neural networks in safe Rust 
 
 ---
 
-## Architechture overview
+## Architecture overview
 
 Intricate has a layout very similar to popular libraries out there such as Keras.
 
 It consists at the surface of a [Model](#models), which consists then 
 of [Layers](#layers) which can be adjusted using a [Loss Function](#loss-functions)
-that is also helped by a [Optimizer](#optimizers).
+that is also helped by an [Optimizer](#optimizers).
 
 ### Models
 
@@ -55,7 +55,7 @@ a layer to another.
 
 Every layer receives **inputs** and returns **outputs** following some rule that they must define. 
 
-They must also implement four methods that together constitute backpropagation:
+They must also implement four methods that together constitute back-propagation:
 
 - `optimize_parameters`
 - `compute_gradients`
@@ -65,7 +65,7 @@ They must also implement four methods that together constitute backpropagation:
 Mostly the optimize_parameters will rely on an [Optimizer](#optimizers) that will try to improve
 the parameters that the Layer allows it to optimize.
 
-These methods together will be called sequentially to do backpropagation in the Model and
+These methods together will be called sequentially to do back-propagation in the Model and
 using the results from the `compute_loss_to_input_derivatives` we will then do the same for
 the last layer and so on.
 
@@ -78,10 +78,10 @@ which does simplify calculations tremendously and works like a charm.
 
 Optimizers the do just what you might think, they optimize.
 
-Specifically they optimize both the parameters a Layer allows them to optimize, as well
-as the [Layer](#layers)'s gradients so that the Layer can use them to apply the optimized gradients on itself.
+Specifically they optimize both the parameters a Layer allows them to optimize, and 
+the [Layer](#layers)'s gradients so that the Layer can use them to apply the optimized gradients on itself.
 
-This is useful because anyone using Intricate can develop and perhaps debug a Optimizer to see how well it does
+This is useful because one using Intricate can develop, and perhaps debug, an Optimizer to see how well it does
 for certain use cases which is very good for where I want Intricate to go. All you have to do is create some struct
 that implements the `Optimizer` trait.
 
@@ -162,7 +162,7 @@ let opencl_state = setup_opencl(DeviceType::CPU).unwrap();
 ```
 
 For our Model to be able to actually do computations, we need to pass the OpenCL state 
-into the `init` method inside of the Model as follows:
+into the `init` method inside the Model as follows:
 
 ```rust
 xor_model.init(&opencl_state).unwrap();
@@ -176,41 +176,30 @@ method and pass in some parameters as follows:
 ```rust
 use intricate::{
     loss_functions::MeanSquared,
-    optimizers::BasicOptimizer,
+    optimizers,
     types::{TrainingOptions, TrainingVerbosity},
 };
 
-let mut loss = MeanSquared::new();
-let mut optimizer = BasicOptimizer::new(0.1);
+let mut loss = MeanSquared::new(); // the type of loss function that should be used for Intricate
+                                   // to determine how bad the Model is
+let mut optimizer = optimizers::Basic::new(0.1); // the optimizer tries to use the gradients to optimize the training
+                                                 // process
 
 // Fit the model however many times we want
 xor_model
     .fit(
         &training_inputs,
         &expected_outputs,
-        &mut TrainingOptions {
-            loss_fn: &mut loss, // the type of loss function that should be used for Intricate
-                                // to determine how bad the Model is
-            verbosity: TrainingVerbosity {
-                show_current_epoch: true, // show a message for each epoch like `epoch #5`
-                show_epoch_progress: false, // show a progress bar of the training steps in a
-                                            // epoch
-                show_epoch_elapsed: true, // show elapsed time in calculations for one epoch
-                print_accuracy: true, // should print the accuracy after each epoch
-                print_loss: true, // should print the loss after each epoch
-                halting_condition_warning: true,
-            },
+        &mut TrainingOptions::new(&mut loss, &mut optimizer)
+            .set_epochs(10000)
+            .set_batch_size(4) // the size of the mini-batch being used in Intricate's Mini-batch
+                               // Gradient Descent
+            .should_compute_accuracy(true).unwrap() // if Intricate should compute the accuracy after each
+                                                    // training step
+            .should_print_accuracy(true).unwrap() // should print the accuracy after each epoch
             //                 a condition for stopping the training if a min accuracy is reached
-            halting_condition: Some(HaltingCondition::MinAccuracyReached(0.95)),
-            compute_accuracy: false, // if Intricate should compute the accuracy after each
-                                     // training step
-            compute_loss: true, // if Intricate should compute the loss after each training
-                                // step
-            optimizer: &mut optimizer,
-            batch_size: 4, // the size of the mini-batch being used in Intricate's Mini-batch
-                           // Gradient Descent
-            epochs: 10000,
-        },
+            .set_halting_condition(HaltingCondition::MinAccuracyReached(0.95)).unwrap()
+            .should_show_halting_condition_warning(true).unwrap(),
     )
     .unwrap();
 ```
@@ -221,12 +210,14 @@ As you can see it is extremely easy creating these models, and blazingly fast as
 
 ## How to save and load models
 
-For saving and loading models Intricate uses the [savefile](https://github.com/avl/savefile) crate which makes it very simple and fast to save models.
+For saving and loading models Intricate uses the [savefile](https://github.com/avl/savefile) 
+crate which makes it very simple and fast to save models.
 
 ### Saving the model
 
 As an example let's try saving and loading our XoR model.
-For doing that we will first need to sync all of the relevant layer information
+
+For doing that we will first need to sync all the relevant layer information
 of the Model with OpenCL's `host`, (or just with the CPU), and then we will need
 to call the `save_file` method as follows:
 
@@ -251,8 +242,9 @@ to use the Model after loading it, you **must** call the `init` method in the `l
 
 ## Things to be done still
 
-- Implement Max Pooling or other Pooling type of layers.
-- add a way to send into the training process a callback closure that would be called every time a epoch finished or even a step too with some cool info
-- make an example after doing the thing above ^, that uses that same function to plot the loss real time using a crate like `textplots`
-- add embedding layers for text such as bag of words with an expected vocabulary size
-- add a way to show inputs and outputs not matching error be more clear and perhaps even appear at compile time
+- implement Max Pooling or other Pooling type of layers;
+- add a way to send into the training process a callback closure that would be called every time an epoch finished or even a step too with some cool info;
+- make an example after doing the thing above ^, that uses that same function to plot the loss real time using a crate like `textplots`;
+- add embedding layers for text such as bag of words with an expected vocabulary size;
+- add a way to show inputs and outputs not matching error be more clear and perhaps even appear at compile time;
+- add a way to choose what type of accuracy should be calculated to avoid weird and unuseful accuracies being calculated
