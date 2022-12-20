@@ -7,10 +7,10 @@ use opencl3::{
     device::cl_float,
     error_codes::{cl_int, ClError},
     kernel::ExecuteKernel,
-    memory::{Buffer, ClMem, CL_MEM_READ_WRITE},
+    memory::{Buffer, ClMem, CL_MEM_READ_WRITE, CL_MEM_READ_ONLY},
 };
 
-use crate::{loss_functions::LossFunction, utils::opencl::{BufferOperationError, BufferConversionError}};
+use crate::{loss_functions::LossFunction, utils::opencl::{BufferOperationError, BufferConversionError, BufferLike}};
 use crate::utils::opencl::empty_buffer;
 use crate::utils::opencl::ensure_program;
 use crate::utils::opencl::EnsureKernelsAndProgramError;
@@ -80,26 +80,26 @@ pub enum ReduceOutputsPerSampleError {
     BufferConversion(BufferConversionError),
 }
 
-// pub(crate) fn sum_outputs_per_sample(
-//     state: &OpenCLState,
-//     outputs: &Buffer<cl_float>,
-//     outputs_amount: usize,
-//     samples_amount: usize,
-// ) -> Result<Buffer<cl_float>, ReduceOutputsPerSampleError> {
-//     let mut resulting_vec = Vec::with_capacity(samples_amount);
+pub(crate) fn sum_outputs_per_sample(
+    state: &OpenCLState,
+    outputs: &Buffer<cl_float>,
+    outputs_amount: usize,
+    samples_amount: usize,
+) -> Result<Buffer<cl_float>, ReduceOutputsPerSampleError> {
+    let mut resulting_vec = Vec::with_capacity(samples_amount);
 
-//     for sample_index in 0..samples_amount {
-//         let offset = sample_index * outputs_amount;
-//         let count = outputs_amount;
-//         let outputs_for_sample = outputs.create_sub_buffer(CL_MEM_READ_WRITE, offset, count)?;
+    for sample_index in 0..samples_amount {
+        let offset = sample_index * outputs_amount;
+        let count = outputs_amount;
+        let outputs_for_sample = outputs.create_sub_buffer(CL_MEM_READ_ONLY, offset, count)?;
 
-//         resulting_vec.push(
-//             outputs_for_sample.sum(state)?
-//         );
-//     }
+        resulting_vec.push(
+            outputs_for_sample.sum(state)?
+        );
+    }
 
-//     Ok(dbg!(resulting_vec).to_buffer(false, state)?)
-// }
+    Ok(resulting_vec.to_buffer(false, state)?)
+}
 
 impl<'a> LossFunction<'a> for CategoricalCrossEntropy<'a> {
     fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), ClError> {
@@ -146,7 +146,7 @@ impl<'a> LossFunction<'a> for CategoricalCrossEntropy<'a> {
         //     outputs_amount, 
         //     samples_amount
         // )?;
-        // let mut normalized_outputs = empty_buffer(outputs_total_count, CL_MEM_READ_WRITE, state)?;
+        // let normalized_outputs = empty_buffer(outputs_total_count, CL_MEM_READ_WRITE, state)?;
 
         let program = state.get_prgm(PROGRAM_NAME)?;
 
@@ -162,8 +162,6 @@ impl<'a> LossFunction<'a> for CategoricalCrossEntropy<'a> {
         //     .enqueue_nd_range(queue)?
         //     .wait()?;
 
-        // normalized_outputs.clip_min_max_inplace(0.0000001, 1.0 - 0.0000001, state)?;
-        
         let sample_losses_buffer = empty_buffer(samples_amount, CL_MEM_READ_WRITE, state)?;
 
         let compute_loss_kernel = program.get_krnl(COMPUTE_LOSS_KERNEL)?;
@@ -222,7 +220,7 @@ impl<'a> LossFunction<'a> for CategoricalCrossEntropy<'a> {
         //     outputs_amount, 
         //     samples_amount
         // )?;
-        // let mut normalized_outputs = empty_buffer(outputs_total_count, CL_MEM_READ_WRITE, state)?;
+        // let normalized_outputs = empty_buffer(outputs_total_count, CL_MEM_READ_WRITE, state)?;
 
         let program = state.get_prgm(PROGRAM_NAME)?;
 
@@ -237,8 +235,6 @@ impl<'a> LossFunction<'a> for CategoricalCrossEntropy<'a> {
         //     .set_global_work_sizes(&[samples_amount, outputs_amount])
         //     .enqueue_nd_range(queue)?
         //     .wait()?;
-
-        // normalized_outputs.clip_min_max_inplace(0.0000001, 1.0 - 0.0000001, state)?;
 
         // queue.finish()?;
 
@@ -302,7 +298,7 @@ mod categorical_cross_entropy_tests {
             .iter()
             .zip(&output_samples)
             .map(|(expected_output, output)| {
-                (expected_output, output.min(0.0000001).max(0.9999999))
+                (expected_output, output.max(0.0000001).min(0.9999999))
             })
             .map(|(expected_output, output)| {
                 -(expected_output / output
@@ -393,7 +389,7 @@ mod categorical_cross_entropy_tests {
             .iter()
             .zip(&outputs)
             .map(|(expected_output, output)| {
-                (expected_output, output.min(0.0000001).max(0.9999999))
+                (expected_output, output.max(0.0000001).min(0.9999999))
             })
             .map(|(expected_output, output)| {
                 -(expected_output * output.ln()

@@ -20,9 +20,9 @@ kernel void compute_loss(
         int flat_i = row_part + output_index;
         float output = (float) output_samples[flat_i];
         float expected_output = (float) expected_output_samples[flat_i];
-        output = max(min(output, 0.0000001f), 0.9999999f);
-        sample_loss -= expected_output * log(output)
-            + (1.0f - expected_output) * log(1.0f - output);
+        output = min(max(output, 0.0000001f), 0.9999999f);
+        sample_loss -= expected_output * log(output);
+            /* + (1.0f - expected_output) * log(1.0f - output); */
     }
 
     sample_losses[sample_index] = sample_loss;
@@ -53,7 +53,7 @@ kernel void compute_loss_to_output_derivatives(
 
     float output = (float) output_samples[flat_i];
     float expected_output = (float) expected_output_samples[flat_i];
-    output = max(min(output, 0.0000001f), 0.9999999f);
+    output = min(max(output, 0.0000001f), 0.9999999f);
 
     loss_to_output_derivatives[flat_i] = -expected_output / output
         + (1.0f - expected_output) / (1.0f - output);
