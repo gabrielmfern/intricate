@@ -3,7 +3,7 @@ use intricate::layers::Dense;
 
 use intricate::loss_functions::MeanSquared;
 use intricate::optimizers;
-use intricate::types::{ModelLayer, TrainingOptions, TrainingVerbosity, HaltingCondition};
+use intricate::types::{ModelLayer, TrainingOptions, HaltingCondition};
 use intricate::utils::opencl::DeviceType;
 use intricate::utils::setup_opencl;
 use intricate::Model;
@@ -48,29 +48,13 @@ fn main() -> () {
         .fit(
             &training_inputs,
             &expected_outputs,
-            &mut TrainingOptions {
-                loss_fn: &mut loss, // the type of loss function that should be used for Intricate
-                                    // to determine how bad the Model is
-                verbosity: TrainingVerbosity {
-                    show_current_epoch: true, // show a message for each epoch like `epoch #5`
-                    show_epoch_progress: false, // show a progress bar of the training steps in a
-                                                // epoch
-                    show_epoch_elapsed: true, // show elapsed time in calculations for one epoch
-                    print_accuracy: true, // should print the accuracy after each epoch
-                    print_loss: true, // should print the loss after each epoch
-                    halting_condition_warning: true,
-                },
-                //                 a condition for stopping the training if a min accuracy is reached
-                halting_condition: Some(HaltingCondition::MinAccuracyReached(0.95)),
-                compute_accuracy: false, // if Intricate should compute the accuracy after each
-                                         // training step
-                compute_loss: true, // if Intricate should compute the loss after each training
-                                    // step
-                optimizer: &mut optimizer,
-                batch_size: 4, // the size of the mini-batch being used in Intricate's Mini-batch
-                               // Gradient Descent
-                epochs: 10000,
-            },
+            &mut TrainingOptions::new(&mut loss, &mut optimizer)
+                .set_epochs(10000)
+                .set_batch_size(4)
+                .should_compute_accuracy(true).unwrap()
+                .should_print_accuracy(true).unwrap()
+                .set_halting_condition(HaltingCondition::MinAccuracyReached(0.95)).unwrap()
+                .should_show_halting_condition_warning(true).unwrap(),
         )
         .unwrap();
 

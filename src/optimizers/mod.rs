@@ -36,7 +36,8 @@ pub enum OptimizationError {
 
 /// An Optimizer is something that tries to improve the learning process based on some kind of
 /// implementation that adapts to the loss function's curvature.
-pub trait Optimizer<'a> {
+pub trait Optimizer<'a>
+where Self: std::fmt::Debug {
     /// Initializes the Optimizer by saving the OpenCLState's reference to the struct and perhaps
     /// may initialize some buffers.
     fn init(

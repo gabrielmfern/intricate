@@ -123,6 +123,7 @@ pub enum HaltingCondition {
     MinAccuracyReached(f32),
 }
 
+#[derive(Debug)]
 /// A struct that defines the options for training a Model.
 ///
 /// # Example
@@ -140,7 +141,7 @@ pub enum HaltingCondition {
 ///     &mut basic_optimizer // this can also be any struct that implements the Optimizer trait
 /// ).set_batch_size(32)
 ///  .set_epochs(10)
-///  .set_compute_loss(true).unwrap();
+///  .should_compute_loss(true).unwrap();
 /// ```
 pub struct TrainingOptions<'a> {
     /// The loss function that will be used for calculating how **wrong** the Model
@@ -218,10 +219,34 @@ impl<'a> TrainingOptions<'a> {
     }
 
     /// Sets the halting condition into self and returns the mutated Self
-    pub fn set_halting_condition(mut self, halting_condition: HaltingCondition) -> Self {
+    pub fn set_halting_condition(
+        mut self, 
+        halting_condition: HaltingCondition
+    ) -> Result<Self, InvalidTrainingOptionError<HaltingCondition>> {
+        match halting_condition {
+            HaltingCondition::MinLossReached(_) => {
+                if !self.compute_loss {
+                    return Err(InvalidTrainingOptionError { 
+                        value_trying_to_be_set: halting_condition, 
+                        parameter_name: "halting_condition", 
+                        error_message: format!("Unable to set the halting condition to MinLossReached since the loss is not set to be calculated!")
+                    });
+                }
+            },
+            HaltingCondition::MinAccuracyReached(_) => {
+                if !self.compute_accuracy {
+                    return Err(InvalidTrainingOptionError { 
+                        value_trying_to_be_set: halting_condition, 
+                        parameter_name: "halting_condition", 
+                        error_message: format!("Unable to set the halting condition to MinAccuracyReached since the accuracy is not set to be calculated!")
+                    });
+                }
+            }
+        };
+
         self.halting_condition = Some(halting_condition);
 
-        self
+        Ok(self)
     }
 
     /// Sets weather or not the loss should be computed after each training step for graphing,
@@ -257,7 +282,7 @@ impl<'a> TrainingOptions<'a> {
             });
         }
 
-        self.compute_loss = should;
+        self.compute_accuracy = should;
 
         Ok(self)
     }

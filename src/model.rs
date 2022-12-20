@@ -586,13 +586,13 @@ impl<'a> Model<'a> {
             let epoch_accuracy = epoch_accuracies.iter().sum::<f32>() / steps_amount as f32;
 
             if training_options.verbosity.print_loss {
-                println!("got a loss of {:.3} after epoch", epoch_loss);
+                println!("got a loss of {} after epoch", epoch_loss);
             }
 
             if training_options.verbosity.print_accuracy {
                 println!(
-                    "got a accuracy of {:.3} after epoch",
-                    epoch_accuracy
+                    "got a accuracy of {:.3}% after epoch",
+                    epoch_accuracy * 100.0
                 );
             }
 
