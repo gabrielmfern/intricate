@@ -10,7 +10,7 @@ use crate::{
         activations::{ReLU, Sigmoid, SoftMax, TanH},
         Dense, conv2d::Conv2D,
     },
-    loss_functions::LossFunction,
+    loss_functions::LossFn,
     optimizers::Optimizer, utils::opencl::BufferConversionError,
 };
 
@@ -146,7 +146,7 @@ pub enum HaltingCondition {
 pub struct TrainingOptions<'a> {
     /// The loss function that will be used for calculating how **wrong** the Model
     /// was after some prediction over many samples.
-    pub(crate) loss_fn: &'a mut dyn LossFunction<'a>,
+    pub(crate) loss_fn: &'a mut LossFn<'a>,//dyn LossFunction<'a>,
 
     /// The size of the batch given at once to the Model for training.
     /// This is here because a Model will always run on mini batches, if you wish to do `Batch
@@ -196,18 +196,18 @@ impl<'a> TrainingOptions<'a> {
     /// Creates new Training Options with some default parameters and a specified loss_fn and
     /// optimize.
     pub fn new(
-        loss_fn: &'a mut dyn LossFunction<'a>,
+        loss_fn: &'a mut LossFn<'a>,
         optimizer: &'a mut dyn Optimizer<'a>,
     ) -> Self {
         TrainingOptions { 
             loss_fn,
-            batch_size: 256, 
+            batch_size: 0, 
             optimizer,
             verbosity: TrainingVerbosity::default(), 
             halting_condition: None, 
             compute_loss: true,
             compute_accuracy: false, 
-            epochs: 10 
+            epochs: 0
         }
     }
 

@@ -10,14 +10,14 @@ use opencl3::{
     memory::{Buffer, ClMem, CL_MEM_READ_WRITE},
 };
 
-use crate::{loss_functions::LossFunction, utils::opencl::{BufferOperationError, BufferConversionError, BufferLike}};
+use crate::{loss_functions::LossFunction, utils::opencl::{BufferOperationError, BufferConversionError}};
 use crate::utils::opencl::empty_buffer;
 use crate::utils::opencl::ensure_program;
 use crate::utils::opencl::EnsureKernelsAndProgramError;
 use crate::utils::BufferOperations;
 use crate::utils::OpenCLState;
 
-use super::LossComputationError;
+use super::{LossComputationError, LossFn};
 use super::LossToModelOutputsDerivativesComputationError;
 
 const PROGRAM_NAME: &str = "CATEGORICAL_CROSS_ENTROPY";
@@ -56,6 +56,9 @@ pub(crate) fn compile_categorical_cross_entropy(
 /// This loss function is very good for categorical problems because it penalizes when some values
 /// are high when they should be closer to 0, and if the values are a bit far from what they are
 /// expected to be they are much more penalized that in other loss functions.
+///
+/// Disclaimer: This loss function will end up deactivating the last SoftMax layer if the Model
+/// ends with it for the purpose of optimizing the calculations and avoiding NaN's.
 pub struct CategoricalCrossEntropy<'a> {
     opencl_state: Option<&'a OpenCLState>,
     /// This keeps track of weather or not the last layer in the Model using the loss_fn is a
@@ -64,15 +67,23 @@ pub struct CategoricalCrossEntropy<'a> {
 }
 
 impl<'a> CategoricalCrossEntropy<'a> {
-    /// Crates a new instance of the Categorical Cross Entropy but as a raw version of the struct.
+    /// Crates a new raw instance of the Categorical Cross Entropy but as a raw version of the struct.
     ///
     /// Be aware that after creation this needs to be called the `init` method before computing the
     /// loss or anything like that.
-    pub fn new() -> CategoricalCrossEntropy<'a> {
+    pub fn new_raw() -> CategoricalCrossEntropy<'a> {
         CategoricalCrossEntropy { 
             opencl_state: None,
             is_optimized_for_softmax: false,
         }
+    }
+
+    /// Crates a new instance of the Categorical Cross Entropy but as a raw version of the struct.
+    ///
+    /// Be aware that after creation this needs to be called the `init` method before computing the
+    /// loss or anything like that.
+    pub fn new() -> LossFn<'a> {
+        Self::new_raw().into()
     }
 
     pub(crate) fn set_optimized_for_softmax(&mut self, optimized: bool) -> () {

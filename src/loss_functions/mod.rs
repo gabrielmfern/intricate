@@ -5,24 +5,31 @@
 use std::fmt::Debug;
 
 pub mod categorical_cross_entropy;
-pub mod mean_squared;
 pub mod mean_absolute;
 pub mod mean_bias;
+pub mod mean_squared;
 
 pub use categorical_cross_entropy::CategoricalCrossEntropy;
-pub use mean_squared::MeanSquared;
 pub use mean_absolute::MeanAbsolute;
 pub use mean_bias::MeanBias;
+pub use mean_squared::MeanSquared;
 
-use crate::{utils::{OpenCLState, opencl::{EnsureKernelsAndProgramError, BufferOperationError}}, types::{KernelNotFoundError, ProgramNotFoundError}};
+use crate::{
+    types::{KernelNotFoundError, ProgramNotFoundError},
+    utils::{
+        opencl::{BufferOperationError, EnsureKernelsAndProgramError},
+        OpenCLState,
+    },
+};
 
 use intricate_macros::FromForAllUnnamedVariants;
 use opencl3::{device::cl_float, error_codes::ClError, memory::Buffer};
 
 use self::{
     categorical_cross_entropy::{compile_categorical_cross_entropy, ReduceOutputsPerSampleError},
+    mean_absolute::compile_mean_absolute,
+    mean_bias::compile_mean_bias,
     mean_squared::compile_mean_squared,
-    mean_absolute::compile_mean_absolute, mean_bias::compile_mean_bias,
 };
 
 pub(crate) fn compile_losses(
@@ -48,7 +55,7 @@ pub enum LossComputationError {
     /// Happens when something goes wrong with OpenCL.
     OpenCL(ClError),
 
-    /// Happens when something goes wrong whle trying to sum the outputs for each sample separetly 
+    /// Happens when something goes wrong whle trying to sum the outputs for each sample separetly
     /// (used in the Categorical Cross Entropy loss fn)
     SumOutputsPerSmaple(ReduceOutputsPerSampleError),
     /// Happens when the **expected outputs** and the **actual outputs** do not match in size.
@@ -77,7 +84,7 @@ pub enum LossToModelOutputsDerivativesComputationError {
 
     /// Happens when something goes wrong with OpenCL.
     OpenCL(ClError),
-    /// Happens when something goes wrong whle trying to sum the outputs for each sample separetly 
+    /// Happens when something goes wrong whle trying to sum the outputs for each sample separetly
     /// (used in the Categorical Cross Entropy loss fn)
     SumOutputsPerSmaple(ReduceOutputsPerSampleError),
 
@@ -136,4 +143,84 @@ where
         expected_outputs: &Buffer<cl_float>,
         samples_amount: usize,
     ) -> Result<Buffer<cl_float>, LossToModelOutputsDerivativesComputationError>;
+}
+
+#[derive(Debug, FromForAllUnnamedVariants)]
+/// The enum that contains all of the currently implemented loss funcitons in Intricate
+pub enum LossFn<'a> {
+    /// The Mean Squared loss function
+    MeanSquared(MeanSquared<'a>),
+    /// The Mean Bias loss function
+    MeanBias(MeanBias<'a>),
+    /// The Mean Aboslute loss function
+    MeanAbsolute(MeanAbsolute<'a>),
+    /// The Categorical Cross Entropy
+    CategoricalCrossEntropy(CategoricalCrossEntropy<'a>),
+}
+
+// TODO: write a derive macro fro this to make things easier
+impl<'a> LossFunction<'a> for LossFn<'a> {
+    fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), ClError> {
+        match self {
+            LossFn::MeanSquared(loss) => loss.init(opencl_state),
+            LossFn::MeanBias(loss) => loss.init(opencl_state),
+            LossFn::MeanAbsolute(loss) => loss.init(opencl_state),
+            LossFn::CategoricalCrossEntropy(loss) => loss.init(opencl_state),
+        }
+    }
+
+    fn compute_loss(
+        &self,
+        output_samples: &Buffer<cl_float>,
+        expected_outputs: &Buffer<cl_float>,
+        samples_amount: usize,
+    ) -> Result<f32, LossComputationError> {
+        match self {
+            LossFn::MeanSquared(loss) => {
+                loss.compute_loss(output_samples, expected_outputs, samples_amount)
+            }
+            LossFn::MeanBias(loss) => {
+                loss.compute_loss(output_samples, expected_outputs, samples_amount)
+            }
+            LossFn::MeanAbsolute(loss) => {
+                loss.compute_loss(output_samples, expected_outputs, samples_amount)
+            }
+            LossFn::CategoricalCrossEntropy(loss) => {
+                loss.compute_loss(output_samples, expected_outputs, samples_amount)
+            }
+        }
+    }
+
+    fn compute_loss_derivative_with_respect_to_output_samples(
+        &self,
+        output_samples: &Buffer<cl_float>,
+        expected_outputs: &Buffer<cl_float>,
+        samples_amount: usize,
+    ) -> Result<Buffer<cl_float>, LossToModelOutputsDerivativesComputationError> {
+        match self {
+            LossFn::MeanSquared(loss) => loss
+                .compute_loss_derivative_with_respect_to_output_samples(
+                    output_samples,
+                    expected_outputs,
+                    samples_amount,
+                ),
+            LossFn::MeanBias(loss) => loss.compute_loss_derivative_with_respect_to_output_samples(
+                output_samples,
+                expected_outputs,
+                samples_amount,
+            ),
+            LossFn::MeanAbsolute(loss) => loss
+                .compute_loss_derivative_with_respect_to_output_samples(
+                    output_samples,
+                    expected_outputs,
+                    samples_amount,
+                ),
+            LossFn::CategoricalCrossEntropy(loss) => loss
+                .compute_loss_derivative_with_respect_to_output_samples(
+                    output_samples,
+                    expected_outputs,
+                    samples_amount,
+                ),
+        }
+    }
 }

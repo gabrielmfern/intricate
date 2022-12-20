@@ -16,7 +16,7 @@ use crate::utils::opencl::EnsureKernelsAndProgramError;
 use crate::utils::BufferOperations;
 use crate::utils::OpenCLState;
 
-use super::{LossComputationError, LossToModelOutputsDerivativesComputationError};
+use super::{LossComputationError, LossToModelOutputsDerivativesComputationError, LossFn};
 
 const PROGRAM_NAME: &str = "MEAN_SQUARED";
 const PROGRAM_SOURCE: &str = include_str!("kernels/mean_squared.cl");
@@ -52,12 +52,20 @@ pub struct MeanSquared<'a> {
 }
 
 impl<'a> MeanSquared<'a> {
+    /// Crates a new raw instance of the Mean Squared but as a raw version of the struct.
+    ///
+    /// Be aware that after creation this needs to be called the `init` method before computing the
+    /// loss or anything like that.`
+    pub fn new_raw() -> MeanSquared<'a> {
+        MeanSquared { opencl_state: None }
+    }
+
     /// Crates a new instance of the Mean Squared but as a raw version of the struct.
     ///
     /// Be aware that after creation this needs to be called the `init` method before computing the
     /// loss or anything like that.`
-    pub fn new() -> MeanSquared<'a> {
-        MeanSquared { opencl_state: None }
+    pub fn new() -> LossFn<'a> {
+        Self::new_raw().into()
     }
 }
 

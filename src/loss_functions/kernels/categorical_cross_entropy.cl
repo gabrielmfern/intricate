@@ -54,7 +54,7 @@ kernel void compute_loss_to_output_derivatives_optimized_for_softmax(
     float activeted_output = (float) activated_output_samples[flat_i];
     float expected_output = (float) expected_output_samples[flat_i];
 
-    loss_to_output_derivatives[flat_i] = activated_output - expected_output;
+    loss_to_output_derivatives[flat_i] = activeted_output - expected_output;
 }
 
 kernel void compute_loss_to_output_derivatives(

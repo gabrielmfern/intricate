@@ -16,7 +16,7 @@ use crate::utils::opencl::EnsureKernelsAndProgramError;
 use crate::utils::BufferOperations;
 use crate::utils::OpenCLState;
 
-use super::{LossComputationError, LossToModelOutputsDerivativesComputationError};
+use super::{LossComputationError, LossToModelOutputsDerivativesComputationError, LossFn};
 
 const PROGRAM_NAME: &str = "MEAN_BIAS";
 const PROGRAM_SOURCE: &str = include_str!("kernels/mean_bias.cl");
@@ -50,12 +50,20 @@ pub struct MeanBias<'a> {
 }
 
 impl<'a> MeanBias<'a> {
+    /// Crates a new raw instance of the Mean Bias but as a raw version of the struct.
+    ///
+    /// Be aware that after creation this needs to be called the `init` method before computing the
+    /// loss or anything like that.`
+    pub fn new_raw() -> MeanBias<'a> {
+        MeanBias { opencl_state: None }
+    }
+
     /// Crates a new instance of the Mean Bias but as a raw version of the struct.
     ///
     /// Be aware that after creation this needs to be called the `init` method before computing the
     /// loss or anything like that.`
-    pub fn new() -> MeanBias<'a> {
-        MeanBias { opencl_state: None }
+    pub fn new() -> LossFn<'a> {
+        Self::new_raw().into()
     }
 }
 

@@ -19,12 +19,13 @@ fn main() -> () {
     let state = setup_opencl(DeviceType::GPU).expect("unable to setup OpenCL");
 
     let mut mnist_model: Model = Model::new(vec![
-        Conv2D::new((28, 28), (3, 3)),
-        ReLU::new(26 * 26),
-        // Dense::new(28 * 28, 10 * 10),
-        // ReLU::new(10 * 10),
+        // Conv2D::new((28, 28), (3, 3)),
+        // ReLU::new(26 * 26),
+        Dense::new(28 * 28, 10 * 10),
+        ReLU::new(10 * 10),
 
-        Dense::new(26 * 26, 10),
+        // Dense::new(26 * 26, 10),
+        Dense::new(10 * 10, 10),
         // ReLU::new(10),
         SoftMax::new(10),
     ]);

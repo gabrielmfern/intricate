@@ -16,7 +16,7 @@ use crate::utils::opencl::EnsureKernelsAndProgramError;
 use crate::utils::BufferOperations;
 use crate::utils::OpenCLState;
 
-use super::{LossComputationError, LossToModelOutputsDerivativesComputationError};
+use super::{LossComputationError, LossToModelOutputsDerivativesComputationError, LossFn};
 
 const PROGRAM_NAME: &str = "MEAN_ABSOLUTE";
 const PROGRAM_SOURCE: &str = include_str!("kernels/mean_absolute.cl");
@@ -52,12 +52,20 @@ pub struct MeanAbsolute<'a> {
 }
 
 impl<'a> MeanAbsolute<'a> {
+    /// Crates a new raw instance of the Mean Absolute but as a raw version of the struct.
+    ///
+    /// Be aware that after creation this needs to be called the `init` method before computing the
+    /// loss or anything like that.
+    pub fn new_raw() -> MeanAbsolute<'a> {
+        MeanAbsolute { opencl_state: None }
+    }
+    
     /// Crates a new instance of the Mean Absolute but as a raw version of the struct.
     ///
     /// Be aware that after creation this needs to be called the `init` method before computing the
     /// loss or anything like that.
-    pub fn new() -> MeanAbsolute<'a> {
-        MeanAbsolute { opencl_state: None }
+    pub fn new() -> LossFn<'a> {
+        Self::new_raw().into()
     }
 }
 

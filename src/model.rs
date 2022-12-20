@@ -26,7 +26,8 @@ use crate::{
         ParametersOptimizationError,
     },
     loss_functions::{
-        LossComputationError, LossFunction, LossToModelOutputsDerivativesComputationError,
+        LossComputationError, LossFn, LossFunction,
+        LossToModelOutputsDerivativesComputationError,
     },
     optimizers::Optimizer,
     types::{
@@ -153,6 +154,8 @@ pub enum ModelFittingError {
     ModelGradientApplication(ModelGradientApplicationError),
     /// Happens when something goes wrong in the prediction of the Model.
     ModelPrediction(ModelPredictionError),
+    /// Happens when there are no layers in the Model
+    ModelHasNoLayers,
 
     /// Happens when something goes wrong when trying to optimize a Layer's parameters.
     ParameterOptimization(usize, ParametersOptimizationError),
@@ -455,7 +458,26 @@ impl<'a> Model<'a> {
             return Err(ModelFittingError::NoCommandQueue);
         }
 
-        assert_eq!(training_input_samples.len(), training_expected_output_samples.len());
+        if self.layers.is_empty() {
+            return Err(ModelFittingError::ModelHasNoLayers);
+        }
+
+        let last_layer = self.layers.last().unwrap();
+
+        assert_eq!(
+            training_input_samples.len(),
+            training_expected_output_samples.len()
+        );
+
+        // This would mean that the last layer would need to be ignored when calculting gradients
+        // at back-prop
+        let optimizing_for_softmax = false;
+
+        if let ModelLayer::SoftMax(_) = last_layer {
+            if let LossFn::CategoricalCrossEntropy(loss) = training_options.loss_fn {
+                loss.set_optimized_for_softmax(true);
+            }
+        }
 
         training_options.loss_fn.init(state)?;
         training_options.optimizer.init(state)?;
@@ -518,18 +540,20 @@ impl<'a> Model<'a> {
                     (samples_amount as f32 / training_options.batch_size as f32).ceil() as u64,
                 );
                 pbar.set_style(
-                    ProgressStyle::with_template("[{bar:10}] [{per_second}/s] {pos}/{len} {elapsed}/{eta} {msg}")
-                        .expect("unable to create epoch training steps progress bar")
-                        .with_key("elapsed", |state: &ProgressState, w: &mut dyn Write| {
-                            write!(w, "{}", format!("{:.2}s", state.elapsed().as_secs_f32())).unwrap()
-                        })
-                        .with_key("per_second", |state: &ProgressState, w: &mut dyn Write| {
-                            write!(w, "{}", format!("{:.2}", state.per_sec())).unwrap()
-                        })
-                        .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
-                            write!(w, "{}", format!("{:.2}s", state.eta().as_secs_f32())).unwrap()
-                        })
-                        .progress_chars("=> "),
+                    ProgressStyle::with_template(
+                        "[{bar:10}] [{per_second}/s] {pos}/{len} {elapsed}/{eta} {msg}",
+                    )
+                    .expect("unable to create epoch training steps progress bar")
+                    .with_key("elapsed", |state: &ProgressState, w: &mut dyn Write| {
+                        write!(w, "{}", format!("{:.2}s", state.elapsed().as_secs_f32())).unwrap()
+                    })
+                    .with_key("per_second", |state: &ProgressState, w: &mut dyn Write| {
+                        write!(w, "{}", format!("{:.2}", state.per_sec())).unwrap()
+                    })
+                    .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
+                        write!(w, "{}", format!("{:.2}s", state.eta().as_secs_f32())).unwrap()
+                    })
+                    .progress_chars("=> "),
                 );
                 progress = Some(pbar);
             }
@@ -556,6 +580,7 @@ impl<'a> Model<'a> {
                     batch_outputs,
                     local_batch_size,
                     timestep,
+                    optimizing_for_softmax,
                     training_options,
                 )?;
 
@@ -644,6 +669,7 @@ impl<'a> Model<'a> {
         expected_output_samples: &Buffer<cl_float>,
         samples_amount: usize,
         timestep: usize,
+        optimizing_for_softmax: bool,
         training_options: &mut TrainingOptions<'a>,
     ) -> Result<(Option<f32>, Option<f32>), ModelFittingError> {
         if self.opencl_state.is_none() {
@@ -672,6 +698,7 @@ impl<'a> Model<'a> {
             &input_samples,
             &expected_output_samples,
             training_options.loss_fn,
+            optimizing_for_softmax,
         )?;
 
         self.apply_gradients(gradients.as_slice(), training_options.optimizer, timestep)?;
@@ -679,9 +706,7 @@ impl<'a> Model<'a> {
         let loss;
         let accuracy;
 
-        if training_options.compute_loss
-            || training_options.compute_accuracy
-        {
+        if training_options.compute_loss || training_options.compute_accuracy {
             self.predict_with_buffer(input_samples)?;
         }
 
@@ -761,12 +786,8 @@ impl<'a> Model<'a> {
             .zip(gradients_per_layer.iter().rev())
             .enumerate()
         {
-            let result = layer.apply_gradients(
-                gradients.as_slice(), 
-                optimizer, 
-                layer_index,
-                timestep,
-            );
+            let result =
+                layer.apply_gradients(gradients.as_slice(), optimizer, layer_index, timestep);
 
             if let Err(err) = result {
                 return Err(ModelGradientApplicationError::LayerGradientApllication(
@@ -799,6 +820,7 @@ impl<'a> Model<'a> {
         // training_actual_outputs: &Buffer<cl_float>,
         training_expected_output_samples: &Buffer<cl_float>,
         loss_function: &dyn LossFunction, //ModelLossFunction<'a>,
+        optimizing_for_softmax: bool,
     ) -> Result<Vec<Vec<Gradient>>, ModelGradientComputationError> {
         if self.opencl_state.is_none() {
             return Err(ModelGradientComputationError::NotInitialized);
@@ -832,20 +854,32 @@ impl<'a> Model<'a> {
                 &training_expected_output_samples,
                 samples_amount,
             )?;
-        for (i, layer) in self.layers.iter().enumerate().rev() {
+        for (i, layer) in self
+            .layers
+            .iter()
+            .enumerate()
+            .rev()
+            .skip(match optimizing_for_softmax {
+                true => 1,
+                false => 0,
+            })
+        {
             let gradients_result = layer.compute_gradients(&last_loss_to_outputs_derivatives);
             if let Ok(layer_gradients) = gradients_result {
                 gradients.push(layer_gradients);
             } else if let Err(err) = gradients_result {
-                return Err(ModelGradientComputationError::LayerGradientComputation(i, err));
+                return Err(ModelGradientComputationError::LayerGradientComputation(
+                    i, err,
+                ));
             }
 
-            let derivatives_result = layer.compute_loss_to_input_derivatives(&last_loss_to_outputs_derivatives); 
+            let derivatives_result =
+                layer.compute_loss_to_input_derivatives(&last_loss_to_outputs_derivatives);
             if let Ok(derivatives) = derivatives_result {
                 last_loss_to_outputs_derivatives = derivatives;
             } else if let Err(err) = derivatives_result {
                 return Err(ModelGradientComputationError::LayerLossToInputDifferentiation(i, err));
-            } 
+            }
         }
 
         Ok(gradients)
