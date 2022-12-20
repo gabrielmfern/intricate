@@ -679,15 +679,13 @@ impl<'a> Model<'a> {
         let loss;
         let accuracy;
 
-        if training_options.verbosity.print_loss
-            || training_options.compute_loss
-            || training_options.verbosity.print_accuracy
+        if training_options.compute_loss
             || training_options.compute_accuracy
         {
             self.predict_with_buffer(input_samples)?;
         }
 
-        if training_options.verbosity.print_loss || training_options.compute_loss {
+        if training_options.compute_loss {
             let actual_outputs = self.layers.last().unwrap().get_last_outputs().unwrap();
 
             loss = Some(training_options.loss_fn.compute_loss(
@@ -699,7 +697,7 @@ impl<'a> Model<'a> {
             loss = None;
         }
 
-        if training_options.verbosity.print_accuracy || training_options.compute_accuracy {
+        if training_options.compute_accuracy {
             let actual_outputs = self.layers.last().unwrap().get_last_outputs().unwrap();
 
             let program = state.get_prgm(MODEL_PROGRAM_NAME)?;

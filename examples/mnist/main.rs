@@ -6,7 +6,7 @@ use intricate::{
     },
     loss_functions::CategoricalCrossEntropy,
     optimizers,
-    types::{TrainingOptions, TrainingVerbosity},
+    types::TrainingOptions,
     utils::{opencl::DeviceType, setup_opencl},
     Model,
 };
@@ -41,24 +41,11 @@ fn main() -> () {
         .fit(
             &training_inputs,
             &training_outputs,
-            &mut TrainingOptions {
-                loss_fn: &mut loss_fn,
-                optimizer: &mut optimizer,
-                batch_size: 256, // try increasing this based on how much your GPU can take
-                // on by batch
-                verbosity: TrainingVerbosity {
-                    show_current_epoch: true,
-                    show_epoch_progress: true,
-                    show_epoch_elapsed: true,
-                    print_loss: true,
-                    print_accuracy: false,
-                    halting_condition_warning: false,
-                },
-                halting_condition: None,
-                compute_loss: true,
-                compute_accuracy: false,
-                epochs: 15,
-            },
+            &mut TrainingOptions::new(&mut loss_fn, &mut optimizer)
+                .set_batch_size(256)
+                .set_epochs(9)
+                .should_compute_loss(true).expect("unable to define that the loss should be computed")
+                .should_print_loss(true).expect("unable to define that the loss should be printed")
         )
         .expect("unable to fit Mnist model");
 
