@@ -162,15 +162,9 @@ impl<'a> Conv2D<'a> {
 impl<'a> Layer<'a> for Conv2D<'a> {
     fn get_flattened_parameter_data(&self, parameter: &str) -> Option<Vec<f32>> {
         match parameter {
-            "weights" => {
-                Some(self.weights.par_iter().flatten().map(|x| *x).collect())
-            },
-            "biases" => {
-                Some(self.biases.to_vec())
-            },
-            _ => {
-                None
-            }
+            "weights" => Some(self.weights.par_iter().flatten().map(|x| *x).collect()),
+            "biases" => Some(self.biases.to_vec()),
+            _ => None,
         }
     }
 
@@ -283,8 +277,7 @@ impl<'a> Layer<'a> for Conv2D<'a> {
                     //     self.inputs_size.0 - self.filter_size.0 + 1, // the output width
                     //     self.inputs_size.1 - self.filter_size.1 + 1, // the output height
                     // ),
-                    1,
-                    self,
+                    1, self,
                 );
             } else {
                 return Err(LayerInitializationError::MissingParameterInitializer(
@@ -302,10 +295,7 @@ impl<'a> Layer<'a> for Conv2D<'a> {
                 .to_buffer(false, opencl_state)?,
         );
 
-        self.biases_buff = Some(
-            self.biases
-                .to_buffer(false, opencl_state)?,
-        );
+        self.biases_buff = Some(self.biases.to_buffer(false, opencl_state)?);
 
         self.opencl_state = Some(opencl_state);
 
@@ -356,7 +346,11 @@ impl<'a> Layer<'a> for Conv2D<'a> {
 
         // can be like this because inside the kernel the threads that run with a glboal id above
         // the samples_amount stay inactive
-        let samples_global_size = find_multiple_of_n_closest_to_m(max_local_size, samples_amount);
+        let mut samples_global_size = find_multiple_of_n_closest_to_m(max_local_size, samples_amount);
+        let samples_local_size = find_divsor_of_n_closest_to_m(max_local_size, max_local_size / filter_volume);
+        if samples_global_size == 0 {
+            samples_global_size = samples_local_size;
+        }
 
         ExecuteKernel::new(kernel)
             .set_arg(inputs)
@@ -377,8 +371,7 @@ impl<'a> Layer<'a> for Conv2D<'a> {
                 self.get_outputs_amount() * filter_volume,
             ])
             .set_local_work_sizes(&[
-                // gcd(find_divsor_of_n_closest_to_m(max_local_size, max_local_size / filter_volume), samples_amount),
-                find_divsor_of_n_closest_to_m(max_local_size, max_local_size / filter_volume),
+                samples_local_size,
                 filter_volume,
             ])
             .enqueue_nd_range(queue)?
@@ -652,43 +645,6 @@ mod tests {
         },
     };
 
-    // #[test]
-    // fn should_compute_loss_to_input_derivatives_correctly() -> () {
-    //     let opencl_state = setup_opencl(DeviceType::GPU).expect("unable to eetup opencl");
-    //     let images = vec![
-    //         0.1,  0.3,  0.4,   0.9,
-    //         0.23, 0.29, 0.34, 0.15,
-    //         0.93, 0.31, 0.11, 0.44,
-    //         0.15, 0.14, 0.19, 0.32,
-
-    //         0.45, 0.21, 0.42,  0.2,
-    //         0.12, 0.23, 0.21, 0.31,
-    //         0.86, 0.28, 0.25, 0.83,
-    //         0.25, 0.11, 0.64, 0.33,
-    //     ].to_buffer(false, &opencl_state).expect("unable to create images buffer");
-    //     let filter = vec![
-    //         0.51, 0.94, 0.12,
-    //         0.31, 0.44, 0.99,
-    //         0.11, 0.05, 0.31
-    //     ].to_buffer(false, &opencl_state).expect("unable to create filter buffer");
-    //     let loss_to_output_derivatives = vec![
-    //         0.1, 0.3,
-    //         0.4, 0.8,
-
-    //         0.2, 0.4,
-    //         0.5, 0.5,
-    //     ].to_buffer(false, &opencl_state).expect("unable to create loss to output derivatives buffer");
-    //     let expected_loss_to_input_derivatives: Vec<f32> = vec![
-    //         0.51 * 0.1,
-    //         0.51 * 0.3 + 0.94 * 0.1,
-    //         0.94 * 0.3 + 0.12 * 0.1,
-    //         0.12 * 0.3,
-    //         0.31 * 0.1 + 0.51 * 0.4,
-    //         0.44 * 0.1 + 0.31 * 0.3 + 0.94 * 0.4 + 0.51 * 0.8,
-    //         0.99 * 0.1 + 0.44 * 0.3 + 0.12 * 0.4 + 0.94 * 0.8,
-    //     ];
-    // }
-
     #[test]
     fn should_compute_gradients_correctly() -> () {
         let opencl_state = setup_opencl(DeviceType::GPU).expect("unable to setup opencl");
@@ -811,14 +767,22 @@ mod tests {
     fn should_convolute_correctly() -> () {
         let opencl_state = setup_opencl(DeviceType::GPU).expect("unable to setup opencl");
         let image = vec![
-            0.33, 0.14, 0.99, 1.0, 0.51, 0.32, 0.91, 0.1, 0.8, 0.4, 0.5, 0.2, 0.33, 0.14, 0.99,
-            1.0, 0.51, 0.32, 0.91, 0.1, 0.8, 0.4, 0.5, 0.2,
+            0.33, 0.14, 0.99, 1.0, 
+            0.51, 0.32, 0.91, 0.1, 
+            0.8,  0.4,  0.5,  0.2, 
+
+            0.33, 0.14, 0.99, 1.0, 
+            0.51, 0.32, 0.91, 0.1, 
+            0.8,  0.4,  0.5,  0.2,
         ]
         .to_buffer(false, &opencl_state)
         .expect("unable to get image buffer");
         let filter = vec![0.3, 0.4, 0.9, 0.1, 0.2, 1.0, 0.2, 0.5, 0.81]
             .to_buffer(false, &opencl_state)
             .expect("unable to get filter buffer");
+        let bias = vec![0.123]
+            .to_buffer(false, &opencl_state)
+            .expect("unable to get the biases buffer");
         let convolution = vec![
             0.33 * 0.3
                 + 0.14 * 0.4
@@ -828,7 +792,8 @@ mod tests {
                 + 0.91 * 1.0
                 + 0.8 * 0.2
                 + 0.4 * 0.5
-                + 0.5 * 0.81,
+                + 0.5 * 0.81
+                + 0.123,
             0.14 * 0.3
                 + 0.99 * 0.4
                 + 1.0 * 0.9
@@ -837,7 +802,9 @@ mod tests {
                 + 0.1 * 1.0
                 + 0.4 * 0.2
                 + 0.5 * 0.5
-                + 0.2 * 0.81,
+                + 0.2 * 0.81
+                + 0.123,
+
             0.33 * 0.3
                 + 0.14 * 0.4
                 + 0.99 * 0.9
@@ -846,7 +813,8 @@ mod tests {
                 + 0.91 * 1.0
                 + 0.8 * 0.2
                 + 0.4 * 0.5
-                + 0.5 * 0.81,
+                + 0.5 * 0.81
+                + 0.123,
             0.14 * 0.3
                 + 0.99 * 0.4
                 + 1.0 * 0.9
@@ -855,12 +823,14 @@ mod tests {
                 + 0.1 * 1.0
                 + 0.4 * 0.2
                 + 0.5 * 0.5
-                + 0.2 * 0.81,
+                + 0.2 * 0.81
+                + 0.123,
         ];
 
         let mut layer = Conv2D::new_raw((4, 3), (3, 3));
         layer.init(&opencl_state).expect("unable to init Conv2D");
         layer.weights_buff = Some(filter);
+        layer.biases_buff = Some(bias);
 
         let result_buffer = layer
             .propagate(&image)
