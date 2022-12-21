@@ -262,7 +262,7 @@ impl<'a> Layer<'a> for Conv2D<'a> {
     fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), LayerInitializationError> {
         if self.weights.is_empty() {
             if let Some(initializer) = self.get_initializer_for_parameter("weights") {
-                self.weights = initializer.initialize_2d(self.filter_size, self);
+                self.weights = initializer.initialize_2d((self.filter_size.1, self.filter_size.0), self);
             } else {
                 return Err(LayerInitializationError::MissingParameterInitializer(
                     "weights",
@@ -767,13 +767,13 @@ mod tests {
     fn should_convolute_correctly() -> () {
         let opencl_state = setup_opencl(DeviceType::GPU).expect("unable to setup opencl");
         let image = vec![
-            0.33, 0.14, 0.99, 1.0, 
-            0.51, 0.32, 0.91, 0.1, 
-            0.8,  0.4,  0.5,  0.2, 
+            0.33, 0.14, 0.99, 1.0, 0.5,
+            0.51, 0.31, 0.91, 0.1, 0.9,
+            0.8,   0.4,  0.5, 0.2, 0.13,
 
-            0.33, 0.14, 0.99, 1.0, 
-            0.51, 0.32, 0.91, 0.1, 
-            0.8,  0.4,  0.5,  0.2,
+            0.33, 0.14, 0.99, 1.0, 0.1,
+            0.51, 0.31, 0.91, 0.1, 0.3,
+            0.8,   0.4,  0.5, 0.2, 0.1
         ]
         .to_buffer(false, &opencl_state)
         .expect("unable to get image buffer");
@@ -784,50 +784,12 @@ mod tests {
             .to_buffer(false, &opencl_state)
             .expect("unable to get the biases buffer");
         let convolution = vec![
-            0.33 * 0.3
-                + 0.14 * 0.4
-                + 0.99 * 0.9
-                + 0.51 * 0.1
-                + 0.32 * 0.2
-                + 0.91 * 1.0
-                + 0.8 * 0.2
-                + 0.4 * 0.5
-                + 0.5 * 0.81
-                + 0.123,
-            0.14 * 0.3
-                + 0.99 * 0.4
-                + 1.0 * 0.9
-                + 0.32 * 0.1
-                + 0.91 * 0.2
-                + 0.1 * 1.0
-                + 0.4 * 0.2
-                + 0.5 * 0.5
-                + 0.2 * 0.81
-                + 0.123,
+            2.959, 2.267, 2.5862997,
 
-            0.33 * 0.3
-                + 0.14 * 0.4
-                + 0.99 * 0.9
-                + 0.51 * 0.1
-                + 0.32 * 0.2
-                + 0.91 * 1.0
-                + 0.8 * 0.2
-                + 0.4 * 0.5
-                + 0.5 * 0.81
-                + 0.123,
-            0.14 * 0.3
-                + 0.99 * 0.4
-                + 1.0 * 0.9
-                + 0.32 * 0.1
-                + 0.91 * 0.2
-                + 0.1 * 1.0
-                + 0.4 * 0.2
-                + 0.5 * 0.5
-                + 0.2 * 0.81
-                + 0.123,
+            2.959, 2.267, 1.602
         ];
 
-        let mut layer = Conv2D::new_raw((4, 3), (3, 3));
+        let mut layer = Conv2D::new_raw((5, 3), (3, 3));
         layer.init(&opencl_state).expect("unable to init Conv2D");
         layer.weights_buff = Some(filter);
         layer.biases_buff = Some(bias);
