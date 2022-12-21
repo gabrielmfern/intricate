@@ -1,26 +1,25 @@
 //! The module that contains all the available parameter initializers for Intricate
 
-use std::ops::Range;
+use super::Layer;
 use intricate_macros::FromForAllUnnamedVariants;
 use rand::prelude::*;
 use rand_distr::Normal;
 use rand_distr::Uniform;
-use super::Layer;
+use savefile::{Introspect, Serialize};
 use savefile_derive::Savefile;
-use savefile::{Serialize, Introspect};
+use std::ops::Range;
 
 /// A trait that is implemented for all Intricate layer parameter type of initializers.
 pub trait InitializerTrait
-    where Self: std::fmt::Debug + Serialize + Introspect,
+where
+    Self: std::fmt::Debug + Serialize + Introspect,
 {
     /// Generates just one number based on the Initializer's implementation
     fn initialize_0d<'a>(&self, layer: &dyn Layer<'a>) -> f32;
 
     /// Generates a Vec of numbers initialized based on the Initializer's implementation
     fn initialize_1d<'a>(&self, count: usize, layer: &dyn Layer<'a>) -> Vec<f32> {
-        (0..count)
-            .map(|_| self.initialize_0d(layer))
-            .collect()
+        (0..count).map(|_| self.initialize_0d(layer)).collect()
     }
 
     /// Generates a Matrix of numbers initialized based on the Initializer's implementation
@@ -31,7 +30,11 @@ pub trait InitializerTrait
     }
 
     /// Generates a 3D Matrix of Vec of numbers initialized based on the Initializer's implementation
-    fn initialize_3d<'a>(&self, shape: (usize, usize, usize), layer: &dyn Layer<'a>) -> Vec<Vec<Vec<f32>>> {
+    fn initialize_3d<'a>(
+        &self,
+        shape: (usize, usize, usize),
+        layer: &dyn Layer<'a>,
+    ) -> Vec<Vec<Vec<f32>>> {
         (0..shape.0)
             .map(|_| self.initialize_2d((shape.1, shape.2), layer))
             .collect()
@@ -91,10 +94,13 @@ pub struct NormalRandomInitializer {
     pub standard_deviation: f32,
 }
 
-impl NormalRandomInitializer  {
+impl NormalRandomInitializer {
     /// Creates a new Normal Random initializer
     pub fn new(mean: f32, std_dev: f32) -> Self {
-        NormalRandomInitializer { mean, standard_deviation: std_dev }
+        NormalRandomInitializer {
+            mean,
+            standard_deviation: std_dev,
+        }
     }
 }
 
@@ -105,10 +111,51 @@ impl InitializerTrait for NormalRandomInitializer {
         let mut rng = thread_rng();
         distribution.sample(&mut rng)
     }
+
+    fn initialize_1d<'a>(&self, count: usize, _layer: &dyn Layer<'a>) -> Vec<f32> {
+        let distribution = Normal::new(self.mean, self.standard_deviation)
+            .expect("Unable to create Normal distribution for the NormaRandomInitalizer");
+        let mut rng = thread_rng();
+        (0..count).map(|_| distribution.sample(&mut rng)).collect()
+    }
+
+    fn initialize_2d<'a>(&self, shape: (usize, usize), _layer: &dyn Layer<'a>) -> Vec<Vec<f32>> {
+        let distribution = Normal::new(self.mean, self.standard_deviation)
+            .expect("Unable to create Normal distribution for the NormaRandomInitalizer");
+        let mut rng = thread_rng();
+        (0..shape.0)
+            .map(|_| {
+                (0..shape.1)
+                    .map(|_| distribution.sample(&mut rng))
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn initialize_3d<'a>(
+        &self,
+        shape: (usize, usize, usize),
+        _layer: &dyn Layer<'a>,
+    ) -> Vec<Vec<Vec<f32>>> {
+        let distribution = Normal::new(self.mean, self.standard_deviation)
+            .expect("Unable to create Normal distribution for the NormaRandomInitalizer");
+        let mut rng = thread_rng();
+        (0..shape.0)
+            .map(|_| {
+                (0..shape.1)
+                    .map(|_| {
+                        (0..shape.2)
+                            .map(|_| distribution.sample(&mut rng))
+                            .collect()
+                    })
+                    .collect()
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, Savefile)]
-/// A Initializer that generates random numbers in a uniform distribution based on a range 
+/// A Initializer that generates random numbers in a uniform distribution based on a range
 /// provided by the `new` method
 pub struct UniformRandomInitializer {
     /// The interval that will be used to limit the uniform distribution
@@ -126,20 +173,60 @@ impl InitializerTrait for UniformRandomInitializer {
     fn initialize_0d<'a>(&self, _layer: &dyn Layer<'a>) -> f32 {
         let distribution = Uniform::new(self.interval.start, self.interval.end);
         let mut rng = thread_rng();
-        distribution.sample(&mut rng) as f32
+        distribution.sample(&mut rng)
+    }
+
+    fn initialize_1d<'a>(&self, count: usize, _layer: &dyn Layer<'a>) -> Vec<f32> {
+        let distribution = Uniform::new(self.interval.start, self.interval.end);
+        let mut rng = thread_rng();
+        (0..count).map(|_| distribution.sample(&mut rng)).collect()
+    }
+
+    fn initialize_2d<'a>(&self, shape: (usize, usize), _layer: &dyn Layer<'a>) -> Vec<Vec<f32>> {
+        let distribution = Uniform::new(self.interval.start, self.interval.end);
+        let mut rng = thread_rng();
+        (0..shape.0)
+            .map(|_| {
+                (0..shape.1)
+                    .map(|_| distribution.sample(&mut rng))
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn initialize_3d<'a>(
+        &self,
+        shape: (usize, usize, usize),
+        _layer: &dyn Layer<'a>,
+    ) -> Vec<Vec<Vec<f32>>> {
+        let distribution = Uniform::new(self.interval.start, self.interval.end);
+        let mut rng = thread_rng();
+        (0..shape.0)
+            .map(|_| {
+                (0..shape.1)
+                    .map(|_| {
+                        (0..shape.2)
+                            .map(|_| distribution.sample(&mut rng))
+                            .collect()
+                    })
+                    .collect()
+            })
+            .collect()
     }
 }
 
 #[derive(Debug, Clone, Savefile)]
-/// A Initializer that generates random numbers in a uniform distribution based on a range 
+/// A Initializer that generates random numbers in a uniform distribution based on a range
 /// calculated using the inputs and outputs of the layer the initializer is being used on.
-/// It is defined in a range of [-limit, limit] where 
+/// It is defined in a range of [-limit, limit] where
 /// limit = sqrt(6.0 / (inputs_amount + outputs_amount))
 pub struct GlorotUniformInitializer();
 
 impl GlorotUniformInitializer {
     /// Creates a new Glorot Uniform initializer
-    pub fn new() -> Self { GlorotUniformInitializer() }
+    pub fn new() -> Self {
+        GlorotUniformInitializer()
+    }
 }
 
 impl InitializerTrait for GlorotUniformInitializer {
@@ -151,6 +238,53 @@ impl InitializerTrait for GlorotUniformInitializer {
         let mut rng = thread_rng();
         distribution.sample(&mut rng) as f32
     }
+
+    fn initialize_1d<'a>(&self, count: usize, layer: &dyn Layer<'a>) -> Vec<f32> {
+        let fan_in = layer.get_inputs_amount() as f32;
+        let fan_out = layer.get_outputs_amount() as f32;
+        let limit = (6.0 / (fan_in + fan_out)).sqrt();
+        let distribution = Uniform::new(-limit, limit);
+        let mut rng = thread_rng();
+        (0..count).map(|_| distribution.sample(&mut rng)).collect()
+    }
+
+    fn initialize_2d<'a>(&self, shape: (usize, usize), layer: &dyn Layer<'a>) -> Vec<Vec<f32>> {
+        let fan_in = layer.get_inputs_amount() as f32;
+        let fan_out = layer.get_outputs_amount() as f32;
+        let limit = (6.0 / (fan_in + fan_out)).sqrt();
+        let distribution = Uniform::new(-limit, limit);
+        let mut rng = thread_rng();
+        (0..shape.0)
+            .map(|_| {
+                (0..shape.1)
+                    .map(|_| distribution.sample(&mut rng))
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn initialize_3d<'a>(
+        &self,
+        shape: (usize, usize, usize),
+        layer: &dyn Layer<'a>,
+    ) -> Vec<Vec<Vec<f32>>> {
+        let fan_in = layer.get_inputs_amount() as f32;
+        let fan_out = layer.get_outputs_amount() as f32;
+        let limit = (6.0 / (fan_in + fan_out)).sqrt();
+        let distribution = Uniform::new(-limit, limit);
+        let mut rng = thread_rng();
+        (0..shape.0)
+            .map(|_| {
+                (0..shape.1)
+                    .map(|_| {
+                        (0..shape.2)
+                            .map(|_| distribution.sample(&mut rng))
+                            .collect()
+                    })
+                    .collect()
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, Savefile)]
@@ -161,7 +295,9 @@ pub struct GlorotNormalInitializer();
 
 impl GlorotNormalInitializer {
     /// Creates a new Glorot Normal initializer
-    pub fn new() -> Self { GlorotNormalInitializer() }
+    pub fn new() -> Self {
+        GlorotNormalInitializer()
+    }
 }
 
 impl InitializerTrait for GlorotNormalInitializer {
@@ -176,6 +312,65 @@ impl InitializerTrait for GlorotNormalInitializer {
             .expect("Unable to create Normal distribution for the GlorotNormalInitializer");
         let mut rng = thread_rng();
         distribution.sample(&mut rng) as f32
+    }
+
+    fn initialize_1d<'a>(&self, count: usize, layer: &dyn Layer<'a>) -> Vec<f32> {
+        let fan_in = layer.get_inputs_amount() as f32;
+        let fan_out = layer.get_outputs_amount() as f32;
+
+        let mean = 0.0f32;
+        let std_dev = (2.0f32 / (fan_in + fan_out)).sqrt();
+
+        let distribution = Normal::new(mean, std_dev)
+            .expect("Unable to create Normal distribution for the GlorotNormalInitializer");
+        let mut rng = thread_rng();
+        (0..count).map(|_| distribution.sample(&mut rng)).collect()
+    }
+
+    fn initialize_2d<'a>(&self, shape: (usize, usize), layer: &dyn Layer<'a>) -> Vec<Vec<f32>> {
+        let fan_in = layer.get_inputs_amount() as f32;
+        let fan_out = layer.get_outputs_amount() as f32;
+
+        let mean = 0.0f32;
+        let std_dev = (2.0f32 / (fan_in + fan_out)).sqrt();
+
+        let distribution = Normal::new(mean, std_dev)
+            .expect("Unable to create Normal distribution for the GlorotNormalInitializer");
+        let mut rng = thread_rng();
+        (0..shape.0)
+            .map(|_| {
+                (0..shape.1)
+                    .map(|_| distribution.sample(&mut rng))
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn initialize_3d<'a>(
+        &self,
+        shape: (usize, usize, usize),
+        layer: &dyn Layer<'a>,
+    ) -> Vec<Vec<Vec<f32>>> {
+        let fan_in = layer.get_inputs_amount() as f32;
+        let fan_out = layer.get_outputs_amount() as f32;
+
+        let mean = 0.0f32;
+        let std_dev = (2.0f32 / (fan_in + fan_out)).sqrt();
+
+        let distribution = Normal::new(mean, std_dev)
+            .expect("Unable to create Normal distribution for the GlorotNormalInitializer");
+        let mut rng = thread_rng();
+        (0..shape.0)
+            .map(|_| {
+                (0..shape.1)
+                    .map(|_| {
+                        (0..shape.2)
+                            .map(|_| distribution.sample(&mut rng))
+                            .collect()
+                    })
+                    .collect()
+            })
+            .collect()
     }
 }
 
