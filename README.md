@@ -248,3 +248,4 @@ to use the Model after loading it, you **must** call the `init` method in the `l
 - add embedding layers for text such as bag of words with an expected vocabulary size;
 - add a way to show inputs and outputs not matching error be more clear and perhaps even appear at compile time;
 - add a way to choose what type of accuracy should be calculated to avoid weird and unuseful accuracies being calculated
+- amke Intricate GPU parallel
