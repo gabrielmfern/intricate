@@ -1,12 +1,14 @@
 //! The module for the datasets feature of Intricate.
 //!
+//! `DISCLAIMER`: All of the datasets will be downloaded, decompressed if necessary and then read into the proper
+//! Rust types.
+//!
 //! Currently contains the following datasets.
 //! - MNIST
 
 use indicatif::ProgressIterator;
 
 /// The module containing the MNIST dataset
-#[cfg(feature = "mnist")]
 pub mod mnist;
 
 #[allow(dead_code)]

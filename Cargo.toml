@@ -9,9 +9,6 @@ description = "A GPU accelerated library that creates/trains/runs machine learni
 repository = "https://github.com/gabrielmfern/intricate"
 readme = "README.md"
 
-[features]
-mnist = []
-
 [dependencies]
 rayon = "1.5.3"
 rand = "0.8.5"
@@ -22,10 +19,12 @@ opencl3="0.8.1"
 indicatif="0.17.0"
 intricate-macros="0.7.0"
 # intricate-macros={ path="./intricate-macros/" }
+lazy_static="1.4.0"
+reqwest={version = "0.11", features = ["blocking"]}
+flate2="1.0.25"
 
 [[example]]
 name = "xor"
 
 [[example]]
 name = "mnist"
-required-features = ["mnist"]
