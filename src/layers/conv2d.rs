@@ -1,5 +1,7 @@
 //! The module that defines the covolutional layer
 
+// TODO: Add stride, padding and improve gradient calculation that is tremendously slow rn
+
 use std::{collections::HashMap, mem};
 
 use opencl3::{
