@@ -84,8 +84,8 @@ kernel void compute_loss_to_output_derivatives(
     float expected_output = (float) expected_output_samples[flat_i];
     output = min(max(output, 0.0000001f), 0.9999999f);
 
-    loss_to_output_derivatives[flat_i] = -expected_output / output
-        + (1.0f - expected_output) / (1.0f - output);
+    loss_to_output_derivatives[flat_i] = -expected_output / output;
+        //+ (1.0f - expected_output) / (1.0f - output);
 }
 
 kernel void normalize_outputs(
