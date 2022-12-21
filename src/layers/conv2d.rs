@@ -69,13 +69,13 @@ pub(crate) fn compile_conv2d(
 /// This makes it so that the size of the image gets much more increased
 /// based on the size of the filter without loosing information.
 ///
-/// This type of layer proves to be extremely useful when working with images,
-/// as it makes both the model much more lightweight as well as it makes it
-/// perform much, much better.
+/// `DISACLAIMER`: **This layer uses **local work groups**
+/// to pass the filter through the image, in a way that the max size of the local work group
+/// in your OpenCL device needs to be the at least the volume of your filter.**
 ///
-/// A small caviat about this layer is that is uses **local work groups**
-/// to pass the filter through the image, in a way that the size of the  local work group
-/// in your GPU needs to be the at least the volume of your filter.
+/// This type of layer proves to be extremely useful when working with images,
+/// as it makes both the model much more memory efficient and does make the model
+/// perform much, much better. (take a look at the `MNIST` example)
 ///
 /// # Examples
 ///
@@ -358,9 +358,10 @@ impl<'a> Layer<'a> for Conv2D<'a> {
             .set_arg(self.biases_buff.as_ref().unwrap())
             .set_arg(&outputs)
             // the max size for local workgroups has to fit the filter
-            .set_arg_local_buffer(filter_volume * std::mem::size_of::<f32>())
+            .set_arg_local_buffer(samples_local_size * filter_volume * std::mem::size_of::<f32>())
             .set_arg(&(self.inputs_size.0 as cl_int))
             .set_arg(&(image_volume as cl_int))
+            .set_arg(&((self.inputs_size.0 - self.filter_size.0 + 1) as cl_int))
             .set_arg(&(convolution_volume as cl_int))
             .set_arg(&(self.filter_size.0 as cl_int))
             .set_arg(&(self.filter_size.1 as cl_int))
@@ -368,7 +369,7 @@ impl<'a> Layer<'a> for Conv2D<'a> {
             .set_arg(&(samples_amount as cl_int))
             .set_global_work_sizes(&[
                 samples_global_size,
-                self.get_outputs_amount() * filter_volume,
+                convolution_volume * filter_volume,
             ])
             .set_local_work_sizes(&[
                 samples_local_size,
@@ -639,7 +640,7 @@ mod tests {
     use crate::{
         layers::Layer,
         utils::{
-            approx_eq,
+            approx_eq::{self, assert_approx_equal_distance},
             opencl::{BufferLike, DeviceType},
             setup_opencl,
         },
@@ -767,13 +768,13 @@ mod tests {
     fn should_convolute_correctly() -> () {
         let opencl_state = setup_opencl(DeviceType::GPU).expect("unable to setup opencl");
         let image = vec![
-            0.33, 0.14, 0.99, 1.0, 0.5,
-            0.51, 0.31, 0.91, 0.1, 0.9,
-            0.8,   0.4,  0.5, 0.2, 0.13,
-
             0.33, 0.14, 0.99, 1.0, 0.1,
             0.51, 0.31, 0.91, 0.1, 0.3,
-            0.8,   0.4,  0.5, 0.2, 0.1
+            0.8,   0.4,  0.5, 0.2, 0.1,
+
+            0.53, 0.03, 0.31, 0.3, 0.5,
+            0.11, 0.91, 0.44, 0.3, 0.9,
+            0.2,   0.1,  0.2, 0.5, 0.13,
         ]
         .to_buffer(false, &opencl_state)
         .expect("unable to get image buffer");
@@ -783,10 +784,10 @@ mod tests {
         let bias = vec![0.123]
             .to_buffer(false, &opencl_state)
             .expect("unable to get the biases buffer");
-        let convolution = vec![
-            2.959, 2.267, 2.5862997,
+        let expected_result = vec![
+            2.959, 2.267, 1.602,
 
-            2.959, 2.267, 1.602
+            1.458, 1.53, 2.1852999
         ];
 
         let mut layer = Conv2D::new_raw((5, 3), (3, 3));
@@ -800,6 +801,6 @@ mod tests {
         let result = Vec::<f32>::from_buffer(result_buffer, false, &opencl_state)
             .expect("unable to get resulting convolution buffer");
 
-        assert_eq!(result, convolution);
+        assert_approx_equal_distance(&result, &expected_result, 0.01);
     }
 }
