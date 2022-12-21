@@ -31,11 +31,10 @@ fn main() -> () {
         .expect("unable to initialize Mnist model");
 
     let mut loss_fn = CategoricalCrossEntropy::new();
-    let mut optimizer = optimizers::Adam::new(0.001, 0.9, 0.999, 0.0000001);
+    let mut optimizer = optimizers::Adam::new(0.01, 0.9, 0.999, 0.0000001);
 
     let training_inputs = mnist::get_training_inputs();
     let training_outputs = mnist::get_training_outputs();
-
 
     mnist_model
         .fit(
@@ -43,7 +42,7 @@ fn main() -> () {
             &training_outputs,
             &mut TrainingOptions::new(&mut loss_fn, &mut optimizer)
                 .set_batch_size(512) // incerase this depending on your GPU's capabilities
-                .set_epochs(100)
+                .set_epochs(15)
                 .should_compute_loss(true).expect("unable to define that the loss should be computed")
                 .should_print_loss(true).expect("unable to define that the loss should be printed")
         )
