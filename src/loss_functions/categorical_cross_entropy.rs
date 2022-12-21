@@ -293,8 +293,7 @@ mod categorical_cross_entropy_tests {
                 (expected_output, output.max(0.0000001).min(0.9999999))
             })
             .map(|(expected_output, output)| {
-                -(expected_output / output
-                  - (1.0 - expected_output) / (1.0 - output))
+                -expected_output / output
             })
             .collect();
 
@@ -384,8 +383,8 @@ mod categorical_cross_entropy_tests {
                 (expected_output, output.max(0.0000001).min(0.9999999))
             })
             .map(|(expected_output, output)| {
-                -(expected_output * output.ln()
-                    + (1.0 - expected_output) * (1.0 - output).ln())
+                -expected_output * output.ln()
+                    // + (1.0 - expected_output) * (1.0 - output).ln())
             })
             .sum::<f32>()
             / samples_amount as f32;

@@ -20,8 +20,8 @@ savefile-derive="0.10"
 savefile="0.10"
 opencl3="0.8.1"
 indicatif="0.17.0"
-intricate-macros="0.7.0"
-# intricate-macros={ path="./intricate-macros/" }
+# intricate-macros="0.7.0"
+intricate-macros={ path="./intricate-macros/" }
 
 [[example]]
 name = "xor"
