@@ -1,6 +1,6 @@
 <div align="center">
   <img 
-    src="https://github.com/gabrielmfern/intricate/blob/feature/0.7.0/layers/conv2d/icon.png"
+    src="https://github.com/gabrielmfern/intricate/blob/main/icon.png"
     height="200px"
     stlye="margin-top: 20px; margin-bottom: 20px"
   >
@@ -17,7 +17,7 @@ A GPU accelerated library that creates/trains/runs neural networks in safe Rust 
 
 ### Table of contents
 
-* [Architechture overview](#architechture-overview)
+* [Architecture overview](#architecture-overview)
     * [Models](#models)
     * [Layers](#layers)
     * [Optimizers](#optimizers)
@@ -34,7 +34,7 @@ A GPU accelerated library that creates/trains/runs neural networks in safe Rust 
 
 ---
 
-## Architecture overview
+### Architecture overview
 
 Intricate has a layout very similar to popular libraries out there such as Keras.
 
