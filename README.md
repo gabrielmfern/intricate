@@ -248,5 +248,5 @@ to use the Model after loading it, you **must** call the `init` method in the `l
 - add embedding layers for text such as bag of words with an expected vocabulary size;
 - add a way to show inputs and outputs not matching error be more clear and perhaps even appear at compile time;
 - add a way to choose what type of accuracy should be calculated to avoid weird and unuseful accuracies being calculated
-- make Intricate GPU parallel (gonna take a long time to implement and can't do it rn since I have no GPU)
+- make Intricate GPU parallel (gonna take a long time to implement and can't do it rn since I don't have multiple GPUs available to me)
 - add a way to epxose Intricate's used crates such as SaveFile and OpenCL3 to be used outside by a user if needed without having to install them
