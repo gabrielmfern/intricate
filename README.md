@@ -222,6 +222,8 @@ of the Model with OpenCL's `host`, (or just with the CPU), and then we will need
 to call the `save_file` method as follows:
 
 ```rust
+use intricate::utils::savefile::save_file;
+
 xor_model.sync_data_from_buffers_to_host().unwrap(); // sends the weights and biases from 
                                                      // OpenCL buffers to Rust Vec's
 save_file("xor-model.bin", 0, &xor_model).unwrap();
@@ -233,6 +235,8 @@ As for loading our XoR model, we just need to call the
 counterpart of the save_file method: `load_file`.
 
 ```rust
+use intricate::utils::savefile::load_file;
+
 let mut loaded_xor_model: Model = load_file("xor-model.bin", 0).unwrap();
 ```
 

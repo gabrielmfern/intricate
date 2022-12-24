@@ -8,7 +8,8 @@ use intricate::utils::opencl::DeviceType;
 use intricate::utils::setup_opencl;
 use intricate::Model;
 
-use savefile::{load_file, save_file};
+use intricate::utils::savefile::save_file;
+use intricate::utils::savefile::load_file;
 
 fn main() -> () {
     // Defining the training data

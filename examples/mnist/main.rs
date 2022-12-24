@@ -1,8 +1,8 @@
 use intricate::{
     datasets::mnist,
     layers::{
-        activations::{ReLU, SoftMax, Sigmoid},
-        Conv2D, Dense, Layer,
+        activations::{ReLU, SoftMax},
+        Conv2D, Dense
     },
     loss_functions::CategoricalCrossEntropy,
     optimizers,
@@ -10,7 +10,7 @@ use intricate::{
     utils::{opencl::DeviceType, setup_opencl},
     Model,
 };
-use savefile::save_file;
+use intricate::utils::savefile::save_file;
 
 const MODEL_PATH: &str = "mnist-model.bin";
 
