@@ -5,6 +5,8 @@
 use std::fmt::Debug;
 
 pub mod categorical_cross_entropy;
+#[cfg(test)]
+mod categorical_cross_entropy_test;
 pub mod mean_absolute;
 pub mod mean_bias;
 pub mod mean_squared;

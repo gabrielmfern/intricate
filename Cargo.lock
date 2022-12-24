@@ -438,7 +438,7 @@ dependencies = [
 
 [[package]]
 name = "intricate"
-version = "0.7.0"
+version = "0.7.2"
 dependencies = [
  "flate2",
  "indicatif",
