@@ -316,14 +316,14 @@ pub fn activation_layer(_input: TokenStream) -> TokenStream {
 
         pub(crate) fn #compile_activation(
             opencl_state: &mut OpenCLState
-        ) -> Result<(), crate::utils::opencl::EnsureKernelsAndProgramError> {
-            let kernels = &[PROPAGATE_KERNEL_NAME.to_string(), BACK_PROPAGATE_KERNEL_NAME.to_string()];
+        ) -> Result<(), crate::utils::opencl::opencl_state::EnsureKernelsAndProgramError> {
+            let kernels = &[PROPAGATE_KERNEL_NAME, BACK_PROPAGATE_KERNEL_NAME];
 
             crate::utils::opencl::ensure_program(
                 opencl_state,
-                PROGRAM_NAME.to_string(),
-                PROGRAM_SOURCE.to_string(),
-                "".to_string(),
+                PROGRAM_NAME,
+                PROGRAM_SOURCE,
+                "",
                 kernels,
             )?;
 

@@ -12,7 +12,7 @@ use opencl3::{
 use crate::loss_functions::LossFunction;
 use crate::utils::opencl::empty_buffer;
 use crate::utils::opencl::ensure_program;
-use crate::utils::opencl::EnsureKernelsAndProgramError;
+use crate::utils::opencl::opencl_state::EnsureKernelsAndProgramError;
 use crate::utils::BufferOperations;
 use crate::utils::OpenCLState;
 
@@ -27,15 +27,15 @@ pub(crate) fn compile_mean_squared(
     opencl_state: &mut OpenCLState,
 ) -> Result<(), EnsureKernelsAndProgramError> {
     let kernels = &[
-        COMPUTE_LOSS_KERNEL.to_string(),
-        COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL.to_string(),
+        COMPUTE_LOSS_KERNEL,
+        COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL,
     ];
 
     ensure_program(
         opencl_state,
-        PROGRAM_NAME.to_string(),
-        PROGRAM_SOURCE.to_string(),
-        "".to_string(),
+        PROGRAM_NAME,
+        PROGRAM_SOURCE,
+        "",
         kernels,
     )?;
 

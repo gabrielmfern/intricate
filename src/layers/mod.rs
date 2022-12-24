@@ -7,9 +7,11 @@ use opencl3::{device::cl_float, error_codes::ClError, memory::Buffer};
 
 use crate::{
     optimizers::{OptimizationError, Optimizer},
-    types::{KernelNotFoundError, ProgramNotFoundError, SyncDataError, ModelLayer},
+    types::{KernelNotFoundError, ModelLayer, ProgramNotFoundError, SyncDataError},
     utils::{
-        opencl::{BufferConversionError, BufferOperationError, EnsureKernelsAndProgramError},
+        opencl::{
+            opencl_state::EnsureKernelsAndProgramError, BufferConversionError, BufferOperationError,
+        },
         BufferOperations, OpenCLState,
     },
 };
@@ -19,10 +21,13 @@ pub mod conv2d;
 pub mod dense;
 pub mod initializers;
 
-pub use dense::Dense;
 pub use conv2d::Conv2D;
+pub use dense::Dense;
 
-use self::{activations::compile_activations, conv2d::compile_conv2d, dense::compile_dense, initializers::Initializer};
+use self::{
+    activations::compile_activations, conv2d::compile_conv2d, dense::compile_dense,
+    initializers::Initializer,
+};
 
 pub(crate) fn compile_layers(
     opencl_state: &mut OpenCLState,
@@ -124,7 +129,7 @@ pub enum LayerGradientComputationError {
     /// Happens when a kernel could not be found inside of the program.
     KernelNotFound(KernelNotFoundError),
 
-    /// Happens when some error occurs while trying to convert from/to a buffer to /from a Vec<f32>. 
+    /// Happens when some error occurs while trying to convert from/to a buffer to /from a Vec<f32>.
     BufferConversionError(BufferConversionError),
     /// Happens when a buffer operation goes wrong.
     BufferOperation(BufferOperationError),
@@ -233,13 +238,17 @@ pub enum LayerInitializationError {
 /// the loss of the whole Model, and returning derivatives of the loss with respect to the inputs
 /// of the layer.
 pub trait Layer<'a> {
-    /// Gets the layer's current initializer for a certain parameter 
+    /// Gets the layer's current initializer for a certain parameter
     /// or just returns None if an initializer is not found for that parameter.
     fn get_initializer_for_parameter<'b>(&'b self, parameter: &str) -> Option<&'b Initializer>;
 
-    /// Sets the initializer for the current layer and for a specific layer's parameter, 
+    /// Sets the initializer for the current layer and for a specific layer's parameter,
     /// or does nothing on a layer that has no parameters.
-    fn set_initializer_for_parameter(self, initializer: Initializer, parameter: &'a str) -> ModelLayer<'a>;
+    fn set_initializer_for_parameter(
+        self,
+        initializer: Initializer,
+        parameter: &'a str,
+    ) -> ModelLayer<'a>;
 
     /// Gets the stored parameter data (not in a OpenCL device) and returns it
     /// flattened since it is not possible to return the acutal type specifically

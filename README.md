@@ -11,7 +11,16 @@
 ![github.com](https://img.shields.io/github/license/gabrielmfern/intricate)
 ![github.com](https://img.shields.io/github/commit-activity/m/gabrielmfern/intricate)
 
-A GPU accelerated library that creates/trains/runs neural networks in safe Rust code.
+A GPU accelerated library that creates/trains/runs neural networks in safe Rust code. 
+
+---
+
+`Disclaimer`: I would like to strain that Intricate should not, (at least not yet),
+be used for production environments, since it is yet very unoptimized, does not work for multiple GPUs
+and for many other reasons. 
+
+Intricate is just a project for fun, for now it can be used only for experiments and testing,
+but it is not yet ready for production.
 
 ---
 
@@ -253,4 +262,4 @@ to use the Model after loading it, you **must** call the `init` method in the `l
 - add a way to show inputs and outputs not matching error be more clear and perhaps even appear at compile time;
 - add a way to choose what type of accuracy should be calculated to avoid weird and unuseful accuracies being calculated
 - make Intricate GPU parallel (gonna take a long time to implement and can't do it rn since I don't have multiple GPUs available to me)
-- add a way to epxose Intricate's used crates such as SaveFile and OpenCL3 to be used outside by a user if needed without having to install them
+- make the optimizers use a kernel for each of their necessary methods for them to be more performant

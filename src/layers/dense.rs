@@ -16,7 +16,7 @@ use crate::{
     optimizers::Optimizer,
     types::{ModelLayer, SyncDataError},
     utils::{
-        opencl::{empty_buffer, ensure_program, EnsureKernelsAndProgramError},
+        opencl::{empty_buffer, ensure_program, opencl_state::EnsureKernelsAndProgramError},
         BufferOperations, OpenCLState,
     },
 };
@@ -44,25 +44,25 @@ const LOSS_TO_INPUT_DIFFERENTIATION_KERNEL_NAME: &str =
 pub(crate) fn compile_dense(
     opencl_state: &mut OpenCLState,
 ) -> Result<(), EnsureKernelsAndProgramError> {
-    let prop_kernels = &[PROPAGATION_KERNEL_NAME.to_string()];
+    let prop_kernels = &[PROPAGATION_KERNEL_NAME];
     let backprop_kernels = &[
-        WEIGHTS_GRADIENT_COMPUTATION_KERNEL_NAME.to_string(),
-        BIAS_GRADIENT_COMPUTATION_KERNEL_NAME.to_string(),
-        LOSS_TO_INPUT_DIFFERENTIATION_KERNEL_NAME.to_string(),
+        WEIGHTS_GRADIENT_COMPUTATION_KERNEL_NAME,
+        BIAS_GRADIENT_COMPUTATION_KERNEL_NAME,
+        LOSS_TO_INPUT_DIFFERENTIATION_KERNEL_NAME,
     ];
 
     ensure_program(
         opencl_state,
-        DENSE_PROP_PROGRAM_NAME.to_string(),
-        PROPAGATION_PROGRAM_SORUCE.to_string(),
-        "".to_string(),
+        DENSE_PROP_PROGRAM_NAME,
+        PROPAGATION_PROGRAM_SORUCE,
+        "",
         prop_kernels,
     )?;
     ensure_program(
         opencl_state,
-        DENSE_BACKPROP_PROGRAM_NAME.to_string(),
-        BACK_PROPAGATION_PROGRAM_SOURCE.to_string(),
-        "".to_string(),
+        DENSE_BACKPROP_PROGRAM_NAME,
+        BACK_PROPAGATION_PROGRAM_SOURCE,
+        "",
         backprop_kernels,
     )?;
 

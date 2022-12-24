@@ -37,7 +37,7 @@ use crate::{
     utils::{
         opencl::{
             empty_buffer, ensure_program, BufferConversionError, BufferLike, BufferOperationError,
-            EnsureKernelsAndProgramError,
+            opencl_state::EnsureKernelsAndProgramError,
         },
         BufferOperations,
     },
@@ -50,13 +50,13 @@ const COMPUTE_ACCURACIES_KERNEL_NAME: &str = "compute_accuracy_per_output";
 pub(crate) fn compile_model(
     opencl_state: &mut OpenCLState,
 ) -> Result<(), EnsureKernelsAndProgramError> {
-    let kernels = &[COMPUTE_ACCURACIES_KERNEL_NAME.to_string()];
+    let kernels = &[COMPUTE_ACCURACIES_KERNEL_NAME];
 
     ensure_program(
         opencl_state,
-        MODEL_PROGRAM_NAME.to_string(),
-        MODEL_PROGRAM_SOURCE.to_string(),
-        "".to_string(),
+        MODEL_PROGRAM_NAME,
+        MODEL_PROGRAM_SOURCE,
+        "",
         kernels,
     )?;
 

@@ -20,7 +20,7 @@ use crate::{
         find_divsor_of_n_closest_to_m, find_multiple_of_n_closest_to_m,
         opencl::{
             empty_buffer, ensure_program, BufferLike, BufferOperations,
-            EnsureKernelsAndProgramError, InplaceBufferOperations,
+            opencl_state::EnsureKernelsAndProgramError, InplaceBufferOperations,
         },
         OpenCLState,
     },
@@ -46,17 +46,17 @@ pub(crate) fn compile_conv2d(
     opencl_state: &mut OpenCLState,
 ) -> Result<(), EnsureKernelsAndProgramError> {
     let prop_kernels = &[
-        PROPAGATION_KERNEL_NAME.to_string(),
-        COMPUTE_WEIGHT_GRADIENTS_KERNEL_NAME.to_string(),
-        // COMPUTE_BIAS_GRADIENTS_KERNEL_NAME.to_string(),
-        COMPUTE_LOSS_TO_INPUT_DERIVATIVES_KERNEL_NAME.to_string(),
+        PROPAGATION_KERNEL_NAME,
+        COMPUTE_WEIGHT_GRADIENTS_KERNEL_NAME,
+        // COMPUTE_BIAS_GRADIENTS_KERNEL_NAME,
+        COMPUTE_LOSS_TO_INPUT_DERIVATIVES_KERNEL_NAME,
     ];
 
     ensure_program(
         opencl_state,
-        CONV2D_PROGRAM_NAME.to_string(),
-        PROGRAM_SORUCE.to_string(),
-        "".to_string(),
+        CONV2D_PROGRAM_NAME,
+        PROGRAM_SORUCE,
+        "",
         prop_kernels,
     )?;
 

@@ -16,7 +16,7 @@ pub use sigmoid::Sigmoid;
 pub use softmax::SoftMax;
 pub use tanh::TanH;
 
-use crate::utils::{opencl::EnsureKernelsAndProgramError, OpenCLState};
+use crate::utils::{opencl::opencl_state::EnsureKernelsAndProgramError, OpenCLState};
 
 pub(crate) fn compile_activations(
     opencl_state: &mut OpenCLState,

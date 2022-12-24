@@ -52,37 +52,6 @@ kernel void sum_all_values_in_workgroups(
     }
 }
 
-kernel void clip_min_max_inplace(
-    global float *self,
-    
-    float _min,
-    float _max,
-    int size
-) {
-    int index = get_global_id(0);
-
-    if (index >= size) {
-        return;
-    }
-
-    self[index] = max(min((float)self[index], _min), _max);
-}
-
-kernel void scale_inplace(
-    global float *self,
-    
-    float scaler,
-    int size
-) {
-    int index = get_global_id(0);
-
-    if (index >= size) {
-        return;
-    }
-
-    self[index] = (float)self[index] * scaler;
-}
-
 kernel void scale(
     global float *nums,
     global float *result,
@@ -97,19 +66,6 @@ kernel void scale(
     }
 
     result[index] = (float)nums[index] * scaler;
-}
-
-kernel void sqrt_inplace(
-    global float *buf,
-    int size
-) {
-    int index = get_global_id(0);
-    
-    if (index >= size) {
-        return;
-    }
-
-    buf[index] = sqrt(buf[index]);
 }
 
 kernel void squareroot(
@@ -127,19 +83,6 @@ kernel void squareroot(
     result[index] = sqrt(first[index]);
 }
 
-kernel void inverse_sqrt_inplace(
-    global float *buf,
-    int size
-) {
-    int index = get_global_id(0);
-    
-    if (index >= size) {
-        return;
-    }
-
-    buf[index] = 1.0f / sqrt(buf[index]);
-}
-
 kernel void inverse_sqrt(
     global float *first,
     global float *result,
@@ -153,21 +96,6 @@ kernel void inverse_sqrt(
     }
 
     result[index] = 1.0f / sqrt(first[index]);
-}
-
-kernel void shift_inplace(
-    global float *buf,
-
-    float num,
-    int size
-) {
-    int index = get_global_id(0);
-    
-    if (index >= size) {
-        return;
-    }
-
-    buf[index] = buf[index] + num;
 }
 
 kernel void add_num(
@@ -187,21 +115,6 @@ kernel void add_num(
     result[index] = first[index] + num;
 }
 
-kernel void add_inplace(
-    global float *self,
-    global float *other,
-
-    int size
-) {
-    int index = get_global_id(0);
-
-    if (index >= size) {
-        return;
-    }
-
-    self[index] = self[index] + other[index];
-}
-
 kernel void add(
     global float *first,
     global float *second,
@@ -217,21 +130,6 @@ kernel void add(
     }
 
     result[index] = first[index] + second[index];
-}
-
-kernel void subtract_inplace(
-    global float *self,
-    global float *other,
-
-    int size
-) {
-    int index = get_global_id(0);
-
-    if (index >= size) {
-        return;
-    }
-
-    self[index] = self[index] - other[index];
 }
 
 kernel void subtract(
@@ -251,21 +149,6 @@ kernel void subtract(
     result[index] = first[index] - second[index];
 }
 
-kernel void multiply_inplace(
-    global float *self,
-    global float *other,
-
-    int size
-) {
-    int index = get_global_id(0);
-
-    if (index >= size) {
-        return;
-    }
-
-    self[index] = self[index] * other[index];
-}
-
 kernel void multiply(
     global float *first,
     global float *second,
@@ -281,21 +164,6 @@ kernel void multiply(
     }
 
     result[index] = first[index] * second[index];
-}
-
-kernel void divide_inplace(
-    global float *self,
-    global float *other,
-
-    int size
-) {
-    int index = get_global_id(0);
-
-    if (index >= size) {
-        return;
-    }
-
-    self[index] = self[index] / other[index];
 }
 
 kernel void divide(

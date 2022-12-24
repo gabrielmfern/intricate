@@ -7,6 +7,7 @@ use std::fmt::Debug;
 pub mod categorical_cross_entropy;
 #[cfg(test)]
 mod categorical_cross_entropy_test;
+
 pub mod mean_absolute;
 pub mod mean_bias;
 pub mod mean_squared;
@@ -19,7 +20,7 @@ pub use mean_squared::MeanSquared;
 use crate::{
     types::{KernelNotFoundError, ProgramNotFoundError},
     utils::{
-        opencl::{BufferOperationError, EnsureKernelsAndProgramError},
+        opencl::{BufferOperationError, opencl_state::EnsureKernelsAndProgramError},
         OpenCLState,
     },
 };

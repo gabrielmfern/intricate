@@ -13,7 +13,7 @@ use opencl3::{
 use crate::{loss_functions::LossFunction, utils::opencl::{BufferOperationError, BufferConversionError}};
 use crate::utils::opencl::empty_buffer;
 use crate::utils::opencl::ensure_program;
-use crate::utils::opencl::EnsureKernelsAndProgramError;
+use crate::utils::opencl::opencl_state::EnsureKernelsAndProgramError;
 use crate::utils::BufferOperations;
 use crate::utils::OpenCLState;
 
@@ -31,17 +31,17 @@ pub(crate) fn compile_categorical_cross_entropy(
     opencl_state: &mut OpenCLState,
 ) -> Result<(), EnsureKernelsAndProgramError> {
     let kernels = &[
-        COMPUTE_LOSS_KERNEL.to_string(),
-        NORMALIZE_OUTPUTS_KERNEL.to_string(),
-        COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL.to_string(),
-        COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_OPTIMIZED_FOR_SOFTMAX_KERNEL.to_string(),
+        COMPUTE_LOSS_KERNEL,
+        NORMALIZE_OUTPUTS_KERNEL,
+        COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL,
+        COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_OPTIMIZED_FOR_SOFTMAX_KERNEL,
     ];
 
     ensure_program(
         opencl_state,
-        PROGRAM_NAME.to_string(),
-        PROGRAM_SOURCE.to_string(),
-        "".to_string(),
+        PROGRAM_NAME,
+        PROGRAM_SOURCE,
+        "",
         kernels,
     )?;
 

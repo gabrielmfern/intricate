@@ -15,7 +15,7 @@ use crate::{
         SyncDataError, ParametersOptimizationError, LayerInitializationError, initializers::Initializer,
     },
     utils::{
-        opencl::{empty_buffer, ensure_program, BufferOperations, EnsureKernelsAndProgramError},
+        opencl::{empty_buffer, ensure_program, BufferOperations, opencl_state::EnsureKernelsAndProgramError},
         OpenCLState,
     }, optimizers::Optimizer, types::ModelLayer,
 };
@@ -33,18 +33,18 @@ pub(crate) fn compile_softmax(
     opencl_state: &mut OpenCLState,
 ) -> Result<(), EnsureKernelsAndProgramError> {
     let kernels = &[
-        PROPAGATE_KERNEL_NAME.to_string(),
-        CALCULATE_EXPONENTIALS_KERNEL_NAME.to_string(),
-        SUM_EXPONENTIALS_PER_SAMPLE_KERNEL_NAME.to_string(),
-        FIND_MAX_INPUT_PER_SAMPLE_KERNEL_NAME.to_string(),
-        BACK_PROPAGATE_KERNEL_NAME.to_string(),
+        PROPAGATE_KERNEL_NAME,
+        CALCULATE_EXPONENTIALS_KERNEL_NAME,
+        SUM_EXPONENTIALS_PER_SAMPLE_KERNEL_NAME,
+        FIND_MAX_INPUT_PER_SAMPLE_KERNEL_NAME,
+        BACK_PROPAGATE_KERNEL_NAME,
     ];
 
     ensure_program(
         opencl_state,
-        PROGRAM_NAME.to_string(),
-        PROGRAM_SOURCE.to_string(),
-        "".to_string(),
+        PROGRAM_NAME,
+        PROGRAM_SOURCE,
+        "",
         kernels,
     )?;
 
