@@ -2,6 +2,9 @@
 
 pub(crate) mod approx_eq;
 
+pub use savefile;
+pub use opencl3;
+
 pub mod opencl;
 pub use opencl::{
     BufferOperations,
