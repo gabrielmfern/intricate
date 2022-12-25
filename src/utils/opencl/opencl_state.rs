@@ -150,7 +150,7 @@ pub(crate) fn ensure_program(
 }
 
 #[derive(Debug)]
-/// A enum used for telling Intricate what type of device it should try using with OpenCL.
+/// A enum used for telling Intriate what type of device it should try using with OpenCL.
 pub enum DeviceType {
     /// Just the normal and usual **Graphics Processing Unit**
     GPU = CL_DEVICE_TYPE_GPU as isize,

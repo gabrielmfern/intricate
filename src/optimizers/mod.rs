@@ -15,7 +15,7 @@ pub use adam::AdamOptimizer as Adam;
 use intricate_macros::FromForAllUnnamedVariants;
 use opencl3::{device::cl_float, error_codes::ClError, memory::Buffer};
 
-use crate::utils::{opencl::BufferOperationError, OpenCLState};
+use crate::{utils::{opencl::BufferOperationError, OpenCLState}, types::{ProgramNotFoundError, KernelNotFoundError}};
 
 #[derive(Debug, FromForAllUnnamedVariants)]
 /// An enum that contains all of the possible errors that can happen whe trying to optimize
@@ -26,6 +26,12 @@ pub enum OptimizationError {
 
     /// Happens when something goes wrong on a buffer operation.
     BufferOperation(BufferOperationError),
+
+    /// Happens when a specific program cannot be found compilled inside the OpenClState
+    ProgramNotFound(ProgramNotFoundError),
+
+    /// Happens when a kernel cannot be found inside a compilled program
+    KernelNotFound(KernelNotFoundError),
 
     /// Happens if no command queue was found on the OpenCLState.
     NoCommandQueueFound,
