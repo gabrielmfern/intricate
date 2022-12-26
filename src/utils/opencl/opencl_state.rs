@@ -21,7 +21,7 @@ use crate::{
     layers::compile_layers,
     loss_functions::compile_losses,
     model::compile_model,
-    types::{KernelNotFoundError, ProgramNotFoundError},
+    types::{KernelNotFoundError, ProgramNotFoundError}, optimizers::compile_optimizers,
 };
 
 use super::{
@@ -203,6 +203,8 @@ pub fn setup_opencl(device_type: DeviceType) -> Result<OpenCLState, UnableToSetu
         compile_model(&mut state)?;
 
         compile_losses(&mut state)?;
+
+        compile_optimizers(&mut state)?;
 
         Ok(state)
     } else {

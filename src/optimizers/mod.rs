@@ -1,25 +1,41 @@
 //! The module that contains all of the implemented optimizers in Intricate
 
+pub mod adagrad;
+pub mod adam;
 pub mod basic;
 pub mod momentum;
 pub mod nesterov;
-pub mod adagrad;
-pub mod adam;
 
+pub use adagrad::AdagradOptimizer as Adagrad;
+pub use adam::AdamOptimizer as Adam;
 pub use basic::BasicOptimizer as Basic;
 pub use momentum::MomentumOptimizer as Momentum;
 pub use nesterov::NesterovOptimizer as Nesterov;
-pub use adagrad::AdagradOptimizer as Adagrad;
-pub use adam::AdamOptimizer as Adam;
 
 use intricate_macros::FromForAllUnnamedVariants;
 use opencl3::{device::cl_float, error_codes::ClError, memory::Buffer};
 
-use crate::{utils::{opencl::BufferOperationError, OpenCLState}, types::{ProgramNotFoundError, KernelNotFoundError}};
+use crate::{
+    types::{KernelNotFoundError, ProgramNotFoundError},
+    utils::{
+        opencl::{opencl_state::EnsureKernelsAndProgramError, BufferOperationError},
+        OpenCLState,
+    },
+};
+
+use self::adam::compile_adam;
+
+pub(crate) fn compile_optimizers(
+    state: &mut OpenCLState,
+) -> Result<(), EnsureKernelsAndProgramError> {
+    compile_adam(state)?;
+
+    Ok(())
+}
 
 #[derive(Debug, FromForAllUnnamedVariants)]
 /// An enum that contains all of the possible errors that can happen whe trying to optimize
-/// something using an Optimizer. 
+/// something using an Optimizer.
 pub enum OptimizationError {
     /// Happens when something goes wrong with OpenCL.
     OpenCL(ClError),
@@ -43,13 +59,12 @@ pub enum OptimizationError {
 /// An Optimizer is something that tries to improve the learning process based on some kind of
 /// implementation that adapts to the loss function's curvature.
 pub trait Optimizer<'a>
-where Self: std::fmt::Debug {
+where
+    Self: std::fmt::Debug,
+{
     /// Initializes the Optimizer by saving the OpenCLState's reference to the struct and perhaps
     /// may initialize some buffers.
-    fn init(
-        &mut self,
-        opencl_state: &'a OpenCLState,
-    ) -> Result<(), ClError>;
+    fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), ClError>;
 
     /// Optimizes the parameters of a Layer, in the case of the Dense, the weights a biases.
     ///

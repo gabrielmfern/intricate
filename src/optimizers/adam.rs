@@ -1,19 +1,17 @@
 //! The modulem that contains the Adam optimizer.
 
-use std::{collections::HashMap, io::empty, ptr};
+use std::collections::HashMap;
 
 use opencl3::{
     kernel::ExecuteKernel,
     memory::{Buffer, ClMem, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE},
-    types::cl_float,
+    types::{cl_float, cl_int, cl_bool},
 };
 
 use crate::utils::{
     opencl::{
         empty_buffer, ensure_program, opencl_state::EnsureKernelsAndProgramError,
-        InplaceBufferOperations,
-    },
-    BufferOperations, OpenCLState,
+    }, OpenCLState,
 };
 
 use super::{OptimizationError, Optimizer};
@@ -134,7 +132,7 @@ impl<'a> Optimizer<'a> for AdamOptimizer<'a> {
             .set_arg(gradients)
             .set_arg(
                 last_moment_first_estimate_per_parameter.unwrap_or(&empty_buffer(
-                    0,
+                    1,
                     CL_MEM_READ_ONLY,
                     state,
                 )?),
@@ -142,13 +140,16 @@ impl<'a> Optimizer<'a> for AdamOptimizer<'a> {
             .set_arg(&current_moment_first_estimate)
             .set_arg(
                 last_moment_second_estimate_per_parameter.unwrap_or(&empty_buffer(
-                    0,
+                    1,
                     CL_MEM_READ_ONLY,
                     state,
                 )?),
             )
             .set_arg(&current_moment_second_esteimate)
             .set_arg(&update_vector)
+            .set_arg(&(gradients_count as cl_int))
+            .set_arg(&(last_moment_first_estimate_per_parameter.is_some() as cl_int))
+            .set_arg(&(last_moment_second_estimate_per_parameter.is_some() as cl_int))
             .set_arg(&(self.decay_rate_beta_1 as cl_float))
             .set_arg(&(self.decay_rate_beta_2 as cl_float))
             .set_arg(&(self.learning_rate_alpha as cl_float))
