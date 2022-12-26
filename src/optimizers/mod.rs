@@ -5,6 +5,8 @@ pub mod adagrad;
 mod adagrad_test;
 pub mod adam;
 pub mod basic;
+#[cfg(test)]
+mod basic_test;
 pub mod momentum;
 pub mod nesterov;
 
