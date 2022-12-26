@@ -8,6 +8,8 @@ pub mod basic;
 #[cfg(test)]
 mod basic_test;
 pub mod momentum;
+#[cfg(test)]
+mod momentum_test;
 pub mod nesterov;
 
 pub use adagrad::AdagradOptimizer as Adagrad;
@@ -27,13 +29,14 @@ use crate::{
     },
 };
 
-use self::{adam::compile_adam, adagrad::compile_adagrad};
+use self::{adam::compile_adam, adagrad::compile_adagrad, momentum::compile_momentum};
 
 pub(crate) fn compile_optimizers(
     state: &mut OpenCLState,
 ) -> Result<(), EnsureKernelsAndProgramError> {
     compile_adam(state)?;
     compile_adagrad(state)?;
+    compile_momentum(state)?;
 
     Ok(())
 }
