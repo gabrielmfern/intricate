@@ -11,6 +11,8 @@ pub mod momentum;
 #[cfg(test)]
 mod momentum_test;
 pub mod nesterov;
+#[cfg(test)]
+mod nesterov_test;
 
 pub use adagrad::AdagradOptimizer as Adagrad;
 pub use adam::AdamOptimizer as Adam;
@@ -29,7 +31,7 @@ use crate::{
     },
 };
 
-use self::{adam::compile_adam, adagrad::compile_adagrad, momentum::compile_momentum};
+use self::{adam::compile_adam, adagrad::compile_adagrad, momentum::compile_momentum, nesterov::compile_nesterov};
 
 pub(crate) fn compile_optimizers(
     state: &mut OpenCLState,
@@ -37,6 +39,7 @@ pub(crate) fn compile_optimizers(
     compile_adam(state)?;
     compile_adagrad(state)?;
     compile_momentum(state)?;
+    compile_nesterov(state)?;
 
     Ok(())
 }
@@ -50,6 +53,9 @@ pub enum OptimizationError {
 
     /// Happens when something goes wrong on a buffer operation.
     BufferOperation(BufferOperationError),
+
+    /// Happens when an unexpected parameter buffer or gradients buffer size is given
+    InvalidParametersSize(String),
 
     /// Happens when a specific program cannot be found compilled inside the OpenClState
     ProgramNotFound(ProgramNotFoundError),

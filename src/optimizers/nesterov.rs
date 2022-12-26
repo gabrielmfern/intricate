@@ -5,27 +5,51 @@ use std::collections::HashMap;
 
 use opencl3::{
     device::cl_float,
-    memory::Buffer,
+    kernel::ExecuteKernel,
+    memory::{Buffer, ClMem, CL_MEM_READ_WRITE},
 };
 
 use super::{OptimizationError, Optimizer};
-use crate::utils::{opencl::InplaceBufferOperations, BufferOperations, OpenCLState};
+use crate::utils::{
+    opencl::{empty_buffer, ensure_program, opencl_state::EnsureKernelsAndProgramError},
+    OpenCLState,
+};
+
+const PROGRAM_NAME: &str = "NESTEROV_OPTIMIZER";
+const PROGRAM_SOURCE: &str = include_str!("./kernels/nesterov.cl");
+const OPTIMIZE_PARAMETERS_KERNEL_NAME: &str = "optimize_parameters";
+const COMPUTE_UPDATE_VECTOR_KERNEL_NAME: &str = "compute_update_vector";
+
+pub(crate) fn compile_nesterov(
+    state: &mut OpenCLState,
+) -> Result<(), EnsureKernelsAndProgramError> {
+    ensure_program(
+        state,
+        PROGRAM_NAME,
+        PROGRAM_SOURCE,
+        "",
+        &[
+            OPTIMIZE_PARAMETERS_KERNEL_NAME,
+            COMPUTE_UPDATE_VECTOR_KERNEL_NAME,
+        ],
+    )
+}
 
 #[derive(Debug)]
-/// The momentum based optimizer is one that tries to simulate momentum using a `gamma` constant
-/// that defines how much of the last update vector should be added together with the current
-/// update vector as to further improve the training process.
+/// The Nesterov Accelerated Momentum Optimizer is an optimizer that evolves on the Momentum
+/// Optimizer as to accelerate the momentum based the way the momentum optimizer is predictable for
+/// the next training step.
 pub struct NesterovOptimizer<'a> {
     learning_rate: f32,
     momentum_gamma: f32,
 
-    last_update_vectors: HashMap<usize, HashMap<String, Buffer<cl_float>>>,
+    last_update_vectors: HashMap<(usize, String), Buffer<cl_float>>,
 
     opencl_state: Option<&'a OpenCLState>,
 }
 
 impl<'a> NesterovOptimizer<'a> {
-    /// Creates a new instance of a Optimizer based on Momentum, that tries to speed up the
+    /// Creates a new instance of a Optimizer based on Acclerated Momentum, that tries to speed up the
     /// training process in the right direction.
     ///
     /// The **momentum_gamma** parameter here is how much of the last update vector should be
@@ -53,7 +77,7 @@ impl<'a> Optimizer<'a> for NesterovOptimizer<'a> {
         &self,
         parameters: &mut Buffer<cl_float>,
         parameter_id: String,
-        _timestep: usize, 
+        _timestep: usize,
         layer_index: usize,
     ) -> Result<(), OptimizationError> {
         if self.opencl_state.is_none() {
@@ -62,16 +86,32 @@ impl<'a> Optimizer<'a> for NesterovOptimizer<'a> {
 
         let state = self.opencl_state.unwrap();
 
-        if let Some(layer_update_vectors) = self.last_update_vectors.get(&layer_index) {
-            if let Some(parameter_last_update_vector) = layer_update_vectors.get(&parameter_id) {
-                parameters.subtract_inplc(
-                    &parameter_last_update_vector.scale(
-                        self.momentum_gamma,
-                        state,
-                    )?,
-                    state,
-                )?;
+        if state.queues.is_empty() {
+            return Err(OptimizationError::NoCommandQueueFound);
+        }
+
+        let queue = state.queues.first().unwrap();
+
+        let program = state.get_prgm(PROGRAM_NAME)?;
+        let kernel = program.get_krnl(OPTIMIZE_PARAMETERS_KERNEL_NAME)?;
+
+        if let Some(parameter_last_update_vector) = self
+            .last_update_vectors
+            .get(&(layer_index, parameter_id.to_string()))
+        {
+            if parameters.size()? != parameter_last_update_vector.size()? {
+                return Err(OptimizationError::InvalidParametersSize(
+                    format!("The last update vector for the parameter with id '{}' does not match the size of the parameters!", parameter_id)
+                ));
             }
+            let parameters_count = parameters.size()? / std::mem::size_of::<cl_float>();
+            ExecuteKernel::new(kernel)
+                .set_arg(parameters)
+                .set_arg(parameter_last_update_vector)
+                .set_arg(&(self.momentum_gamma as cl_float))
+                .set_global_work_size(parameters_count)
+                .enqueue_nd_range(queue)?
+                .wait()?;
         }
 
         Ok(())
@@ -81,7 +121,7 @@ impl<'a> Optimizer<'a> for NesterovOptimizer<'a> {
         &mut self,
         gradients: &Buffer<cl_float>,
         parameter_id: String,
-        _timestep: usize, 
+        _timestep: usize,
         layer_index: usize,
     ) -> Result<Buffer<cl_float>, OptimizationError> {
         if self.opencl_state.is_none() {
@@ -90,139 +130,47 @@ impl<'a> Optimizer<'a> for NesterovOptimizer<'a> {
 
         let state = self.opencl_state.unwrap();
 
-        let normal_update_vector = gradients.scale(self.learning_rate, state)?;
-
-        if !self.last_update_vectors.contains_key(&layer_index) {
-            self.last_update_vectors
-                .insert(layer_index, HashMap::default());
+        if state.queues.is_empty() {
+            return Err(OptimizationError::NoCommandQueueFound);
         }
 
-        let layer_update_vectors = self.last_update_vectors.get_mut(&layer_index).unwrap();
+        let queue = state.queues.first().unwrap();
 
-        let last_update_vector_option = layer_update_vectors.get(&parameter_id);
+        let program = state.get_prgm(PROGRAM_NAME)?;
+        let kernel = program.get_krnl(COMPUTE_UPDATE_VECTOR_KERNEL_NAME)?;
 
-        let update_vector;
+        let gradients_count = gradients.size()? / std::mem::size_of::<f32>();
 
-        if let Some(last_update_vector) = last_update_vector_option {
-            let mut scalled_last_update_vec =
-                last_update_vector.scale(self.momentum_gamma, state)?;
-            scalled_last_update_vec.add_inplc(&normal_update_vector, state)?;
+        let mut update_vector = empty_buffer(gradients_count, CL_MEM_READ_WRITE, state)?;
 
-            update_vector = scalled_last_update_vec;
+        if let Some(last_update_vector) = self
+            .last_update_vectors
+            .get_mut(&(layer_index, parameter_id.to_string()))
+        {
+            ExecuteKernel::new(kernel)
+                .set_arg(gradients)
+                .set_arg(last_update_vector)
+                .set_arg(&mut update_vector)
+                .set_arg(&(self.momentum_gamma as cl_float))
+                .set_arg(&(self.learning_rate as cl_float))
+                .set_global_work_size(gradients_count)
+                .enqueue_nd_range(queue)?
+                .wait()?;
         } else {
-            update_vector = normal_update_vector;
+            let mut last_update_vector = empty_buffer(gradients_count, CL_MEM_READ_WRITE, state)?;
+            ExecuteKernel::new(kernel)
+                .set_arg(gradients)
+                .set_arg(&mut last_update_vector)
+                .set_arg(&mut update_vector)
+                .set_arg(&(self.momentum_gamma as cl_float))
+                .set_arg(&(self.learning_rate as cl_float))
+                .set_global_work_size(gradients_count)
+                .enqueue_nd_range(queue)?
+                .wait()?;
+            self.last_update_vectors
+                .insert((layer_index, parameter_id), last_update_vector);
         }
-
-        layer_update_vectors.insert(parameter_id, update_vector.clone(state)?);
 
         Ok(update_vector)
-    }
-}
-
-#[cfg(test)]
-mod nesterov_tests {
-    use rand::prelude::*;
-
-    use crate::{
-        optimizers::Optimizer,
-        utils::{
-            opencl::{BufferLike, DeviceType},
-            setup_opencl,
-        },
-    };
-
-    use super::NesterovOptimizer;
-
-    #[test]
-    fn should_compute_update_vectors_correctly() {
-        // theta = theta - v_t
-        // v_t = gamma * v_(t-1) + learning_rate * gradients of (theta - gamma * v_(t-1)) with
-        // respect to the loss
-        let mut rng = thread_rng();
-
-        let gradients = vec![rng.gen_range(0f32..1f32)];
-
-        let gamma = 0.9;
-        let learning_rate = 0.01;
-
-        let expected_inital_update_vector = vec![learning_rate * gradients[0]];
-        let expected_second_update_vector =
-            vec![gamma * expected_inital_update_vector[0] + learning_rate * gradients[0]];
-
-        let state = setup_opencl(DeviceType::GPU).unwrap();
-
-        let gradients_buf = gradients
-            .to_buffer(false, &state)
-            .unwrap();
-
-        let mut optimizer = NesterovOptimizer::new(learning_rate, gamma);
-        optimizer.init(&state).unwrap();
-
-        let initial_update_buf = optimizer
-            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0, 0)
-            .unwrap();
-        let secondary_update_buf = optimizer
-            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0, 0)
-            .unwrap();
-
-        let initial_update_vector =
-            Vec::<f32>::from_buffer(&initial_update_buf, false, &state).unwrap();
-        let secondary_update_vector =
-            Vec::<f32>::from_buffer(&secondary_update_buf, false, &state).unwrap();
-
-        assert!(
-            (dbg!(initial_update_vector[0]) - dbg!(expected_inital_update_vector[0])).abs()
-                / expected_inital_update_vector[0]
-                <= 0.001
-        );
-        assert!(
-            (dbg!(secondary_update_vector[0]) - dbg!(expected_second_update_vector[0])).abs()
-                / expected_second_update_vector[0]
-                <= 0.001
-        );
-    }
-
-    #[test]
-    fn should_optimize_parameters_correctly() {
-        // theta = theta - v_t
-        // v_t = gamma * v_(t-1) + learning_rate * gradients of (theta - gamma * v_(t-1)) with
-        // respect to the loss
-        let mut rng = thread_rng();
-        let initial_parameters = vec![rng.gen_range(0f32..1f32)];
-        let gradients = vec![rng.gen_range(0f32..1f32)];
-
-        let gamma = 0.9;
-        let learning_rate = 0.01;
-
-        let update_vector = vec![learning_rate * gradients[0]];
-        let expected_optimized_parameters = vec![initial_parameters[0] - gamma * update_vector[0]];
-
-        let state = setup_opencl(DeviceType::GPU).unwrap();
-
-        let mut parameters_buf = initial_parameters
-            .to_buffer(false, &state)
-            .unwrap();
-        let gradients_buf = gradients
-            .to_buffer(false, &state)
-            .unwrap();
-
-        let mut optimizer = NesterovOptimizer::new(learning_rate, gamma);
-        optimizer.init(&state).unwrap();
-
-        optimizer
-            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0, 0)
-            .unwrap();
-
-        optimizer
-            .optimize_parameters(&mut parameters_buf, "parameter".to_string(), 0, 0)
-            .unwrap();
-
-        let optimized_parameters = Vec::<f32>::from_buffer(&parameters_buf, false, &state).unwrap();
-
-        assert!(
-            (optimized_parameters[0] - expected_optimized_parameters[0]).abs()
-                / expected_optimized_parameters[0]
-                <= 0.001
-        );
     }
 }
