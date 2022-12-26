@@ -97,7 +97,8 @@ impl<'a> Optimizer<'a> for MomentumOptimizer<'a> {
         let program = state.get_prgm(PROGRAM_NAME)?;
         let kernel = program.get_krnl(COMPUTE_UPDATE_VECTOR_KERNEL_NAME)?;
 
-        let gradients_count = gradients.size()? / std::mem::size_of::<f32>();
+        let gradients_size = gradients.size()?;
+        let gradients_count = gradients_size / std::mem::size_of::<f32>();
 
         let mut update_vector = empty_buffer(gradients_count, CL_MEM_READ_WRITE, state)?;
 
@@ -105,6 +106,14 @@ impl<'a> Optimizer<'a> for MomentumOptimizer<'a> {
             .last_update_vectors
             .get_mut(&(layer_index, parameter_id.to_string()))
         {
+            if last_update_vector.size()? != gradients_size {
+                return Err(OptimizationError::InvalidParametersSize(
+                    format!(
+                        "The last update vector in the Momentum optimizer does not match the gradients received when trying to compute a new update vector for the paramter with id '{}'", 
+                        parameter_id.to_string()
+                    ),
+                ));
+            }
             ExecuteKernel::new(kernel)
                 .set_arg(gradients)
                 .set_arg(last_update_vector)

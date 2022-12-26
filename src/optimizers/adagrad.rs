@@ -6,13 +6,13 @@ use opencl3::{
     device::cl_float,
     error_codes::ClError,
     kernel::ExecuteKernel,
-    memory::{Buffer, ClMem, CL_MEM_READ_WRITE}, types::cl_int,
+    memory::{Buffer, ClMem, CL_MEM_READ_WRITE},
+    types::cl_int,
 };
 
 use crate::utils::{
-    opencl::{
-        empty_buffer, ensure_program, opencl_state::EnsureKernelsAndProgramError,
-    }, OpenCLState,
+    opencl::{empty_buffer, ensure_program, opencl_state::EnsureKernelsAndProgramError},
+    OpenCLState,
 };
 
 use super::{OptimizationError, Optimizer};
@@ -97,7 +97,8 @@ impl<'a> Optimizer<'a> for AdagradOptimizer<'a> {
         let program = state.get_prgm(PROGRAM_NAME)?;
         let kernel = program.get_krnl(COMPUTE_UPDATE_VECTOR_AND_UPDATE_GHS_KERNEL_NAME)?;
 
-        let gradients_count = gradients.size()? / std::mem::size_of::<f32>();
+        let gradients_size = gradients.size()?;
+        let gradients_count = gradients_size / std::mem::size_of::<f32>();
 
         let mut update_vector = empty_buffer(gradients_count, CL_MEM_READ_WRITE, state)?;
 
@@ -105,6 +106,12 @@ impl<'a> Optimizer<'a> for AdagradOptimizer<'a> {
             .gradients_history_summation_per_parameter
             .get(&(layer_index, parameter_id.to_string()))
         {
+            if gradients_size != gradients_history_summation.size()? {
+                return Err(OptimizationError::InvalidParametersSize(format!(
+                    "The gradients size does not match the gradients history summation size for the Adagrad optimizer with the parameter_id '{}'",
+                    parameter_id.to_string(),
+                )));
+            }
             ExecuteKernel::new(kernel)
                 .set_arg(gradients)
                 .set_arg(gradients_history_summation)

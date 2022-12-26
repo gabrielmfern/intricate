@@ -113,7 +113,8 @@ impl<'a> Optimizer<'a> for AdamOptimizer<'a> {
 
         let kernel = program.get_krnl(COMPUTE_UPDATE_VECTORS_KERNEL)?;
 
-        let gradients_count = gradients.size()? / std::mem::size_of::<f32>();
+        let gradients_size = gradients.size()?;
+        let gradients_count = gradients_size / std::mem::size_of::<f32>();
         let current_moment_first_estimate =
             empty_buffer(gradients_count, CL_MEM_READ_WRITE, state)?;
         let current_moment_second_esteimate =
@@ -124,9 +125,25 @@ impl<'a> Optimizer<'a> for AdamOptimizer<'a> {
         let last_moment_first_estimate_per_parameter = self
             .last_moment_first_estimate_per_parameter
             .get(&(layer_index, parameter_id.to_string()));
+        if let Some(last_moment_first_estimate) = last_moment_first_estimate_per_parameter {
+            if last_moment_first_estimate.size()? != gradients_size {
+                return Err(OptimizationError::InvalidParametersSize(format!(
+                    "The last moment's first estimate for the parameter with id '{}' does not match the shape of the gradients",
+                    parameter_id.to_string()
+                )));
+            }
+        }
         let last_moment_second_estimate_per_parameter = self
             .last_moment_second_estimate_per_parameter
             .get(&(layer_index, parameter_id.to_string()));
+        if let Some(last_moment_second_estimate) = last_moment_second_estimate_per_parameter {
+            if last_moment_second_estimate.size()? != gradients_size {
+                return Err(OptimizationError::InvalidParametersSize(format!(
+                    "The last moment's second estimate for the parameter with id '{}' does not match the shape of the gradients",
+                    parameter_id.to_string()
+                )));
+            }
+        }
 
         execute_kernel
             .set_arg(gradients)
