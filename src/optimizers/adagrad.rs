@@ -2,11 +2,35 @@
 
 use std::collections::HashMap;
 
-use opencl3::{device::cl_float, error_codes::ClError, memory::Buffer};
+use opencl3::{
+    device::cl_float,
+    error_codes::ClError,
+    kernel::ExecuteKernel,
+    memory::{Buffer, ClMem, CL_MEM_READ_WRITE}, types::cl_int,
+};
 
-use crate::utils::{opencl::InplaceBufferOperations, BufferOperations, OpenCLState};
+use crate::utils::{
+    opencl::{
+        empty_buffer, ensure_program, opencl_state::EnsureKernelsAndProgramError,
+    }, OpenCLState,
+};
 
 use super::{OptimizationError, Optimizer};
+
+const PROGRAM_NAME: &str = "ADAGRAD_OPTIMIZER";
+const PROGRAM_SOURCE: &str = include_str!("./kernels/adagrad.cl");
+const COMPUTE_UPDATE_VECTOR_AND_UPDATE_GHS_KERNEL_NAME: &str =
+    "compute_update_vector_and_update_gradient_history_summation";
+
+pub(crate) fn compile_adagrad(state: &mut OpenCLState) -> Result<(), EnsureKernelsAndProgramError> {
+    ensure_program(
+        state,
+        PROGRAM_NAME,
+        PROGRAM_SOURCE,
+        "",
+        &[COMPUTE_UPDATE_VECTOR_AND_UPDATE_GHS_KERNEL_NAME],
+    )
+}
 
 #[derive(Debug)]
 /// The Adagrad Optimizer does a gradient-based optimization that adapts the learning rates for
@@ -15,10 +39,9 @@ pub struct AdagradOptimizer<'a> {
     learning_rate: f32,
     epsilon: f32,
 
-    gradients_history_summation_per_parameter: HashMap<usize, HashMap<String, Buffer<cl_float>>>,
+    gradients_history_summation_per_parameter: HashMap<(usize, String), Buffer<cl_float>>,
     // TODO: add a way to perhaps save the Optimizer with this gradient history to train the Model
     // later
-
     opencl_state: Option<&'a OpenCLState>,
 }
 
@@ -46,7 +69,7 @@ impl<'a> Optimizer<'a> for AdagradOptimizer<'a> {
         &self,
         _parameters: &mut Buffer<cl_float>,
         _parameter_id: String,
-        _timestep: usize, 
+        _timestep: usize,
         _layer_index: usize,
     ) -> Result<(), OptimizationError> {
         Ok(())
@@ -56,7 +79,7 @@ impl<'a> Optimizer<'a> for AdagradOptimizer<'a> {
         &mut self,
         gradients: &Buffer<cl_float>,
         parameter_id: String,
-        _timestep: usize, 
+        _timestep: usize,
         layer_index: usize,
     ) -> Result<Buffer<cl_float>, OptimizationError> {
         if self.opencl_state.is_none() {
@@ -65,106 +88,52 @@ impl<'a> Optimizer<'a> for AdagradOptimizer<'a> {
 
         let state = self.opencl_state.unwrap();
 
-        if !self
-            .gradients_history_summation_per_parameter
-            .contains_key(&layer_index)
-        {
-            self.gradients_history_summation_per_parameter
-                .insert(layer_index, HashMap::default());
+        if state.queues.is_empty() {
+            return Err(OptimizationError::NoCommandQueueFound);
         }
 
-        let layer_gradients_history_summation = self
+        let queue = state.queues.first().unwrap();
+
+        let program = state.get_prgm(PROGRAM_NAME)?;
+        let kernel = program.get_krnl(COMPUTE_UPDATE_VECTOR_AND_UPDATE_GHS_KERNEL_NAME)?;
+
+        let gradients_count = gradients.size()? / std::mem::size_of::<f32>();
+
+        let mut update_vector = empty_buffer(gradients_count, CL_MEM_READ_WRITE, state)?;
+
+        if let Some(gradients_history_summation) = self
             .gradients_history_summation_per_parameter
-            .get_mut(&layer_index)
-            .unwrap();
-
-        let mut update_vector;
-
-        if let Some(gradients_history_summation) =
-            layer_gradients_history_summation.get_mut(&parameter_id)
+            .get(&(layer_index, parameter_id.to_string()))
         {
-            update_vector = gradients_history_summation.shift(self.epsilon, state)?;
-
-            update_vector.inverse_sqrt_inplc(state)?;
-            update_vector.scale_inplc(self.learning_rate, state)?;
-            update_vector.multiply_inplc(gradients, state)?;
-
-            let squared_gradients = gradients.multiply(gradients, state)?;
-            gradients_history_summation.add_inplc(&squared_gradients, state)?;
+            ExecuteKernel::new(kernel)
+                .set_arg(gradients)
+                .set_arg(gradients_history_summation)
+                .set_arg(&mut update_vector)
+                .set_arg(&(1 as cl_int))
+                .set_arg(&(self.learning_rate as cl_float))
+                .set_arg(&(self.epsilon as cl_float))
+                .set_global_work_size(gradients_count)
+                .enqueue_nd_range(queue)?
+                .wait()?;
         } else {
-            update_vector = gradients.scale(self.learning_rate, state)?;
-
-            let squared_gradients = gradients.multiply(gradients, state)?;
-            layer_gradients_history_summation.insert(parameter_id.to_string(), squared_gradients);
+            let mut gradients_history_summation =
+                empty_buffer(gradients_count, CL_MEM_READ_WRITE, state)?;
+            ExecuteKernel::new(kernel)
+                .set_arg(gradients)
+                .set_arg(&mut gradients_history_summation)
+                .set_arg(&mut update_vector)
+                .set_arg(&(0 as cl_int))
+                .set_arg(&(self.learning_rate as cl_float))
+                .set_arg(&(self.epsilon as cl_float))
+                .set_global_work_size(gradients_count)
+                .enqueue_nd_range(queue)?
+                .wait()?;
+            self.gradients_history_summation_per_parameter.insert(
+                (layer_index, parameter_id.to_string()),
+                gradients_history_summation,
+            );
         }
 
         Ok(update_vector)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::AdagradOptimizer;
-    use crate::{optimizers::Optimizer, utils::opencl::*};
-    use rand::prelude::*;
-
-    #[test]
-    fn should_compute_update_vectors_correctly() {
-        let mut rng = thread_rng();
-
-        let gradients = vec![rng.gen_range(0f32..1f32)];
-
-        let episilon = 0.000_000_01;
-        let learning_rate = 0.01;
-
-        let expected_first_update_vector = vec![learning_rate * gradients[0]];
-        let expected_second_update_vector =
-            vec![learning_rate / (gradients[0] + episilon) * gradients[0]];
-        let expected_third_update_vector = vec![
-            learning_rate / ((gradients[0].powf(2.0) + gradients[0].powf(2.0)).sqrt() + episilon)
-                * gradients[0],
-        ];
-
-        let state = setup_opencl(DeviceType::GPU).unwrap();
-
-        let gradients_buf = gradients
-            .to_buffer(false, &state)
-            .unwrap();
-
-        let mut optimizer = AdagradOptimizer::new(learning_rate, episilon);
-        optimizer.init(&state).unwrap();
-
-        let first_update_buf = optimizer
-            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0, 0)
-            .unwrap();
-        let second_update_buf = optimizer
-            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0, 0)
-            .unwrap();
-        let third_update_buf = optimizer
-            .compute_update_vectors(&gradients_buf, "parameter".to_string(), 0, 0)
-            .unwrap();
-
-        let first_update_vector =
-            Vec::<f32>::from_buffer(&first_update_buf, false, &state).unwrap();
-        let second_update_vector =
-            Vec::<f32>::from_buffer(&second_update_buf, false, &state).unwrap();
-        let third_update_vector =
-            Vec::<f32>::from_buffer(&third_update_buf, false, &state).unwrap();
-
-        assert!(
-            (dbg!(first_update_vector[0]) - dbg!(expected_first_update_vector[0])).abs()
-                / expected_first_update_vector[0]
-                <= 0.001
-        );
-        assert!(
-            (dbg!(second_update_vector[0]) - dbg!(expected_second_update_vector[0])).abs()
-                / expected_second_update_vector[0]
-                <= 0.001
-        );
-        assert!(
-            (dbg!(third_update_vector[0]) - dbg!(expected_third_update_vector[0])).abs()
-                / expected_third_update_vector[0]
-                <= 0.001
-        );
     }
 }

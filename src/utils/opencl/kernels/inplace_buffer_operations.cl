@@ -52,7 +52,7 @@ kernel void inverse_sqrt(
         return;
     }
 
-    buf[index] = 1.0f / sqrt(buf[index]);
+    buf[index] = rsqrt(buf[index]);
 }
 
 kernel void shift(

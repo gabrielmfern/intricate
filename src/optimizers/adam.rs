@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use opencl3::{
     kernel::ExecuteKernel,
     memory::{Buffer, ClMem, CL_MEM_READ_ONLY, CL_MEM_READ_WRITE},
-    types::{cl_float, cl_int, cl_bool},
+    types::{cl_float, cl_int},
 };
 
 use crate::utils::{

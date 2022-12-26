@@ -95,7 +95,7 @@ kernel void inverse_sqrt(
         return;
     }
 
-    result[index] = 1.0f / sqrt(first[index]);
+    result[index] = rsqrt(first[index]);
 }
 
 kernel void add_num(

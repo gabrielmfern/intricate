@@ -1,6 +1,8 @@
 //! The module that contains all of the implemented optimizers in Intricate
 
 pub mod adagrad;
+#[cfg(test)]
+mod adagrad_test;
 pub mod adam;
 pub mod basic;
 pub mod momentum;
@@ -23,12 +25,13 @@ use crate::{
     },
 };
 
-use self::adam::compile_adam;
+use self::{adam::compile_adam, adagrad::compile_adagrad};
 
 pub(crate) fn compile_optimizers(
     state: &mut OpenCLState,
 ) -> Result<(), EnsureKernelsAndProgramError> {
     compile_adam(state)?;
+    compile_adagrad(state)?;
 
     Ok(())
 }
