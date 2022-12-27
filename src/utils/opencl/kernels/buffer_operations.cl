@@ -67,7 +67,7 @@ kernel void sum_all_values_in_row_work_groups(
     int global_y = get_global_id(0);
     int global_x = get_global_id(1);
 
-    int group_size_y = get_local_size(0); // this needs to divide into the buffer's samples amount
+    int group_size_y = get_local_size(0);
     int group_size_x = get_local_size(1); // this needs to divide into the buffer's row widths
 
     if (group_size_y > buffer_height) {
@@ -95,7 +95,6 @@ kernel void sum_all_values_in_row_work_groups(
                         workgroup_state[local_y * buffer_width + group_size_x - 1];
                 }
             }
-            /* printf("(glb_id: %d) workgroup_state[%d][%d] = %e\n", global_id, local_y, local_x, workgroup_state[local_id]); */
         }
 
         barrier(CLK_LOCAL_MEM_FENCE);
@@ -105,9 +104,6 @@ kernel void sum_all_values_in_row_work_groups(
     }
 
     if (local_x == 0) {
-        // after summing all of the items in the work group
-        // should just take them and associate it with the sum of the
-        // current workgroup in the reduced array
         reduced[global_y * get_num_groups(1) + get_group_id(1)] 
             = workgroup_state[local_id];
     }
