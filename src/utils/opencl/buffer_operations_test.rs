@@ -217,6 +217,34 @@ fn should_sum_buffers_width_wise_with_very_divisble_widths_correctly() {
 }
 
 #[test]
+fn should_sum_buffers_width_wise_with_very_large_heights() {
+    let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
+
+    let width = 10;
+    let test_vec = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]; 512];
+    let expected_results = vec![55.0; 512];
+
+    let buff = test_vec
+        .iter()
+        .flatten()
+        .map(|x| *x)
+        .collect::<Vec<f32>>()
+        .to_buffer(false, &opencl_state)
+        .unwrap();
+
+    let buf_actual_results = buff.sum_2d_per_row(&opencl_state, width)
+        .unwrap();
+    let actual_results = Vec::from_buffer(&buf_actual_results, true, &opencl_state).unwrap();
+
+    actual_results.iter().enumerate().zip(&expected_results).for_each(|((i, actual), expected)| {
+        if actual != expected {
+            dbg!(i, actual, expected);
+        }
+    });
+    assert_approx_equal(&actual_results, &expected_results, 2);
+}
+
+#[test]
 fn should_sum_buffers_width_wise_with_prime_widths_correctly() {
     let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
 

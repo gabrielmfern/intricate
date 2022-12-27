@@ -12,7 +12,9 @@ use opencl3::{
     types::{cl_event, cl_float, cl_int, CL_NON_BLOCKING},
 };
 
-use crate::utils::{opencl::BufferLike, find_divsor_of_n_closest_to_m, find_multiple_of_n_closest_to_m, gcd};
+use crate::utils::{
+    find_divsor_of_n_closest_to_m, find_multiple_of_n_closest_to_m, gcd, opencl::BufferLike,
+};
 
 use super::{
     empty_buffer, find_optimal_local_and_global_work_sizes,
@@ -115,8 +117,11 @@ fn reduce_buffer_by_row_wise_summation(
         global_size_0 = local_size_0;
     }
 
-    let mut current_reduced_buffer =
-        empty_buffer(height * global_size_1 / local_size_1, CL_MEM_READ_WRITE, state)?;
+    let mut current_reduced_buffer = empty_buffer(
+        height * global_size_1 / local_size_1,
+        CL_MEM_READ_WRITE,
+        state,
+    )?;
     let event = ExecuteKernel::new(kernel)
         .set_arg(buffer)
         .set_arg(&mut current_reduced_buffer)
@@ -124,8 +129,8 @@ fn reduce_buffer_by_row_wise_summation(
         .set_arg(&(width as cl_int))
         .set_arg(&(height as cl_int))
         .set_event_wait_list(&wait_list.iter().map(|e| e.get()).collect::<Vec<cl_event>>())
-        .set_global_work_sizes(&[dbg!(global_size_0), dbg!(global_size_1)])
-        .set_local_work_sizes(&[dbg!(local_size_0), dbg!(local_size_1)])
+        .set_global_work_sizes(&[global_size_0, global_size_1])
+        .set_local_work_sizes(&[local_size_0, local_size_1])
         .enqueue_nd_range(queue)?;
 
     Ok((event, current_reduced_buffer))
@@ -151,7 +156,6 @@ where
     /// - If the summation kernel was not found in the program for buffer operations.
     fn sum(&self, opencl_state: &OpenCLState) -> Result<f32, BufferOperationError>;
 
-
     /// Sums all of the numbers inside of a buffer separated by rows (in which, their width
     /// are received as parameters) and returns a resulting buffer containing the summation per rows.
     ///
@@ -164,7 +168,11 @@ where
     /// - If the program for buffer operations was not compiled in **opencl_state**.
     /// - If the summation kernel was not found in the program for buffer operations.
     /// - If the specified width does not match the &self's width
-    fn sum_2d_per_row(&self, state: &OpenCLState, width: usize) -> Result<Self, BufferOperationError>;
+    fn sum_2d_per_row(
+        &self,
+        state: &OpenCLState,
+        width: usize,
+    ) -> Result<Self, BufferOperationError>;
 
     /// Scales the buffer by a certain number or scaler.
     ///
@@ -570,7 +578,11 @@ impl BufferOperations for Buffer<cl_float> {
         }
     }
 
-    fn sum_2d_per_row(&self, state: &OpenCLState, initial_width: usize) -> Result<Self, BufferOperationError> {
+    fn sum_2d_per_row(
+        &self,
+        state: &OpenCLState,
+        initial_width: usize,
+    ) -> Result<Self, BufferOperationError> {
         if state.devices.is_empty() {
             return Err(BufferOperationError::NoDeviceFoundError);
         }
@@ -580,7 +592,6 @@ impl BufferOperations for Buffer<cl_float> {
         }
 
         let device = state.devices.first().unwrap();
-        let queue = state.queues.first().unwrap();
 
         let operations_program = state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
 
@@ -598,13 +609,19 @@ impl BufferOperations for Buffer<cl_float> {
         if current_count == height || current_count == 0 {
             self.clone(state)
         } else {
-            let (mut ev, mut current_buf) =
-                reduce_buffer_by_row_wise_summation(self, width, height, state, max_local_size, reduce_kernel, &[])?;
+            let (mut ev, mut current_buf) = reduce_buffer_by_row_wise_summation(
+                self,
+                width,
+                height,
+                state,
+                max_local_size,
+                reduce_kernel,
+                &[],
+            )?;
             current_count = current_buf.size()? / mem::size_of::<cl_float>();
             width = current_count / height;
 
             while width > 1 {
-                current_buf.dbg(state).unwrap();
                 (ev, current_buf) = reduce_buffer_by_row_wise_summation(
                     &current_buf,
                     width,
@@ -618,7 +635,7 @@ impl BufferOperations for Buffer<cl_float> {
                 width = current_count / height;
             }
 
-            queue.finish()?;
+//             queue.finish()?;
 
             Ok(current_buf)
         }

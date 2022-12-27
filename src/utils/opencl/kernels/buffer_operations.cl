@@ -13,6 +13,11 @@ kernel void sum_all_values_in_workgroups(
 ) {
     int local_id = get_local_id(0);
     int global_id = get_global_id(0);
+
+    if (global_id >= buffer_length) {
+        return;
+    }
+
     int group_size = get_local_size(0);
 
     if (group_size > buffer_length) {
@@ -67,6 +72,14 @@ kernel void sum_all_values_in_row_work_groups(
     int global_y = get_global_id(0);
     int global_x = get_global_id(1);
 
+    if (global_y >= buffer_height) {
+        return;
+    }
+
+    if (global_x >= buffer_width) {
+        return;
+    }
+
     int group_size_y = get_local_size(0);
     int group_size_x = get_local_size(1); // this needs to divide into the buffer's row widths
 
@@ -86,8 +99,9 @@ kernel void sum_all_values_in_row_work_groups(
     int half_size = group_size_x / 2;
     while (group_size_x > 1) {
         // if the id in the work group is in the first half
-        if (local_x < half_size) {
+        if (local_x < half_size && global_x < buffer_width - 1) {
             // sum it and the corresponding value in the other half together into the local_id
+            /* printf("(glb_id %d) %e + %e\n", global_id, workgroup_state[local_id], workgroup_state[local_id + half_size]); */
             workgroup_state[local_id] += workgroup_state[local_id + half_size];
             if (local_x == 0) {
                 if ((half_size * 2) < group_size_x) {

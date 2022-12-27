@@ -4,28 +4,33 @@ use std::mem;
 
 use intricate_macros::FromForAllUnnamedVariants;
 use opencl3::{
+    command_queue::CommandQueue,
     device::cl_float,
     error_codes::{cl_int, ClError},
     kernel::ExecuteKernel,
     memory::{Buffer, ClMem, CL_MEM_READ_WRITE},
 };
 
-use crate::{loss_functions::LossFunction, utils::opencl::{BufferOperationError, BufferConversionError}};
-use crate::utils::opencl::empty_buffer;
 use crate::utils::opencl::ensure_program;
 use crate::utils::opencl::opencl_state::EnsureKernelsAndProgramError;
+use crate::utils::opencl::{empty_buffer, opencl_state::IntricateProgram};
 use crate::utils::BufferOperations;
 use crate::utils::OpenCLState;
+use crate::{
+    loss_functions::LossFunction,
+    utils::opencl::{BufferConversionError, BufferOperationError},
+};
 
-use super::{LossComputationError, LossFn};
 use super::LossToModelOutputsDerivativesComputationError;
+use super::{LossComputationError, LossFn};
 
 const PROGRAM_NAME: &str = "CATEGORICAL_CROSS_ENTROPY";
 const PROGRAM_SOURCE: &str = include_str!("kernels/categorical_cross_entropy.cl");
 const COMPUTE_LOSS_KERNEL: &str = "compute_loss";
 const NORMALIZE_OUTPUTS_KERNEL: &str = "normalize_outputs";
 const COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL: &str = "compute_loss_to_output_derivatives";
-const COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_OPTIMIZED_FOR_SOFTMAX_KERNEL: &str = "compute_loss_to_output_derivatives_optimized_for_softmax";
+const COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_OPTIMIZED_FOR_SOFTMAX_KERNEL: &str =
+    "compute_loss_to_output_derivatives_optimized_for_softmax";
 
 pub(crate) fn compile_categorical_cross_entropy(
     opencl_state: &mut OpenCLState,
@@ -37,13 +42,7 @@ pub(crate) fn compile_categorical_cross_entropy(
         COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_OPTIMIZED_FOR_SOFTMAX_KERNEL,
     ];
 
-    ensure_program(
-        opencl_state,
-        PROGRAM_NAME,
-        PROGRAM_SOURCE,
-        "",
-        kernels,
-    )?;
+    ensure_program(opencl_state, PROGRAM_NAME, PROGRAM_SOURCE, "", kernels)?;
 
     Ok(())
 }
@@ -72,7 +71,7 @@ impl<'a> CategoricalCrossEntropy<'a> {
     /// Be aware that after creation this needs to be called the `init` method before computing the
     /// loss or anything like that.
     pub fn new_raw() -> CategoricalCrossEntropy<'a> {
-        CategoricalCrossEntropy { 
+        CategoricalCrossEntropy {
             opencl_state: None,
             is_optimized_for_softmax: false,
         }
@@ -124,6 +123,33 @@ pub enum ReduceOutputsPerSampleError {
 //     Ok(resulting_vec.to_buffer(false, state)?)
 // }
 
+fn normalize_output_samples(
+    output_samples: &Buffer<cl_float>,
+    state: &OpenCLState,
+    queue: &CommandQueue,
+    program: &IntricateProgram,
+    samples_amount: usize,
+    outputs_amount: usize,
+    outputs_total_count: usize,
+) -> Result<Buffer<cl_float>, BufferOperationError> {
+    let outputs_sum_per_row = output_samples.sum_2d_per_row(state, outputs_amount)?;
+    let mut normalized_outputs = empty_buffer(outputs_total_count, CL_MEM_READ_WRITE, state)?;
+
+    let normalize_outputs_kernel = program.get_krnl(NORMALIZE_OUTPUTS_KERNEL)?;
+
+    ExecuteKernel::new(normalize_outputs_kernel)
+        .set_arg(output_samples)
+        .set_arg(&outputs_sum_per_row)
+        .set_arg(&mut normalized_outputs)
+        .set_arg(&(samples_amount as cl_int))
+        .set_arg(&(outputs_amount as cl_int))
+        .set_global_work_sizes(&[samples_amount, outputs_amount])
+        .enqueue_nd_range(queue)?
+        .wait()?;
+
+    Ok(normalized_outputs)
+}
+
 impl<'a> LossFunction<'a> for CategoricalCrossEntropy<'a> {
     fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), ClError> {
         self.opencl_state = Some(opencl_state);
@@ -168,14 +194,35 @@ impl<'a> LossFunction<'a> for CategoricalCrossEntropy<'a> {
 
         let compute_loss_kernel = program.get_krnl(COMPUTE_LOSS_KERNEL)?;
 
-        ExecuteKernel::new(compute_loss_kernel)
-            .set_arg(output_samples)
-            .set_arg(expected_outputs)
-            .set_arg(&sample_losses_buffer)
-            .set_arg(&(outputs_amount as cl_int))
-            .set_arg(&(samples_amount as cl_int))
-            .set_global_work_size(samples_amount)
-            .enqueue_nd_range(queue)?;
+        if self.is_optimized_for_softmax {
+            ExecuteKernel::new(compute_loss_kernel)
+                .set_arg(output_samples)
+                .set_arg(expected_outputs)
+                .set_arg(&sample_losses_buffer)
+                .set_arg(&(outputs_amount as cl_int))
+                .set_arg(&(samples_amount as cl_int))
+                .set_global_work_size(samples_amount)
+                .enqueue_nd_range(queue)?;
+        } else {
+            let normalized_outputs = normalize_output_samples(
+                output_samples,
+                state,
+                queue,
+                program,
+                samples_amount,
+                outputs_amount,
+                outputs_total_count,
+            )?;
+
+            ExecuteKernel::new(compute_loss_kernel)
+                .set_arg(&normalized_outputs)
+                .set_arg(expected_outputs)
+                .set_arg(&sample_losses_buffer)
+                .set_arg(&(outputs_amount as cl_int))
+                .set_arg(&(samples_amount as cl_int))
+                .set_global_work_size(samples_amount)
+                .enqueue_nd_range(queue)?;
+        }
 
         queue.finish()?;
 
@@ -221,8 +268,8 @@ impl<'a> LossFunction<'a> for CategoricalCrossEntropy<'a> {
         let derivatives_buffer = empty_buffer(outputs_total_count, CL_MEM_READ_WRITE, state)?;
 
         if self.is_optimized_for_softmax {
-            let optimized_loss_to_output_deriv_kernel =
-                program.get_krnl(COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_OPTIMIZED_FOR_SOFTMAX_KERNEL)?;
+            let optimized_loss_to_output_deriv_kernel = program
+                .get_krnl(COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_OPTIMIZED_FOR_SOFTMAX_KERNEL)?;
             ExecuteKernel::new(optimized_loss_to_output_deriv_kernel)
                 .set_arg(output_samples)
                 .set_arg(expected_outputs)
@@ -232,16 +279,27 @@ impl<'a> LossFunction<'a> for CategoricalCrossEntropy<'a> {
                 .set_global_work_sizes(&[samples_amount, outputs_amount])
                 .enqueue_nd_range(queue)?;
         } else {
+            let normalized_outputs = normalize_output_samples(
+                output_samples,
+                state,
+                queue,
+                program,
+                samples_amount,
+                outputs_amount,
+                outputs_total_count,
+            )?;
+
             let loss_to_output_deriv_kernel =
                 program.get_krnl(COMPUTE_LOSS_TO_OUTPUT_DERIVATIVES_KERNEL)?;
             ExecuteKernel::new(loss_to_output_deriv_kernel)
-                .set_arg(output_samples)
+                .set_arg(&normalized_outputs)
                 .set_arg(expected_outputs)
                 .set_arg(&derivatives_buffer)
                 .set_arg(&(samples_amount as cl_int))
                 .set_arg(&(outputs_amount as cl_int))
                 .set_global_work_sizes(&[samples_amount, outputs_amount])
-                .enqueue_nd_range(queue)?;
+                .enqueue_nd_range(queue)?
+                .wait()?;
         }
 
         queue.finish()?;
