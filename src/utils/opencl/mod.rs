@@ -97,6 +97,11 @@ pub enum BufferOperationError {
     /// An error that happens when doing an operation that requires two buffers and that requires
     /// that both buffers are of the same size and count.
     BuffersAreNotOfSameSize(usize, usize),
+    /// An error that happens when doing an opeartion that requires a 2D buffer with its height or
+    /// width specified and the true width or height does not match the one specified.
+    ///
+    /// Contains the specified dimension's name.
+    DimensionWasNotAsSpecified(&'static str),
     /// This just means that the operation did ot find any device for it to run on.
     NoDeviceFoundError,
     /// This means that there is no command queue associated with the device, this may be a problem

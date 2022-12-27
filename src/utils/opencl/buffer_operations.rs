@@ -1,5 +1,5 @@
-//! The module that contains standard buffer operations. 
-//! 
+//! The module that contains standard buffer operations.
+//!
 //! Not recommended to be used more than once in a row, instead a kernel should be used for that.
 
 use std::mem;
@@ -12,11 +12,12 @@ use opencl3::{
     types::{cl_event, cl_float, cl_int, CL_NON_BLOCKING},
 };
 
-use crate::utils::opencl::BufferLike;
+use crate::utils::{opencl::BufferLike, find_divsor_of_n_closest_to_m, find_multiple_of_n_closest_to_m, gcd};
 
 use super::{
     empty_buffer, find_optimal_local_and_global_work_sizes,
-    opencl_state::{ensure_program, EnsureKernelsAndProgramError}, BufferConversionError, BufferOperationError,
+    opencl_state::{ensure_program, EnsureKernelsAndProgramError},
+    BufferConversionError, BufferOperationError,
 };
 
 use super::opencl_state::OpenCLState;
@@ -25,6 +26,7 @@ const BUFFER_OPERATIONS_PROGRAM_SOURCE: &str = include_str!("kernels/buffer_oper
 const BUFFER_OPERATIONS_PROGRAM_NAME: &str = "BUFFER_OPERATIONS";
 
 const REDUCE_BUFFER_KERNEL_NAME: &str = "sum_all_values_in_workgroups";
+const SUM_ALL_VALUES_IN_ROW_WOIRK_GROUPS: &str = "sum_all_values_in_row_work_groups";
 const SCALE_BUFFER_KERNEL_NAME: &str = "scale";
 const INVERSE_SQRT_BUFFER_KERNEL_NAME: &str = "inverse_sqrt";
 const SQRT_BUFFER_KERNEL_NAME: &str = "squareroot";
@@ -39,6 +41,7 @@ pub(crate) fn compile_buffer_operations_program(
 ) -> Result<(), EnsureKernelsAndProgramError> {
     let kernels = &[
         REDUCE_BUFFER_KERNEL_NAME,
+        SUM_ALL_VALUES_IN_ROW_WOIRK_GROUPS,
         SCALE_BUFFER_KERNEL_NAME,
         INVERSE_SQRT_BUFFER_KERNEL_NAME,
         SQRT_BUFFER_KERNEL_NAME,
@@ -88,6 +91,45 @@ fn reduce_buffer_by_summation(
     Ok((event, current_reduced_buffer))
 }
 
+fn reduce_buffer_by_row_wise_summation(
+    buffer: &Buffer<cl_float>,
+    width: usize,
+    height: usize,
+    state: &OpenCLState,
+    max_local_size: usize,
+    kernel: &Kernel,
+    wait_list: &[Event],
+) -> Result<(Event, Buffer<cl_float>), ClError> {
+    let queue = state.queues.first().unwrap();
+
+    let mut global_size_1 = width;
+    let mut local_size_1 = gcd(global_size_1, max_local_size);
+    while local_size_1 == 1 {
+        global_size_1 += 1;
+        local_size_1 = gcd(global_size_1, max_local_size);
+    }
+
+    let mut global_size_0 = find_multiple_of_n_closest_to_m(max_local_size, height);
+    let local_size_0 = find_divsor_of_n_closest_to_m(max_local_size, max_local_size / local_size_1);
+    if global_size_0 == 0 {
+        global_size_0 = local_size_0;
+    }
+
+    let mut current_reduced_buffer =
+        empty_buffer(height * global_size_1 / local_size_1, CL_MEM_READ_WRITE, state)?;
+    let event = ExecuteKernel::new(kernel)
+        .set_arg(buffer)
+        .set_arg(&mut current_reduced_buffer)
+        .set_arg_local_buffer(local_size_0 * local_size_1 * std::mem::size_of::<cl_float>())
+        .set_arg(&(width as cl_int))
+        .set_arg(&(height as cl_int))
+        .set_event_wait_list(&wait_list.iter().map(|e| e.get()).collect::<Vec<cl_event>>())
+        .set_global_work_sizes(&[dbg!(global_size_0), dbg!(global_size_1)])
+        .set_local_work_sizes(&[dbg!(local_size_0), dbg!(local_size_1)])
+        .enqueue_nd_range(queue)?;
+
+    Ok((event, current_reduced_buffer))
+}
 
 /// A trait that is implemented within Intricate for doing buffer operations that somewhat of
 /// duplicate data. An example of this is if you subtract a buffer from another it will not change
@@ -106,8 +148,23 @@ where
     /// - There is no command queue in the **opencl_state**.
     /// - If something goes wrong while executing the kernels.
     /// - If the program for buffer operations was not compiled in **opencl_state**.
-    /// - If the summation kernel was not foudn in the program for buffer operations.
+    /// - If the summation kernel was not found in the program for buffer operations.
     fn sum(&self, opencl_state: &OpenCLState) -> Result<f32, BufferOperationError>;
+
+
+    /// Sums all of the numbers inside of a buffer separated by rows (in which, their width
+    /// are received as parameters) and returns a resulting buffer containing the summation per rows.
+    ///
+    /// # Errors
+    ///
+    /// This method will yield an error in the following cases:
+    /// - There is no device in the **opencl_state**.
+    /// - There is no command queue in the **opencl_state**.
+    /// - If something goes wrong while executing the kernels.
+    /// - If the program for buffer operations was not compiled in **opencl_state**.
+    /// - If the summation kernel was not found in the program for buffer operations.
+    /// - If the specified width does not match the &self's width
+    fn sum_2d_per_row(&self, state: &OpenCLState, width: usize) -> Result<Self, BufferOperationError>;
 
     /// Scales the buffer by a certain number or scaler.
     ///
@@ -510,6 +567,60 @@ impl BufferOperations for Buffer<cl_float> {
             queue.finish()?;
 
             Ok(buf_slice[0])
+        }
+    }
+
+    fn sum_2d_per_row(&self, state: &OpenCLState, initial_width: usize) -> Result<Self, BufferOperationError> {
+        if state.devices.is_empty() {
+            return Err(BufferOperationError::NoDeviceFoundError);
+        }
+
+        if state.queues.is_empty() {
+            return Err(BufferOperationError::NoCommandQueueFoundError);
+        }
+
+        let device = state.devices.first().unwrap();
+        let queue = state.queues.first().unwrap();
+
+        let operations_program = state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
+
+        let reduce_kernel = operations_program.get_krnl(SUM_ALL_VALUES_IN_ROW_WOIRK_GROUPS)?;
+
+        let max_local_size = device.max_work_group_size()?;
+
+        let mut current_count = self.size()? / mem::size_of::<cl_float>();
+        let mut width = initial_width;
+        if current_count % initial_width != 0 {
+            return Err(BufferOperationError::DimensionWasNotAsSpecified("width"));
+        }
+        let height = current_count / width;
+
+        if current_count == height || current_count == 0 {
+            self.clone(state)
+        } else {
+            let (mut ev, mut current_buf) =
+                reduce_buffer_by_row_wise_summation(self, width, height, state, max_local_size, reduce_kernel, &[])?;
+            current_count = current_buf.size()? / mem::size_of::<cl_float>();
+            width = current_count / height;
+
+            while width > 1 {
+                current_buf.dbg(state).unwrap();
+                (ev, current_buf) = reduce_buffer_by_row_wise_summation(
+                    &current_buf,
+                    width,
+                    height,
+                    state,
+                    max_local_size,
+                    reduce_kernel,
+                    &[ev],
+                )?;
+                current_count = current_buf.size()? / mem::size_of::<cl_float>();
+                width = current_count / height;
+            }
+
+            queue.finish()?;
+
+            Ok(current_buf)
         }
     }
 }

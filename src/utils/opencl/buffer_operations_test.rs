@@ -1,6 +1,8 @@
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 
+use crate::utils::approx_eq::assert_approx_equal;
+
 use super::{
     opencl_state::{setup_opencl, DeviceType},
     BufferLike, BufferOperations,
@@ -171,4 +173,88 @@ fn should_sum_buffer_to_correct_value() {
 
     println!("{} - {}", actual_result, expected_sum);
     assert!(((actual_result - expected_sum) / (actual_result.max(expected_sum))).abs() <= 0.0001);
+}
+
+#[test]
+fn should_sum_buffers_width_wise_with_very_divisble_widths_correctly() {
+    let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
+
+    let width = 6;
+    let test_vec = vec![
+        vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        vec![1.0, 2.0, 3.0, 4.0, 5.0, 0.0],
+        vec![1.0, 2.0, 3.0, 4.0, 0.0, 0.0],
+        vec![1.0, 2.0, 3.0, 0.0, 0.0, 0.0],
+        vec![1.0, 2.0, 0.0, 0.0, 0.0, 0.0],
+        vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    ];
+    let expected_results = vec![
+        21.0, 
+        15.0, 
+        10.0, 
+        6.0,
+        3.0,
+        1.0,
+        0.0
+    ];
+
+    let buff = test_vec
+        .iter()
+        .flatten()
+        .map(|x| *x)
+        .collect::<Vec<f32>>()
+        .to_buffer(false, &opencl_state)
+        .unwrap();
+
+    let buf_actual_results = buff.sum_2d_per_row(&opencl_state, width)
+        .unwrap();
+    let actual_results = Vec::from_buffer(&buf_actual_results, true, &opencl_state).unwrap();
+
+    dbg!(&actual_results);
+    dbg!(&expected_results);
+    assert_approx_equal(&actual_results, &expected_results, 2);
+}
+
+#[test]
+fn should_sum_buffers_width_wise_with_prime_widths_correctly() {
+    let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
+
+    let width = 7;
+    let test_vec = vec![
+        vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+        vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 0.0],
+        vec![1.0, 2.0, 3.0, 4.0, 5.0, 0.0, 0.0],
+        vec![1.0, 2.0, 3.0, 4.0, 0.0, 0.0, 0.0],
+        vec![1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 0.0],
+        vec![1.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    ];
+    let expected_results = vec![
+        28.0,
+        21.0,
+        15.0,
+        10.0,
+        6.0,
+        3.0,
+        1.0,
+        0.0
+    ];
+
+    let buff = test_vec
+        .iter()
+        .flatten()
+        .map(|x| *x)
+        .collect::<Vec<f32>>()
+        .to_buffer(false, &opencl_state)
+        .unwrap();
+
+    let buf_actual_results = buff.sum_2d_per_row(&opencl_state, width)
+        .unwrap();
+    let actual_results = Vec::from_buffer(&buf_actual_results, true, &opencl_state).unwrap();
+
+    dbg!(&actual_results);
+    dbg!(&expected_results);
+    assert_approx_equal(&actual_results, &expected_results, 1);
 }
