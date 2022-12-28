@@ -38,7 +38,7 @@ const CONV2D_PROGRAM_NAME: &str = "CONV2D";
 const PROGRAM_SORUCE: &str = include_str!("kernels/conv2d.cl");
 
 const PROPAGATION_KERNEL_NAME: &str = "convolute";
-const COMPUTE_WEIGHT_GRADIENTS_KERNEL_NAME: &str = "compute_gradients_for_one_filter_pixel";
+const COMPUTE_WEIGHT_GRADIENTS_KERNEL_NAME: &str = "compute_gradients_per_sample";
 // const COMPUTE_BIAS_GRADIENTS_KERNEL_NAME: &str = "compute_gradients_for_biases";
 const COMPUTE_LOSS_TO_INPUT_DERIVATIVES_KERNEL_NAME: &str = "compute_loss_to_input_derivatives";
 
@@ -419,61 +419,38 @@ impl<'a> Layer<'a> for Conv2D<'a> {
 
         let filter_volume = self.filter_size.0 * self.filter_size.1;
 
-        let mut weights_gradients: Vec<f32> = Vec::with_capacity(filter_volume);
-
         let program = state.get_prgm(CONV2D_PROGRAM_NAME)?;
         let compute_gradient_weights_kernel =
             program.get_krnl(COMPUTE_WEIGHT_GRADIENTS_KERNEL_NAME)?;
-        // let compute_gradient_biases_kernel =
-        //     program.get_krnl(COMPUTE_BIAS_GRADIENTS_KERNEL_NAME)?;
 
-        for pixel_index in 0..filter_volume {
-            let filter_pixel_gradients = empty_buffer(
-                convolution_volume * samples_amount,
-                CL_MEM_READ_WRITE,
-                state,
-            )?;
+        let convolution_width = self.inputs_size.0 - self.filter_size.0 + 1;
+        let convolution_height = self.inputs_size.1 - self.filter_size.1 + 1;
 
-            let pixel_y =
-                ((pixel_index + 1) as f32 / self.filter_size.0 as f32).ceil() as usize - 1;
-            let pixel_x = pixel_index % self.filter_size.0;
+        let mut per_filter_pixel_sample_gradients = empty_buffer(
+            filter_volume * samples_amount,
+            CL_MEM_READ_WRITE,
+            state,
+        )?;
 
-            let convolution_width = self.inputs_size.0 - self.filter_size.0 + 1;
-            let convolution_height = self.inputs_size.1 - self.filter_size.1 + 1;
+        ExecuteKernel::new(compute_gradient_weights_kernel)
+            .set_arg(self.last_inputs_buffer.as_ref().unwrap())
+            .set_arg(layer_output_to_error_derivatives)
+            .set_arg(&mut per_filter_pixel_sample_gradients )
+            .set_arg(&(self.inputs_size.0 as cl_int))
+            .set_arg(&(image_volume as cl_int))
+            .set_arg(&(self.filter_size.0 as cl_int))
+            .set_arg(&(filter_volume as cl_int))
+            .set_arg(&(convolution_width as cl_int))
+            .set_arg(&(convolution_height as cl_int))
+            .set_arg(&(convolution_volume as cl_int))
+            .set_global_work_sizes(&[self.filter_size.0, self.filter_size.1, samples_amount])
+            .enqueue_nd_range(queue)?
+            .wait()?;
 
-            ExecuteKernel::new(compute_gradient_weights_kernel)
-                .set_arg(self.last_inputs_buffer.as_ref().unwrap())
-                .set_arg(layer_output_to_error_derivatives)
-                .set_arg(&filter_pixel_gradients)
-                .set_arg(&(self.inputs_size.0 as cl_int))
-                .set_arg(&(image_volume as cl_int))
-                .set_arg(&(self.filter_size.0 as cl_int))
-                .set_arg(&(filter_volume as cl_int))
-                .set_arg(&(samples_amount.clone() as cl_int))
-                .set_arg(&(convolution_width as cl_int))
-                .set_arg(&(convolution_height as cl_int))
-                .set_arg(&(convolution_volume as cl_int))
-                .set_arg(&(pixel_index as cl_int))
-                .set_arg(&(pixel_y as cl_int))
-                .set_arg(&(pixel_x as cl_int))
-                .set_global_work_sizes(&[samples_amount, convolution_height, convolution_width])
-                .enqueue_nd_range(queue)?
-                .wait()?;
-
-            weights_gradients.push(filter_pixel_gradients.sum(state)? / samples_amount as f32);
-        }
+        let mut weight_gradients = per_filter_pixel_sample_gradients.sum_2d_per_row(state, samples_amount)?;
+        weight_gradients.scale_inplc(1 as f32 / samples_amount as f32, state)?;
 
         let bias_gradients = layer_output_to_error_derivatives.sum(state)? / samples_amount as f32;
-        // empty_buffer(self.get_outputs_amount(), CL_MEM_READ_WRITE, state)?;
-
-        // ExecuteKernel::new(compute_gradient_biases_kernel)
-        //     .set_arg(layer_output_to_error_derivatives)
-        //     .set_arg(&bias_gradients)
-        //     .set_arg(&(samples_amount as cl_int))
-        //     .set_arg(&(convolution_volume as cl_int))
-        //     .set_global_work_size(convolution_volume)
-        //     .enqueue_nd_range(queue)?
-        //     .wait()?;
 
         queue.finish()?;
 
@@ -481,7 +458,7 @@ impl<'a> Layer<'a> for Conv2D<'a> {
             Gradient {
                 optimizable: true,
                 parameter_id: "weights".to_string(),
-                value: weights_gradients.to_buffer(false, state)?,
+                value: weight_gradients,
             },
             Gradient {
                 optimizable: true,

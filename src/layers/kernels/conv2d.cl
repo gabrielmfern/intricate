@@ -96,56 +96,43 @@ kernel void convolute(
     }
 }
 
-kernel void compute_gradients_for_one_filter_pixel(
+kernel void compute_gradients_per_sample(
     global float* image,
     global float* error_to_output_derivatives,
-    global float* filter_pixel_gradients,
+    global float* sample_gradients_per_filter_pixel,
 
     int image_width,
     int image_volume,
 
     int filter_width,
     int filter_volume,
-    
-    int samples_amount,
 
     int output_width,
     int output_height,
-    int output_volume,
-
-    int pixel_index,
-    int pixel_y,
-    int pixel_x
+    int output_volume
 ) {
-    int sample_index = get_global_id(0);
+    int filter_y = get_global_id(0);
+    int filter_x = get_global_id(1);
+    int sample_index = get_global_id(2);
 
-    if (sample_index >= samples_amount) {
-        return;
+    float pixel_gradient = 0.0f;
+    for (int output_y = 0; output_y < output_height; output_y++) {
+        int input_y = output_y + filter_y;
+        for (int output_x = 0; output_x < output_width; output_x++) {
+            int input_x = output_x + filter_x;
+
+            int input_index = input_y * image_width + input_x;
+            int global_input_index = sample_index * image_volume + input_index;
+
+            int output_index = output_y * output_width + output_x;
+            int global_output_index = sample_index * output_volume + output_index;
+
+            pixel_gradient += (float)image[global_input_index] * (float)error_to_output_derivatives[global_output_index];
+        }
     }
 
-    int output_y = get_global_id(1);
-
-    if (output_y >= output_width) {
-        return;
-    }
-
-    int output_x = get_global_id(2);
-
-    if (output_x >= output_height) {
-        return;
-    }
-
-    int input_y = output_y + pixel_y;
-    int input_x = output_x + pixel_x;
-
-    int input_index = input_y * image_width + input_x;
-    int global_input_index = sample_index * image_volume + input_index;
-
-    int output_index = output_y * output_width + output_x;
-    int global_output_index = sample_index * output_volume + output_index;
-
-    filter_pixel_gradients[global_output_index] 
-        = (float)image[global_input_index] * (float)error_to_output_derivatives[global_output_index];
+    sample_gradients_per_filter_pixel[get_global_linear_id()] 
+        = pixel_gradient;
 }
 
 // kernel void compute_gradients_for_biases(
