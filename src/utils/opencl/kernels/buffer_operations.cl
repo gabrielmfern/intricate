@@ -66,9 +66,6 @@ kernel void sum_all_values_in_row_work_groups(
     int buffer_width,
     int buffer_height
 ) {
-    int local_y = get_local_id(0);
-    int local_x = get_local_id(1);
-
     int global_y = get_global_id(0);
     int global_x = get_global_id(1);
 
@@ -80,8 +77,13 @@ kernel void sum_all_values_in_row_work_groups(
         return;
     }
 
+    int local_y = get_local_id(0);
+    int local_x = get_local_id(1);
+
     int group_size_y = get_local_size(0);
-    int group_size_x = get_local_size(1); // this needs to divide into the buffer's row widths
+    int group_size_x = get_local_size(1);
+
+    int x_group_id = get_group_id(1);
 
     if (group_size_y > buffer_height) {
         group_size_y = buffer_height;
@@ -91,35 +93,39 @@ kernel void sum_all_values_in_row_work_groups(
         group_size_x = buffer_width;
     }
 
+    if ((x_group_id + 1) * group_size_x > buffer_width) {
+        group_size_x = buffer_width - x_group_id * group_size_x;
+    }
+
     int local_id = local_y * group_size_x + local_x;
     int global_id = global_y * buffer_width + global_x;
     workgroup_state[local_id] = original[global_id];
-    barrier(CLK_LOCAL_MEM_FENCE);
 
-    int half_size = group_size_x / 2;
+    int half_size_x = group_size_x / 2;
     while (group_size_x > 1) {
-        // if the id in the work group is in the first half
-        if (local_x < half_size && global_x < buffer_width - 1) {
-            // sum it and the corresponding value in the other half together into the local_id
-            /* printf("(glb_id %d) %e + %e\n", global_id, workgroup_state[local_id], workgroup_state[local_id + half_size]); */
-            workgroup_state[local_id] += workgroup_state[local_id + half_size];
+        barrier(CLK_LOCAL_MEM_FENCE);
+
+        if (local_x < half_size_x) {
+            /* printf("(local_id %d, global_id %d, global_x %d, group_size %d, buffer_width %d) %e + %e\n", local_id, global_id, global_x, group_size_x, buffer_width, workgroup_state[local_id], workgroup_state[local_id + half_size_x]); */
+            workgroup_state[local_id] += workgroup_state[local_id + half_size_x];
+
             if (local_x == 0) {
-                if ((half_size * 2) < group_size_x) {
-                    workgroup_state[local_id] += 
-                        workgroup_state[local_y * buffer_width + group_size_x - 1];
+                if ((half_size_x * 2) < group_size_x) {
+                    int last_id = local_y * group_size_x + group_size_x - 1;
+                    /* printf("(local_id %d, global_id %d, group_size %d, last_id %d) %e + %e\n", local_id, global_id, group_size_x, last_id, workgroup_state[local_id], workgroup_state[last_id]); */
+                    workgroup_state[local_id] += workgroup_state[last_id];
                 }
             }
         }
 
-        barrier(CLK_LOCAL_MEM_FENCE);
-
-        group_size_x = half_size;
-        half_size = group_size_x / 2;
+        group_size_x = half_size_x;
+        half_size_x  = group_size_x / 2;
     }
 
+    barrier(CLK_LOCAL_MEM_FENCE);
+
     if (local_x == 0) {
-        reduced[global_y * get_num_groups(1) + get_group_id(1)] 
-            = workgroup_state[local_id];
+        reduced[global_y * (get_global_size(1) / get_local_size(1) + buffer_width % 2) + x_group_id] = workgroup_state[local_id];
     }
 }
 

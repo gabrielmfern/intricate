@@ -161,7 +161,7 @@ fn should_sum_buffer_to_correct_value() {
     let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
 
     let mut rng = thread_rng();
-    let numbers_amount = 256;
+    let numbers_amount = 1001;
     let test_vec: Vec<f32> = (0..numbers_amount)
         .map(|_| -> f32 { rng.gen_range(-123.31_f32..3193.31_f32) })
         .collect();
@@ -221,8 +221,8 @@ fn should_sum_buffers_width_wise_with_very_large_heights() {
     let opencl_state = setup_opencl(DeviceType::GPU).unwrap();
 
     let width = 10;
-    let test_vec = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]; 512];
-    let expected_results = vec![55.0; 512];
+    let test_vec = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]; 5000];
+    let expected_results = vec![55.0; 5000];
 
     let buff = test_vec
         .iter()
@@ -236,12 +236,37 @@ fn should_sum_buffers_width_wise_with_very_large_heights() {
         .unwrap();
     let actual_results = Vec::from_buffer(&buf_actual_results, true, &opencl_state).unwrap();
 
-    actual_results.iter().enumerate().zip(&expected_results).for_each(|((i, actual), expected)| {
-        if actual != expected {
-            dbg!(i, actual, expected);
-        }
-    });
     assert_approx_equal(&actual_results, &expected_results, 2);
+}
+
+#[test]
+fn should_sum_random_buffers_per_row_correctly() {
+    let state = setup_opencl(DeviceType::GPU).unwrap();
+
+    // let mut rng = thread_rng();
+    let width = 37;
+    let height = 5;
+
+    let test_vec: Vec<Vec<f32>> = (0..height)
+        .map(|_| {
+            (0..width).map(|_| {
+                1.0
+            }).collect()
+        })
+        .collect();
+    let expected_results: Vec<f32> = test_vec.par_iter()
+        .map(|row| row.iter().sum::<f32>())
+        .collect();
+
+    let buf = test_vec.iter()
+        .flatten()
+        .map(|x| *x)
+        .collect::<Vec<f32>>()
+        .to_buffer(false, &state).unwrap();
+    let actual_results_buf = buf.sum_2d_per_row(&state, width).unwrap();
+    let actual_results = Vec::from_buffer(&actual_results_buf, false, &state).unwrap();
+
+    assert_approx_equal(&actual_results, &expected_results, 0);
 }
 
 #[test]

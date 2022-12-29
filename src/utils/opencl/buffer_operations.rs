@@ -118,7 +118,7 @@ fn reduce_buffer_by_row_wise_summation(
     }
 
     let mut current_reduced_buffer = empty_buffer(
-        height * global_size_1 / local_size_1,
+        height * (global_size_1 / local_size_1 + width % 2),
         CL_MEM_READ_WRITE,
         state,
     )?;
@@ -132,6 +132,8 @@ fn reduce_buffer_by_row_wise_summation(
         .set_global_work_sizes(&[global_size_0, global_size_1])
         .set_local_work_sizes(&[local_size_0, local_size_1])
         .enqueue_nd_range(queue)?;
+
+    current_reduced_buffer.dbg(state).unwrap();
 
     Ok((event, current_reduced_buffer))
 }
