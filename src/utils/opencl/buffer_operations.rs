@@ -117,8 +117,9 @@ fn reduce_buffer_by_row_wise_summation(
         global_size_0 = local_size_0;
     }
 
+    let reduced_width = global_size_1 / local_size_1;
     let mut current_reduced_buffer = empty_buffer(
-        height * (global_size_1 / local_size_1 + width % 2),
+        height * reduced_width,
         CL_MEM_READ_WRITE,
         state,
     )?;
@@ -126,14 +127,13 @@ fn reduce_buffer_by_row_wise_summation(
         .set_arg(buffer)
         .set_arg(&mut current_reduced_buffer)
         .set_arg_local_buffer(local_size_0 * local_size_1 * std::mem::size_of::<cl_float>())
+        .set_arg(&(reduced_width as cl_int))
         .set_arg(&(width as cl_int))
         .set_arg(&(height as cl_int))
         .set_event_wait_list(&wait_list.iter().map(|e| e.get()).collect::<Vec<cl_event>>())
         .set_global_work_sizes(&[global_size_0, global_size_1])
         .set_local_work_sizes(&[local_size_0, local_size_1])
         .enqueue_nd_range(queue)?;
-
-    current_reduced_buffer.dbg(state).unwrap();
 
     Ok((event, current_reduced_buffer))
 }

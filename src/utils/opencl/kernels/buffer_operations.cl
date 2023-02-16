@@ -63,6 +63,7 @@ kernel void sum_all_values_in_row_work_groups(
 
     local float* workgroup_state,
 
+    int reduced_width,
     int buffer_width,
     int buffer_height
 ) {
@@ -77,13 +78,14 @@ kernel void sum_all_values_in_row_work_groups(
         return;
     }
 
-    int local_y = get_local_id(0);
+    int local_id_0 = get_local_id(0);
     int local_x = get_local_id(1);
 
     int group_size_y = get_local_size(0);
     int group_size_x = get_local_size(1);
 
-    int x_group_id = get_group_id(1);
+    // adjust the x_group_id to be the actual x_group_id in just the current row
+    int x_group_id = get_group_id(1) % reduced_width;
 
     if (group_size_y > buffer_height) {
         group_size_y = buffer_height;
@@ -93,26 +95,26 @@ kernel void sum_all_values_in_row_work_groups(
         group_size_x = buffer_width;
     }
 
+    // adjust for the last summation group in the row
     if ((x_group_id + 1) * group_size_x > buffer_width) {
         group_size_x = buffer_width - x_group_id * group_size_x;
     }
 
-    int local_id = local_y * group_size_x + local_x;
+    int local_id = local_id_0 * group_size_x + local_x;
     int global_id = global_y * buffer_width + global_x;
     workgroup_state[local_id] = original[global_id];
 
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    int initial_group_size_x = group_size_x;
     int half_size_x = group_size_x / 2;
     while (group_size_x > 1) {
-        barrier(CLK_LOCAL_MEM_FENCE);
-
         if (local_x < half_size_x) {
-            /* printf("(local_id %d, global_id %d, global_x %d, group_size %d, buffer_width %d) %e + %e\n", local_id, global_id, global_x, group_size_x, buffer_width, workgroup_state[local_id], workgroup_state[local_id + half_size_x]); */
             workgroup_state[local_id] += workgroup_state[local_id + half_size_x];
 
             if (local_x == 0) {
                 if ((half_size_x * 2) < group_size_x) {
-                    int last_id = local_y * group_size_x + group_size_x - 1;
-                    /* printf("(local_id %d, global_id %d, group_size %d, last_id %d) %e + %e\n", local_id, global_id, group_size_x, last_id, workgroup_state[local_id], workgroup_state[last_id]); */
+                    int last_id = local_id_0 * initial_group_size_x + group_size_x - 1;
                     workgroup_state[local_id] += workgroup_state[last_id];
                 }
             }
@@ -125,7 +127,7 @@ kernel void sum_all_values_in_row_work_groups(
     barrier(CLK_LOCAL_MEM_FENCE);
 
     if (local_x == 0) {
-        reduced[global_y * (get_global_size(1) / get_local_size(1) + buffer_width % 2) + x_group_id] = workgroup_state[local_id];
+        reduced[global_y * reduced_width + x_group_id] = workgroup_state[local_id];
     }
 }
 

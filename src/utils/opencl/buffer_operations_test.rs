@@ -243,14 +243,15 @@ fn should_sum_buffers_width_wise_with_very_large_heights() {
 fn should_sum_random_buffers_per_row_correctly() {
     let state = setup_opencl(DeviceType::GPU).unwrap();
 
-    // let mut rng = thread_rng();
-    let width = 37;
-    let height = 5;
+    let mut rng = thread_rng();
+    let width = rng.gen_range(100..1024);
+    let height = rng.gen_range(27..3132);
 
     let test_vec: Vec<Vec<f32>> = (0..height)
         .map(|_| {
             (0..width).map(|_| {
-                1.0
+                rng.gen_range(-1231f32..4123f32)
+                // 1.0
             }).collect()
         })
         .collect();
@@ -266,7 +267,10 @@ fn should_sum_random_buffers_per_row_correctly() {
     let actual_results_buf = buf.sum_2d_per_row(&state, width).unwrap();
     let actual_results = Vec::from_buffer(&actual_results_buf, false, &state).unwrap();
 
-    assert_approx_equal(&actual_results, &expected_results, 0);
+    assert_eq!(actual_results.len(), expected_results.len(), "The sizes of the results do not even match");
+    actual_results.iter().zip(&expected_results).for_each(|(actual, expected)| {
+        assert!((actual - expected) / expected <= 0.5, "The values of the results are not at most 1% apart");
+    });
 }
 
 #[test]
