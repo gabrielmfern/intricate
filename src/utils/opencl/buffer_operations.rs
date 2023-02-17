@@ -13,7 +13,7 @@ use opencl3::{
 };
 
 use crate::utils::{
-    find_divsor_of_n_closest_to_m, find_multiple_of_n_closest_to_m, gcd, opencl::BufferLike,
+    find_divsor_of_n_closest_to_m, gcd, opencl::BufferLike,
 };
 
 use super::{
@@ -111,10 +111,11 @@ fn reduce_buffer_by_row_wise_summation(
         local_size_1 = gcd(global_size_1, max_local_size);
     }
 
-    let mut global_size_0 = find_multiple_of_n_closest_to_m(max_local_size, height);
-    let local_size_0 = find_divsor_of_n_closest_to_m(max_local_size, max_local_size / local_size_1);
-    if global_size_0 == 0 {
-        global_size_0 = local_size_0;
+    let mut global_size_0 = height;
+    let mut local_size_0 = find_divsor_of_n_closest_to_m(height, max_local_size / local_size_1);
+    while local_size_0 == 1 && local_size_1 != max_local_size {
+        global_size_0 += 1;
+        local_size_0 = find_divsor_of_n_closest_to_m(global_size_0, max_local_size / local_size_1);
     }
 
     let reduced_width = global_size_1 / local_size_1;
@@ -126,7 +127,7 @@ fn reduce_buffer_by_row_wise_summation(
     let event = ExecuteKernel::new(kernel)
         .set_arg(buffer)
         .set_arg(&mut current_reduced_buffer)
-        .set_arg_local_buffer(local_size_0 * local_size_1 * std::mem::size_of::<cl_float>())
+        .set_arg_local_buffer(local_size_0.min(height) * local_size_1.min(width) * std::mem::size_of::<cl_float>())
         .set_arg(&(reduced_width as cl_int))
         .set_arg(&(width as cl_int))
         .set_arg(&(height as cl_int))
