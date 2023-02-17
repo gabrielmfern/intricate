@@ -9,6 +9,7 @@
 use indicatif::ProgressIterator;
 
 /// The module containing the MNIST dataset
+#[cfg(feature = "mnist-dataset")]
 pub mod mnist;
 
 #[allow(dead_code)]
