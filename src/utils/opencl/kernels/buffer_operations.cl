@@ -120,11 +120,11 @@ kernel void sum_all_values_in_row_work_groups(
             }
         }
 
+        barrier(CLK_LOCAL_MEM_FENCE);
+
         group_size_x = half_size_x;
         half_size_x  = group_size_x / 2;
     }
-
-    barrier(CLK_LOCAL_MEM_FENCE);
 
     if (local_x == 0) {
         reduced[global_y * reduced_width + x_group_id] = workgroup_state[local_id];
