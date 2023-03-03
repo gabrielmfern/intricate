@@ -402,6 +402,43 @@ impl InitializerTrait for Initializer {
             Initializer::GlorotUniform(i) => i.initialize_0d(layer),
         }
     }
+
+    fn initialize_1d<'a>(&self, count: usize, layer: &dyn Layer<'a>) -> Vec<f32> {
+        match self {
+            Initializer::Constant(i) => i.initialize_1d(count, layer),
+            Initializer::LimitedRandom(i) => i.initialize_1d(count, layer),
+            Initializer::UniformRandom(i) => i.initialize_1d(count, layer),
+            Initializer::NormalRandom(i) => i.initialize_1d(count, layer),
+            Initializer::GlorotNormal(i) => i.initialize_1d(count, layer),
+            Initializer::GlorotUniform(i) => i.initialize_1d(count, layer),
+        }
+    }
+
+    fn initialize_2d<'a>(&self, shape: (usize, usize), layer: &dyn Layer<'a>) -> Vec<Vec<f32>> {
+        match self {
+            Initializer::Constant(i) => i.initialize_2d(shape, layer),
+            Initializer::LimitedRandom(i) => i.initialize_2d(shape, layer),
+            Initializer::UniformRandom(i) => i.initialize_2d(shape, layer),
+            Initializer::NormalRandom(i) => i.initialize_2d(shape, layer),
+            Initializer::GlorotNormal(i) => i.initialize_2d(shape, layer),
+            Initializer::GlorotUniform(i) => i.initialize_2d(shape, layer),
+        }
+    }
+
+    fn initialize_3d<'a>(
+            &self,
+            shape: (usize, usize, usize),
+            layer: &dyn Layer<'a>,
+        ) -> Vec<Vec<Vec<f32>>> {
+        match self {
+            Initializer::Constant(i) => i.initialize_3d(shape, layer),
+            Initializer::LimitedRandom(i) => i.initialize_3d(shape, layer),
+            Initializer::UniformRandom(i) => i.initialize_3d(shape, layer),
+            Initializer::NormalRandom(i) => i.initialize_3d(shape, layer),
+            Initializer::GlorotNormal(i) => i.initialize_3d(shape, layer),
+            Initializer::GlorotUniform(i) => i.initialize_3d(shape, layer),
+        }
+    }
 }
 
 impl Default for Initializer {
