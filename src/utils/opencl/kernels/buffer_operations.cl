@@ -131,6 +131,56 @@ kernel void sum_all_values_in_row_work_groups(
     }
 }
 
+uint reverse_bits(uint x, uint amount_bits) {
+    x = ((x & 0xaaaaaaaa) >> 1) | ((x & 0x55555555) << 1);
+    x = ((x & 0xcccccccc) >> 2) | ((x & 0x33333333) << 2);
+    x = ((x & 0xf0f0f0f0) >> 4) | ((x & 0x0f0f0f0f) << 4);
+    x = ((x & 0xff00ff00) >> 8) | ((x & 0x00ff00ff) << 8);
+    return (x >> 16) | (x << 16) >> (32u - amount_bits);
+}
+
+float2 cis(float theta) {
+    return (float2) (cos(theta), sin(theta));
+}
+
+float2 complex_multiplication(float2 a, float2 b) {
+    return (float2) (a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+}
+
+kernel void fft_1d(
+    global float *nums,
+    global float2 *result,
+    uint N,
+    uint logN
+) {
+    uint global_id_0 = get_global_id(0);
+
+    uint global_linear_id = get_global_linear_id();
+
+    uint index = 2u * global_linear_id;
+    uint reverse = reverse_bits(index, logN);
+    result[index] = (float2) (nums[reverse], 0.0);
+
+    index += 1u;
+    reverse = reverse_bits(index, logN);
+    result[index] = (float2) (nums[reverse], 0.0);
+
+    for (uint s = 1u; s <= logN; s++) {
+        barrier(CLK_GLOBAL_MEM_FENCE);
+
+        uint m_half = 1u << (s - 1u);
+
+        uint k = global_id_0 / m_half * (1u << s);
+        uint j = global_id_0 % m_half;
+        float2 twiddle = cis(-M_PI_F * (float)j / (float)m_half);
+
+        float2 t = complex_multiplication(twiddle, result[k + j + m_half]);
+        float2 u = result[k + j];
+        result[k + j] = u + t;
+        result[k + j + m_half] = u - t;
+    }
+}
+
 kernel void scale(
     global float *nums,
     global float *result,

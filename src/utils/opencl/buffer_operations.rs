@@ -9,12 +9,10 @@ use opencl3::{
     event::Event,
     kernel::{ExecuteKernel, Kernel},
     memory::{Buffer, ClMem, CL_MEM_READ_WRITE},
-    types::{cl_event, cl_float, cl_int, CL_NON_BLOCKING},
+    types::{cl_event, cl_float, cl_int, CL_NON_BLOCKING, cl_uint},
 };
 
-use crate::utils::{
-    find_divsor_of_n_closest_to_m, gcd, opencl::BufferLike,
-};
+use crate::utils::{find_divsor_of_n_closest_to_m, gcd, opencl::BufferLike};
 
 use super::{
     empty_buffer, find_optimal_local_and_global_work_sizes,
@@ -30,6 +28,7 @@ const BUFFER_OPERATIONS_PROGRAM_NAME: &str = "BUFFER_OPERATIONS";
 const REDUCE_BUFFER_KERNEL_NAME: &str = "sum_all_values_in_workgroups";
 const SUM_ALL_VALUES_IN_ROW_WOIRK_GROUPS: &str = "sum_all_values_in_row_work_groups";
 const SCALE_BUFFER_KERNEL_NAME: &str = "scale";
+const FFT_1D_BUFFER_KERNEL_NAME: &str = "fft_1d";
 const INVERSE_SQRT_BUFFER_KERNEL_NAME: &str = "inverse_sqrt";
 const SQRT_BUFFER_KERNEL_NAME: &str = "squareroot";
 const ADD_BUFFER_KERNEL_NAME: &str = "add";
@@ -45,6 +44,7 @@ pub(crate) fn compile_buffer_operations_program(
         REDUCE_BUFFER_KERNEL_NAME,
         SUM_ALL_VALUES_IN_ROW_WOIRK_GROUPS,
         SCALE_BUFFER_KERNEL_NAME,
+        FFT_1D_BUFFER_KERNEL_NAME,
         INVERSE_SQRT_BUFFER_KERNEL_NAME,
         SQRT_BUFFER_KERNEL_NAME,
         ADD_BUFFER_KERNEL_NAME,
@@ -119,15 +119,14 @@ fn reduce_buffer_by_row_wise_summation(
     }
 
     let reduced_width = global_size_1 / local_size_1;
-    let mut current_reduced_buffer = empty_buffer(
-        height * reduced_width,
-        CL_MEM_READ_WRITE,
-        state,
-    )?;
+    let mut current_reduced_buffer =
+        empty_buffer(height * reduced_width, CL_MEM_READ_WRITE, state)?;
     let event = ExecuteKernel::new(kernel)
         .set_arg(buffer)
         .set_arg(&mut current_reduced_buffer)
-        .set_arg_local_buffer(local_size_0.min(height) * local_size_1.min(width) * std::mem::size_of::<cl_float>())
+        .set_arg_local_buffer(
+            local_size_0.min(height) * local_size_1.min(width) * std::mem::size_of::<cl_float>(),
+        )
         .set_arg(&(reduced_width as cl_int))
         .set_arg(&(width as cl_int))
         .set_arg(&(height as cl_int))
@@ -176,6 +175,21 @@ where
         state: &OpenCLState,
         width: usize,
     ) -> Result<Self, BufferOperationError>;
+
+    /// The Cooley Tuukey implemtantion of the fast discrete fourier transform.
+    /// The FFT will return a new buffer that is twice the size of the original
+    /// beucase it contains the imaginary parts of the frequencies.
+    ///
+    /// # Errors
+    ///
+    /// This method will yield an error in the following cases:
+    /// - There is no device in the **opencl_state**.
+    /// - There is no command queue in the **opencl_state**.
+    /// - If the count of &self is not a power of two.
+    /// - If something goes wrong while executing the kernels.
+    /// - If the program for buffer operations was not compiled in **opencl_state**.
+    /// - If the fft kernel was not found in the program for buffer operations.
+    fn fft_1d(&self, opencl_state: &OpenCLState) -> Result<Self, BufferOperationError>;
 
     /// Scales the buffer by a certain number or scaler.
     ///
@@ -248,6 +262,42 @@ impl BufferOperations for Buffer<cl_float> {
         println!("{:?}", vec);
 
         Ok(())
+    }
+
+    fn fft_1d(&self, opencl_state: &OpenCLState) -> Result<Self, BufferOperationError> {
+        if opencl_state.queues.is_empty() {
+            return Err(BufferOperationError::NoCommandQueueFoundError);
+        }
+
+        let queue = opencl_state.queues.first().unwrap();
+
+        let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
+        let kernel = program.get_krnl(FFT_1D_BUFFER_KERNEL_NAME)?;
+
+        let size_self = self.size()?;
+        let count_self = size_self / mem::size_of::<cl_float>();
+
+        if !count_self.is_power_of_two() {
+            return Err(BufferOperationError::BufferIsNotOfExpectedSize(
+                count_self,
+                "The buffer's length must be a power of two to optimize the calculations!",
+            ));
+        }
+
+        let result = empty_buffer(2 * count_self, CL_MEM_READ_WRITE, opencl_state)?;
+
+        let log_of_count = (count_self as f32).log2().floor() as usize;
+
+        ExecuteKernel::new(kernel)
+            .set_arg(self)
+            .set_arg(&result)
+            .set_arg(&(count_self as cl_uint))
+            .set_arg(&(log_of_count as cl_uint))
+            .set_global_work_size(count_self >> 1)
+            .enqueue_nd_range(queue)?
+            .wait()?;
+
+        Ok(result)
     }
 
     fn scale(&self, scaler: f32, opencl_state: &OpenCLState) -> Result<Self, BufferOperationError> {
@@ -638,7 +688,7 @@ impl BufferOperations for Buffer<cl_float> {
                 width = current_count / height;
             }
 
-//             queue.finish()?;
+            //             queue.finish()?;
 
             Ok(current_buf)
         }
