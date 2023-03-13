@@ -97,6 +97,10 @@ pub enum BufferOperationError {
     /// An error that happens when doing an operation that requires two buffers and that requires
     /// that both buffers are of the same size and count.
     BuffersAreNotOfSameSize(usize, usize),
+    /// An error that happens when doing an operation that restricts the size of the buffer
+    /// and that restriction is not met
+    ///
+    /// contains the size of the buffer and description of the errro
     BufferIsNotOfExpectedSize(usize, &'static str),
     /// An error that happens when doing an opeartion that requires a 2D buffer with its height or
     /// width specified and the true width or height does not match the one specified.
