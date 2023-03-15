@@ -147,6 +147,67 @@ float2 complex_multiplication(float2 a, float2 b) {
     return (float2) (a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
 }
 
+kernel void get_real_part(
+    global float2 *self,
+    global float *result
+) {
+    uint global_index = get_global_id(0);
+    result[global_index] = self[global_index].x;
+}
+
+kernel void complex_point_wise_multiply(
+    global float2 *self,
+    global float2 *other,
+    global float2 *result
+) {
+    uint i = get_global_id(0);
+    result[i] = complex_multiplication(self[i], other[i]);
+}
+
+kernel void ifft(
+    global float2 *nums,
+    global float *result,
+    global float2 *complex_result,
+    uint N,
+    uint logN
+) {
+    uint sample_index = get_global_id(0);
+    uint signal_index = get_global_id(1);
+
+    uint index = 2u * signal_index;
+
+    uint initial_signal_index = sample_index * N;
+
+    uint reverse = reverse_bits(index, logN);
+    complex_result[initial_signal_index + index] = nums[initial_signal_index + reverse];
+
+    index += 1u;
+    reverse = reverse_bits(index, logN);
+    complex_result[initial_signal_index + index] = nums[initial_signal_index + reverse];
+
+    float fN = (float) N;
+
+    for (uint s = 1u; s <= logN; s++) {
+        barrier(CLK_GLOBAL_MEM_FENCE);
+
+        uint m_half = 1u << (s - 1u);
+
+        uint k = signal_index / m_half * (1u << s);
+        uint j = signal_index % m_half;
+        uint k_plus_j = k + j;
+
+        float2 twiddle = cis((float)j / (float)m_half);
+
+        uint first_half_index = initial_signal_index + k_plus_j;
+        uint second_half_index = first_half_index + m_half;
+
+        float2 t = complex_multiplication(twiddle, complex_result[second_half_index]);
+        float2 u = complex_result[first_half_index];
+        complex_result[first_half_index] = u + t;
+        complex_result[second_half_index] = u - t;
+    }
+}
+
 kernel void fft(
     global float *nums,
     global float2 *result,
@@ -156,9 +217,10 @@ kernel void fft(
     uint sample_index = get_global_id(0);
     uint signal_index = get_global_id(1);
 
+    uint index = 2u * signal_index;
+
     uint initial_signal_index = sample_index * N;
 
-    uint index = 2u * signal_index;
     uint reverse = reverse_bits(index, logN);
     result[initial_signal_index + index] = (float2) (nums[initial_signal_index + reverse], 0.0);
 
@@ -174,6 +236,7 @@ kernel void fft(
         uint k = signal_index / m_half * (1u << s);
         uint j = signal_index % m_half;
         uint k_plus_j = k + j;
+
         float2 twiddle = cis(-(float)j / (float)m_half);
 
         uint first_half_index = initial_signal_index + k_plus_j;

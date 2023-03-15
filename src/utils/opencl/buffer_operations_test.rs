@@ -297,23 +297,52 @@ fn should_sum_buffers_width_wise_with_prime_widths_correctly() {
 fn should_compute_fft_1d_correctly() {
     let state = setup_opencl(DeviceType::GPU).unwrap();
     let input = vec![
-        0.0, 2.0, 3.0, 4.0, 3.0, 4.0, 6.0, 8.0, 9.0, 10.0, 12.0, 14.0, 15.0, 16.0, 18.0, 20.0,
+        1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0,
+
+        0.0, 1.0, 1.0, 1.0, 0.0, 2.0, 0.0, 1.0
     ]
     .to_buffer(false, &state)
     .unwrap();
     let expected_fft = vec![
-       144.         ,0.        ,  -2.41779466,54.82826077,
-        -7.58578644,21.72792206, -11.43834568,12.90779754,
-       -12.        ,14.        , -10.80429501, 7.20931273,
-       -10.41421356,3.72792206, -11.33956465, 1.12977596,
-       -12.         ,0.        , -11.33956465, -1.12977596,
-       -10.41421356, -3.72792206, -10.80429501, -7.20931273,
-       -12.        ,-14.        , -11.43834568, -12.90779754,
-        -7.58578644, -21.72792206,  -2.41779466, -54.82826077
+        12.        ,0.        ,  0.        ,0.        ,
+         0.        ,0.        ,  0.        ,0.        ,
+        -4.        ,0.        ,  0.        ,0.        ,
+         0.        ,0.        ,  0.        ,0.        ,
+
+         6.        , 0.        , -0.70710678, -0.29289322,
+        -1.        ,-1.        ,  0.70710678, 1.70710678,
+        -4.        , 0.        ,  0.70710678,-1.70710678,
+        -1.        , 1.        , -0.70710678, 0.29289322
     ];
-    let actual_fft = Vec::from_buffer(&input.fft(&state, 1).unwrap(), false, &state).unwrap();
+    let actual_fft = Vec::from_buffer(&input.fft(&state, 2).unwrap(), false, &state).unwrap();
 
     assert_approx_equal_distance(&expected_fft, &actual_fft, 0.1);
+}
+
+#[test]
+fn should_compute_ifft_1d_correctly() {
+    let state = setup_opencl(DeviceType::GPU).unwrap();
+    let input = vec![
+        12.        ,0.        ,  0.        ,0.        ,
+         0.        ,0.        ,  0.        ,0.        ,
+        -4.        ,0.        ,  0.        ,0.        ,
+         0.        ,0.        ,  0.        ,0.        ,
+
+         6.        , 0.        , -0.70710678, -0.29289322,
+        -1.        ,-1.        ,  0.70710678, 1.70710678,
+        -4.        , 0.        ,  0.70710678,-1.70710678,
+        -1.        , 1.        , -0.70710678, 0.29289322
+    ]
+    .to_buffer(false, &state)
+    .unwrap();
+    let expected_fft = vec![
+        1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0,
+
+        0.0, 1.0, 1.0, 1.0, 0.0, 2.0, 0.0, 1.0
+    ];
+    let actual_fft = Vec::from_buffer(&input.ifft(&state, 2).unwrap(), false, &state).unwrap();
+
+    assert_approx_equal_distance(&expected_fft, &dbg!(actual_fft), 0.1);
 }
 
 #[test]
@@ -349,24 +378,3 @@ fn should_tranpose_images_correclty() {
 
     assert_approx_equal_distance(&expected_transpose, &actual_transpose, 0.1);
 }
-
-// #[test]
-// fn should_compute_fft_2d_correctly() {
-//     let state = setup_opencl(DeviceType::GPU).unwrap();
-//     let input = vec![
-//         1.0, 3.0, 1.0, 9.3,
-//         1.3, 2.2, 0.5, 0.9,
-//         9.2, 0.9, 1.3, 0.6,
-//         0.1, 0.5, 0.2, 0.3,
-//     ].to_buffer(false, &state)
-//     .unwrap();
-//     let expected_fft = vec![
-//         32.3, 0.0, 8.6, 4.5, -3.1, 0.0, 8.6, -4.5,
-//         2.3, -3.8, -9.0, 5.7, -19.3, 0.8, -6.8, -7.5,
-//         20.3, 0.0, 7.2, 7.5, 0.5, 0.0, 7.2, -7.5,
-//         2.3, 3.8, -6.8, 7.5, -19.3, -0.8, -9.0, -5.7
-//     ];
-//     let actual_fft = Vec::from_buffer(&input.fft_2d(4, &state).unwrap(), false, &state).unwrap();
-
-//     assert_approx_equal_distance(&expected_fft, &dbg!(actual_fft), 0.1)
-// }

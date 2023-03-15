@@ -35,6 +35,7 @@ pub use inplace_buffer_operations::InplaceBufferOperations;
 /// Be aware that in some cases like data_sizes that are prime numbers there will be a need to have
 /// larger global sizes than the data_size to make it divide or be divisble by the max_local_size
 pub(crate) fn find_optimal_local_and_global_work_sizes(
+// TODO: optimize this to store optimal local and global sizes as to avoid recalculation of things
     data_size: usize,
     max_local_size: usize,
 ) -> (usize, usize) {
