@@ -147,6 +147,47 @@ float2 complex_multiplication(float2 a, float2 b) {
     return (float2) (a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
 }
 
+kernel void padd_2d(
+    global float *self,
+    global float *result,
+
+    uint old_width,
+    uint old_height
+) {
+    uint matrix_y = get_global_id(0); // the get_global_size(0) should be the old_height + padding_y
+    uint matrix_x = get_global_id(1); // the get_global_size(1) should be the old_width + padding_x
+    uint sample_index = get_global_id(2);
+
+    if (matrix_x >= old_width
+    || matrix_y >= old_height) {
+        result[get_global_linaer_id()] = 0.0f;
+    } else {
+        uint old_global_linear_id = sample_index * old_width * old_height
+            + matrix_y * old_width + matrix_x;
+        result[get_global_linear_id()] = self[old_global_linear_id];
+    }
+}
+
+kernel void slice_2d(
+    global float *self,
+    global float *result,
+
+    uint start_x,
+    uint start_y,
+    
+    uint old_width,
+    uint old_height
+) {
+    uint matrix_y = get_global_id(1); // the get_global_size(1) should be the endY - start_y
+    uint matrix_x = get_global_id(2); // the get_global_size(2) should be the endX - start_x 
+    uint sample_index = get_global_id(2);
+
+    uint global_old_linear_id = sample_index * old_width * old_height 
+        + (matrix_y + start_y) * old_width + matrix_x + start_x;
+
+    result[get_global_linear_id()] = self[global_old_linear_id];
+}
+
 kernel void get_real_part(
     global float2 *self,
     global float *result

@@ -2,7 +2,7 @@
 //!
 //! Not recommended to be used more than once in a row, instead a kernel should be used for that.
 
-use std::mem;
+use std::{mem, ops::{Range, RangeBounds}};
 
 use opencl3::{
     error_codes::ClError,
@@ -29,6 +29,8 @@ const REDUCE_BUFFER_KERNEL_NAME: &str = "sum_all_values_in_workgroups";
 const SUM_ALL_VALUES_IN_ROW_WOIRK_GROUPS: &str = "sum_all_values_in_row_work_groups";
 const SCALE_BUFFER_KERNEL_NAME: &str = "scale";
 const COMPLEX_POINT_WISE_MULTIPLY_KERNEL_NAME: &str = "complex_point_wise_multiply";
+const PADD_2D_KERNEL_NAME: &str = "padd_2d";
+const SLICE_2D_KERNEL_NAME: &str = "slice_2d";
 const GET_REAL_PART_KERNEL_NAME: &str = "get_real_part";
 const FFT_1D_BUFFER_KERNEL_NAME: &str = "fft";
 const IFFT_1D_BUFFER_KERNEL_NAME: &str = "ifft";
@@ -184,6 +186,40 @@ where
         width: usize,
     ) -> Result<Self, BufferOperationError>;
 
+    /// Padds the current buffer by appending zeroes into the end of each row
+    /// and each column of the matrix saved into &self
+    ///
+    /// This does work with multiple matrices as once, that is, with multiple samples.
+    ///
+    /// # Errors
+    ///
+    /// TODO
+    fn padd_2d(
+        &self,
+        width: usize,
+        height: usize,
+        new_width: usize,
+        new_height: usize,
+        state: &OpenCLState,
+    ) -> Result<Self, BufferOperationError>;
+
+    /// Slices the current buffer by creating a new buffer of data that contains
+    /// the data of &self inside a certain range.
+    ///
+    /// This does work with multiple matrices as once, that is, with multiple samples.
+    ///
+    /// # Errors
+    ///
+    /// TODO
+    fn slice_2d(
+        &self,
+        rows_range: Range<usize>,
+        collumns_range: Range<usize>,
+        width: usize,
+        height: usize,
+        state: &OpenCLState,
+    ) -> Result<Self, BufferOperationError>;
+
     /// Returns the real part of a complex buffer into a new buffer of half the size of the
     /// original buffer.
     ///
@@ -334,11 +370,91 @@ impl BufferOperations for Buffer<cl_float> {
         }
     }
 
+    fn padd_2d(
+        &self,
+        width: usize,
+        height: usize,
+        new_width: usize,
+        new_height: usize,
+        state: &OpenCLState,
+    ) -> Result<Self, BufferOperationError> {
+        if state.queues.is_empty() {
+            return Err(BufferOperationError::NoCommandQueueFoundError);
+        }
+
+        let queue = state.queues.first().unwrap();
+
+        let program = state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
+        let kernel = program.get_krnl(PADD_2D_KERNEL_NAME)?;
+
+        let size_self = self.size()?;
+        let count_self = size_self / mem::size_of::<cl_float>();
+        if count_self / width != height {
+            return Err(BufferOperationError::DimensionWasNotAsSpecified(
+                "Cannot determine the amount of samples of the buffer for padding the matrices since the width and height were not as specified!"
+            ));
+        }
+        let samples_amount = count_self / width / height;
+
+        let result = empty_buffer(samples_amount * new_width * new_height, CL_MEM_READ_WRITE, state)?;
+
+        ExecuteKernel::new(kernel)
+            .set_arg(self)
+            .set_arg(&result)
+            .set_arg(&(width as cl_uint))
+            .set_arg(&(height as cl_uint))
+            .set_global_work_sizes(&[new_width, new_height, samples_amount])
+            .enqueue_nd_range(queue)?
+            .wait()?;
+
+        Ok(result)
+    }
+    
+    fn slice_2d(
+        &self,
+        rows_range: Range<usize>,
+        collumns_range: Range<usize>,
+        width: usize,
+        height: usize,
+        state: &OpenCLState,
+    ) -> Result<Self, BufferOperationError> {
+        if state.queues.is_empty() {
+            return Err(BufferOperationError::NoCommandQueueFoundError);
+        }
+
+        let queue = state.queues.first().unwrap();
+
+        let program = state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
+        let kernel = program.get_krnl(SLICE_2D_KERNEL_NAME)?;
+
+        let size_self = self.size()?;
+        let count_self = size_self / mem::size_of::<cl_float>();
+        if count_self / width != height {
+            return Err(BufferOperationError::DimensionWasNotAsSpecified(
+                "Cannot determine the amount of samples of the buffer for slicing the matrices since the width and height were not as specified!"
+            ));
+        }
+        let samples_amount = count_self / width / height;
+
+        let result = empty_buffer(samples_amount * rows_range.len() * collumns_range.len(), CL_MEM_READ_WRITE, state)?;
+
+        ExecuteKernel::new(kernel)
+            .set_arg(self)
+            .set_arg(&result)
+            .set_arg(&(rows_range.start as cl_uint))
+            .set_arg(&(collumns_range.start as cl_uint))
+            .set_arg(&(width as cl_uint))
+            .set_arg(&(height as cl_uint))
+            .set_global_work_sizes(&[rows_range.end - rows_range.start, collumns_range.end - collumns_range.start, samples_amount])
+            .enqueue_nd_range(queue)?
+            .wait()?;
+
+        Ok(result)
+    }
+
     fn dbg(&self, state: &OpenCLState) -> Result<(), BufferConversionError> {
         let vec = Vec::from_buffer(self, false, state)?;
-
         println!("{:?}", vec);
-
         Ok(())
     }
 

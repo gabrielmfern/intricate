@@ -1,6 +1,6 @@
 <div align="center">
   <img 
-    src="https://github.com/gabrielmfern/intricate/blob/main/icon.png"
+    src="./icon.png"
     height="200px"
     stlye="margin-top: 20px; margin-bottom: 20px"
   >
