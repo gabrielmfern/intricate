@@ -187,8 +187,11 @@ kernel void slice_2d(
 
     uint global_old_linear_id = sample_index * old_width * old_height 
         + (matrix_y + start_y) * old_width + matrix_x + start_x;
+    uint global_linear_id = sample_index * get_global_size(0) * get_global_size(1) 
+        + matrix_y * get_global_size(1) 
+        + matrix_x;
 
-    result[get_global_linear_id()] = self[global_old_linear_id];
+    result[global_linear_id] = self[global_old_linear_id];
 }
 
 kernel void get_real_part(
