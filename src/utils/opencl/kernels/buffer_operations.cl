@@ -157,14 +157,17 @@ kernel void padd_2d(
     uint matrix_y = get_global_id(0); // the get_global_size(0) should be the old_height + padding_y
     uint matrix_x = get_global_id(1); // the get_global_size(1) should be the old_width + padding_x
     uint sample_index = get_global_id(2);
+    uint global_linear_id = sample_index * get_global_size(0) * get_global_size(1) 
+        + matrix_y * get_global_size(1) 
+        + matrix_x;
 
     if (matrix_x >= old_width
     || matrix_y >= old_height) {
-        result[get_global_linaer_id()] = 0.0f;
+        result[global_linear_id] = 0.0f;
     } else {
         uint old_global_linear_id = sample_index * old_width * old_height
             + matrix_y * old_width + matrix_x;
-        result[get_global_linear_id()] = self[old_global_linear_id];
+        result[global_linear_id] = self[old_global_linear_id];
     }
 }
 

@@ -50,6 +50,8 @@ pub(crate) fn compile_buffer_operations_program(
         REDUCE_BUFFER_KERNEL_NAME,
         SUM_ALL_VALUES_IN_ROW_WOIRK_GROUPS,
         SCALE_BUFFER_KERNEL_NAME,
+        PADD_2D_KERNEL_NAME,
+        SLICE_2D_KERNEL_NAME,
         FFT_1D_BUFFER_KERNEL_NAME,
         GET_REAL_PART_KERNEL_NAME,
         COMPLEX_POINT_WISE_MULTIPLY_KERNEL_NAME,
@@ -389,7 +391,7 @@ impl BufferOperations for Buffer<cl_float> {
 
         let size_self = self.size()?;
         let count_self = size_self / mem::size_of::<cl_float>();
-        if count_self / width != height {
+        if count_self / width % height != 0 {
             return Err(BufferOperationError::DimensionWasNotAsSpecified(
                 "Cannot determine the amount of samples of the buffer for padding the matrices since the width and height were not as specified!"
             ));
@@ -403,7 +405,7 @@ impl BufferOperations for Buffer<cl_float> {
             .set_arg(&result)
             .set_arg(&(width as cl_uint))
             .set_arg(&(height as cl_uint))
-            .set_global_work_sizes(&[new_width, new_height, samples_amount])
+            .set_global_work_sizes(&[new_height, new_width, samples_amount])
             .enqueue_nd_range(queue)?
             .wait()?;
 
@@ -429,7 +431,7 @@ impl BufferOperations for Buffer<cl_float> {
 
         let size_self = self.size()?;
         let count_self = size_self / mem::size_of::<cl_float>();
-        if count_self / width != height {
+        if count_self / width % height != 0 {
             return Err(BufferOperationError::DimensionWasNotAsSpecified(
                 "Cannot determine the amount of samples of the buffer for slicing the matrices since the width and height were not as specified!"
             ));

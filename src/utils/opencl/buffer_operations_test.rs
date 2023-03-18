@@ -378,3 +378,41 @@ fn should_tranpose_images_correclty() {
 
     assert_approx_equal_distance(&expected_transpose, &actual_transpose, 0.1);
 }
+
+#[test]
+fn should_padd_2d_buffer_correctly() {
+    let state = setup_opencl(DeviceType::GPU).unwrap();
+    let matrix = vec![
+        2.0, 8.2, 3.0,
+        5.0, 3.0, 1.0,
+        3.0, 2.0, 2.4,
+
+        1.0, 2.0, 3.0,
+        7.0, 3.0, 4.0,
+        9.0, 6.0, 5.0,
+    ]
+    .to_buffer(false, &state)
+    .unwrap();
+
+    let padded_matrix = Vec::from_buffer(
+        &matrix.padd_2d(3, 3, 5, 5, &state).unwrap(),
+        false,
+        &state
+    ).unwrap();
+
+    let expected_padded_matrix = vec![
+        2.0, 8.2, 3.0, 0.0, 0.0,
+        5.0, 3.0, 1.0, 0.0, 0.0,
+        3.0, 2.0, 2.4, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0,
+
+        1.0, 2.0, 3.0, 0.0, 0.0,
+        7.0, 3.0, 4.0, 0.0, 0.0,
+        9.0, 6.0, 5.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0,
+    ];
+
+    assert_approx_equal_distance(&expected_padded_matrix, dbg!(&padded_matrix), 0.0);
+}
