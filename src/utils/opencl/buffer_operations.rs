@@ -17,7 +17,7 @@ use crate::utils::{find_divsor_of_n_closest_to_m, gcd, opencl::BufferLike};
 use super::{
     empty_buffer, find_optimal_local_and_global_work_sizes,
     opencl_state::{ensure_program, EnsureKernelsAndProgramError},
-    BufferConversionError, BufferOperationError,
+    BufferConversionError, BufferOperationError, InplaceBufferOperations,
 };
 
 use super::opencl_state::OpenCLState;
@@ -215,8 +215,8 @@ where
     /// TODO
     fn slice_2d(
         &self,
-        rows_range: Range<usize>,
-        collumns_range: Range<usize>,
+        x_range: Range<usize>,
+        y_range: Range<usize>,
         width: usize,
         height: usize,
         state: &OpenCLState,
@@ -414,8 +414,8 @@ impl BufferOperations for Buffer<cl_float> {
     
     fn slice_2d(
         &self,
-        rows_range: Range<usize>,
-        collumns_range: Range<usize>,
+        x_range: Range<usize>,
+        y_range: Range<usize>,
         width: usize,
         height: usize,
         state: &OpenCLState,
@@ -438,16 +438,18 @@ impl BufferOperations for Buffer<cl_float> {
         }
         let samples_amount = count_self / width / height;
 
-        let result = empty_buffer(samples_amount * rows_range.len() * collumns_range.len(), CL_MEM_READ_WRITE, state)?;
+        let slice_width = x_range.end - x_range.start + 1;
+        let slice_height = y_range.end - y_range.start + 1;
+        let result = empty_buffer(samples_amount * slice_width * slice_height, CL_MEM_READ_WRITE, state)?;
 
         ExecuteKernel::new(kernel)
             .set_arg(self)
             .set_arg(&result)
-            .set_arg(&(rows_range.start as cl_uint))
-            .set_arg(&(collumns_range.start as cl_uint))
+            .set_arg(&(x_range.start as cl_uint))
+            .set_arg(&(y_range.start as cl_uint))
             .set_arg(&(width as cl_uint))
             .set_arg(&(height as cl_uint))
-            .set_global_work_sizes(&[rows_range.end - rows_range.start, collumns_range.end - collumns_range.start, samples_amount])
+            .set_global_work_sizes(&[slice_height, slice_width, samples_amount])
             .enqueue_nd_range(queue)?
             .wait()?;
 
@@ -471,7 +473,7 @@ impl BufferOperations for Buffer<cl_float> {
         let queue = state.queues.first().unwrap();
 
         let program = state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
-        let kernel = program.get_krnl(COMPLEX_TRANSPOSE_KERNEL_NAME)?;
+        let kernel = program.get_krnl(GET_REAL_PART_KERNEL_NAME)?;
 
         let size_self = self.size()?;
         let count_self = size_self / mem::size_of::<cl_float>();
@@ -484,7 +486,7 @@ impl BufferOperations for Buffer<cl_float> {
             );
         }
 
-        let result = empty_buffer(count_self, CL_MEM_READ_WRITE, state)?;
+        let result = empty_buffer(count_self / 2, CL_MEM_READ_WRITE, state)?;
 
         ExecuteKernel::new(kernel)
             .set_arg(self)
@@ -611,7 +613,7 @@ impl BufferOperations for Buffer<cl_float> {
         }
 
         //                         this size already includes complex numbers
-        let result = empty_buffer(count_self, CL_MEM_READ_WRITE, opencl_state)?;
+        let mut result = empty_buffer(count_self, CL_MEM_READ_WRITE, opencl_state)?;
 
         let log_width = (width as f32).log2().floor() as usize;
 
@@ -623,6 +625,8 @@ impl BufferOperations for Buffer<cl_float> {
             .set_global_work_sizes(&[samples_amount, width >> 1])
             .enqueue_nd_range(queue)?
             .wait()?;
+
+        result.scale_inplc(1.0 / width as f32, opencl_state)?;
 
         Ok(result)
     }

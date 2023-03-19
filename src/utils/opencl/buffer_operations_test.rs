@@ -335,14 +335,19 @@ fn should_compute_ifft_1d_correctly() {
     ]
     .to_buffer(false, &state)
     .unwrap();
-    let expected_fft = vec![
+    let expected_ifft = vec![
         1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0,
 
         0.0, 1.0, 1.0, 1.0, 0.0, 2.0, 0.0, 1.0
     ];
-    let actual_fft = Vec::from_buffer(&input.ifft(&state, 2).unwrap(), false, &state).unwrap();
+    let actual_ifft = Vec::from_buffer(
+        &input.ifft(&state, 2).unwrap()
+            .real_part(&state).unwrap(),
+        false, 
+        &state
+    ).unwrap();
 
-    assert_approx_equal_distance(&expected_fft, &dbg!(actual_fft), 0.1);
+    assert_approx_equal_distance(&expected_ifft, &dbg!(actual_ifft), 0.1);
 }
 
 #[test]
@@ -419,7 +424,7 @@ fn should_padd_2d_buffer_correctly() {
 
 #[test]
 fn should_slice_2d_correctly() {
-let state = setup_opencl(DeviceType::GPU).unwrap();
+    let state = setup_opencl(DeviceType::GPU).unwrap();
     let matrix = vec![
         2.0, 8.2, 3.0,
         5.0, 3.0, 1.0,
@@ -433,7 +438,7 @@ let state = setup_opencl(DeviceType::GPU).unwrap();
     .unwrap();
 
     let sliced_matrix = Vec::from_buffer(
-        &matrix.slice_2d(2..3, 0..3, 3, 3, &state).unwrap(),
+        &matrix.slice_2d(1..2, 0..2, 3, 3, &state).unwrap(),
         false,
         &state
     ).unwrap();

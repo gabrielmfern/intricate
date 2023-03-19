@@ -181,8 +181,8 @@ kernel void slice_2d(
     uint old_width,
     uint old_height
 ) {
-    uint matrix_y = get_global_id(1); // the get_global_size(1) should be the endY - start_y
-    uint matrix_x = get_global_id(2); // the get_global_size(2) should be the endX - start_x 
+    uint matrix_y = get_global_id(0); // the get_global_size(0) should be the endY - start_y + 1
+    uint matrix_x = get_global_id(1); // the get_global_size(1) should be the endX - start_x + 1
     uint sample_index = get_global_id(2);
 
     uint global_old_linear_id = sample_index * old_width * old_height 
@@ -213,7 +213,6 @@ kernel void complex_point_wise_multiply(
 
 kernel void ifft(
     global float2 *nums,
-    global float *result,
     global float2 *complex_result,
     uint N,
     uint logN
@@ -231,8 +230,6 @@ kernel void ifft(
     index += 1u;
     reverse = reverse_bits(index, logN);
     complex_result[initial_signal_index + index] = nums[initial_signal_index + reverse];
-
-    float fN = (float) N;
 
     for (uint s = 1u; s <= logN; s++) {
         barrier(CLK_GLOBAL_MEM_FENCE);
