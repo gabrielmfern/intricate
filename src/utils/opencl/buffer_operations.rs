@@ -2,7 +2,7 @@
 //!
 //! Not recommended to be used more than once in a row, instead a kernel should be used for that.
 
-use std::{mem, ops::{Range, RangeBounds}};
+use std::{mem, ops::Range};
 
 use opencl3::{
     error_codes::ClError,
@@ -252,6 +252,8 @@ where
     /// - If the kernel was not found in the program for buffer operations.
     fn complex_multiply(
         &self,
+        other_samples_amount: usize,
+        self_samples_amount: usize,
         other: &Self,
         state: &OpenCLState,
     ) -> Result<Self, BufferOperationError>;
@@ -405,7 +407,7 @@ impl BufferOperations for Buffer<cl_float> {
             .set_arg(&result)
             .set_arg(&(width as cl_uint))
             .set_arg(&(height as cl_uint))
-            .set_global_work_sizes(&[new_height, new_width, samples_amount])
+            .set_global_work_sizes(&[new_width, new_height, samples_amount])
             .enqueue_nd_range(queue)?
             .wait()?;
 
@@ -449,7 +451,7 @@ impl BufferOperations for Buffer<cl_float> {
             .set_arg(&(y_range.start as cl_uint))
             .set_arg(&(width as cl_uint))
             .set_arg(&(height as cl_uint))
-            .set_global_work_sizes(&[slice_height, slice_width, samples_amount])
+            .set_global_work_sizes(&[slice_width, slice_height, samples_amount])
             .enqueue_nd_range(queue)?
             .wait()?;
 
@@ -500,6 +502,8 @@ impl BufferOperations for Buffer<cl_float> {
 
     fn complex_multiply(
         &self,
+        other_samples_amount: usize,
+        self_samples_amount: usize,
         other: &Self,
         state: &OpenCLState,
     ) -> Result<Self, BufferOperationError> {
@@ -510,7 +514,7 @@ impl BufferOperations for Buffer<cl_float> {
         let queue = state.queues.first().unwrap();
 
         let program = state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
-        let kernel = program.get_krnl(COMPLEX_TRANSPOSE_KERNEL_NAME)?;
+        let kernel = program.get_krnl(COMPLEX_POINT_WISE_MULTIPLY_KERNEL_NAME)?;
 
         let size_self = self.size()?;
         let count_self = size_self / mem::size_of::<cl_float>();
@@ -525,7 +529,9 @@ impl BufferOperations for Buffer<cl_float> {
 
         let size_other = other.size()?;
         let count_other = size_other / mem::size_of::<cl_float>();
-        if count_other != count_self {
+
+        let matrix_volume = count_self / self_samples_amount / 2;
+        if matrix_volume != count_other / other_samples_amount / 2 {
             return Err(
                 BufferOperationError::BuffersAreNotOfSameSize(
                     count_other,
@@ -534,13 +540,13 @@ impl BufferOperations for Buffer<cl_float> {
             );
         }
 
-        let result = empty_buffer(count_self, CL_MEM_READ_WRITE, state)?;
+        let result = empty_buffer(other_samples_amount * count_self, CL_MEM_READ_WRITE, state)?;
 
         ExecuteKernel::new(kernel)
             .set_arg(self)
             .set_arg(other)
             .set_arg(&result)
-            .set_global_work_sizes(&[count_self])
+            .set_global_work_sizes(&[matrix_volume, self_samples_amount, other_samples_amount])
             .enqueue_nd_range(queue)?
             .wait()?;
 

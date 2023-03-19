@@ -154,12 +154,10 @@ kernel void padd_2d(
     uint old_width,
     uint old_height
 ) {
-    uint matrix_y = get_global_id(0); // the get_global_size(0) should be the old_height + padding_y
-    uint matrix_x = get_global_id(1); // the get_global_size(1) should be the old_width + padding_x
+    uint matrix_x = get_global_id(0); // the get_global_size(0) should be the old_width + padding_x
+    uint matrix_y = get_global_id(1); // the get_global_size(1) should be the old_height + padding_y
     uint sample_index = get_global_id(2);
-    uint global_linear_id = sample_index * get_global_size(0) * get_global_size(1) 
-        + matrix_y * get_global_size(1) 
-        + matrix_x;
+    uint global_linear_id = get_global_linear_id();
 
     if (matrix_x >= old_width
     || matrix_y >= old_height) {
@@ -181,15 +179,13 @@ kernel void slice_2d(
     uint old_width,
     uint old_height
 ) {
-    uint matrix_y = get_global_id(0); // the get_global_size(0) should be the endY - start_y + 1
-    uint matrix_x = get_global_id(1); // the get_global_size(1) should be the endX - start_x + 1
+    uint matrix_x = get_global_id(0); // the get_global_size(0) should be the endX - start_x + 1
+    uint matrix_y = get_global_id(1); // the get_global_size(1) should be the endY - start_y + 1
     uint sample_index = get_global_id(2);
 
     uint global_old_linear_id = sample_index * old_width * old_height 
         + (matrix_y + start_y) * old_width + matrix_x + start_x;
-    uint global_linear_id = sample_index * get_global_size(0) * get_global_size(1) 
-        + matrix_y * get_global_size(1) 
-        + matrix_x;
+    uint global_linear_id = get_global_linear_id();
 
     result[global_linear_id] = self[global_old_linear_id];
 }
@@ -207,8 +203,14 @@ kernel void complex_point_wise_multiply(
     global float2 *other,
     global float2 *result
 ) {
-    uint i = get_global_id(0);
-    result[i] = complex_multiplication(self[i], other[i]);
+    uint matrix_index = get_global_id(0);
+    uint self_sample_index = get_global_id(1);
+    uint other_sample_index = get_global_id(2);
+
+    result[get_global_linear_id()] = complex_multiplication(
+        self[self_sample_index * get_global_size(0) + matrix_index], 
+        other[other_sample_index * get_global_size(0) + matrix_index]
+    );
 }
 
 kernel void ifft(

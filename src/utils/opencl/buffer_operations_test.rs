@@ -455,3 +455,33 @@ fn should_slice_2d_correctly() {
 
     assert_approx_equal_distance(&expected_sliced_matrix, dbg!(&sliced_matrix), 0.0);
 }
+
+#[test]
+fn should_compute_complex_multiplication_correctly() {
+    let state = setup_opencl(DeviceType::GPU).unwrap();
+    let first_matrix = vec![
+        0.5, 0.04,  0.8, 0.13,   0.9, 0.41,
+        0.1, 0.21,  0.3, 0.41,  0.34, 0.93,
+
+        0.2, 0.21,  0.3, 0.32,  0.51, 0.93,
+        0.4, 0.83,  0.8, 0.85,  0.83, 0.12,
+    ].to_buffer(false, &state).unwrap();
+    let second_matrix = vec![
+        0.5, 0.04,  0.8, 0.13,   0.9, 0.41,
+        0.1, 0.21,  0.3, 0.41,  0.34, 0.93,
+    ].to_buffer(false, &state).unwrap();
+    let result = Vec::from_buffer(
+        &first_matrix.complex_multiply(1, 2, &second_matrix, &state).unwrap(), 
+        false, 
+        &state
+    ).unwrap();
+    let expected_result = vec![
+         0.2484, 0.04,    0.6231, 0.208,   0.6419, 0.738,
+        -0.0341, 0.042,  -0.0781, 0.246,  -0.7493, 0.6324,
+
+         0.0916, 0.113,   0.1984, 0.295,   0.0777, 1.0461,
+        -0.1343, 0.167,  -0.1085, 0.583,   0.1706, 0.8127
+    ];
+
+    assert_approx_equal_distance(&expected_result, &dbg!(result), 0.01);
+}
