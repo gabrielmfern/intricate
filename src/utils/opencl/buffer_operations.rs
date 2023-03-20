@@ -30,6 +30,7 @@ const SUM_ALL_VALUES_IN_ROW_WOIRK_GROUPS: &str = "sum_all_values_in_row_work_gro
 const SCALE_BUFFER_KERNEL_NAME: &str = "scale";
 const COMPLEX_POINT_WISE_MULTIPLY_KERNEL_NAME: &str = "complex_point_wise_multiply";
 const PADD_2D_KERNEL_NAME: &str = "padd_2d";
+const TO_COMPLEX_FLOAT_TWO_BUFFER_KERNEL_NAME: &str = "to_complex_float2_buffer";
 const SLICE_2D_KERNEL_NAME: &str = "slice_2d";
 const GET_REAL_PART_KERNEL_NAME: &str = "get_real_part";
 const FFT_1D_BUFFER_KERNEL_NAME: &str = "fft";
@@ -54,6 +55,7 @@ pub(crate) fn compile_buffer_operations_program(
         SLICE_2D_KERNEL_NAME,
         FFT_1D_BUFFER_KERNEL_NAME,
         GET_REAL_PART_KERNEL_NAME,
+        TO_COMPLEX_FLOAT_TWO_BUFFER_KERNEL_NAME,
         COMPLEX_POINT_WISE_MULTIPLY_KERNEL_NAME,
         IFFT_1D_BUFFER_KERNEL_NAME,
         COMPLEX_TRANSPOSE_KERNEL_NAME,
@@ -239,6 +241,17 @@ where
         state: &OpenCLState,
     ) -> Result<Self, BufferOperationError>;
 
+    /// Returns a new buffer with twice the volume of &self that contanins the imaginary part
+    /// of all the values of &self being zero.
+    ///
+    /// # Errors
+    ///
+    /// TODO
+    fn to_complex_float2_buffer(
+        &self,
+        state: &OpenCLState
+    ) -> Result<Self, BufferOperationError>;
+
     /// Evaluates a point-wise complex multiplication between two float2 buffers: &self and &other.
     ///
     /// # Errors
@@ -262,6 +275,9 @@ where
     /// The FFT will return a new buffer that is twice the size of the original
     /// beucase it contains the imaginary parts of the frequencies. This buffer is intended
     /// to generally be used in a kernel with a `float2 *buffer` representation.
+    ///
+    /// Assumes that the input buffer is a float2 buffer over which the X is the real part and the
+    /// Y is the imaginary part.
     ///
     /// # Errors
     ///
@@ -464,6 +480,34 @@ impl BufferOperations for Buffer<cl_float> {
         Ok(())
     }
 
+    fn to_complex_float2_buffer(
+        &self,
+        state: &OpenCLState
+    ) -> Result<Self, BufferOperationError> {
+        if state.queues.is_empty() {
+            return Err(BufferOperationError::NoCommandQueueFoundError);
+        }
+
+        let queue = state.queues.first().unwrap();
+
+        let program = state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
+        let kernel = program.get_krnl(TO_COMPLEX_FLOAT_TWO_BUFFER_KERNEL_NAME)?;
+
+        let size_self = self.size()?;
+        let count_self = size_self / mem::size_of::<cl_float>();
+
+        let result = empty_buffer(count_self << 1, CL_MEM_READ_WRITE, state)?;
+
+        ExecuteKernel::new(kernel)
+            .set_arg(self)
+            .set_arg(&result)
+            .set_global_work_sizes(&[count_self])
+            .enqueue_nd_range(queue)?
+            .wait()?;
+
+        Ok(result)
+    }
+
     fn real_part(
         &self,
         state: &OpenCLState,
@@ -488,12 +532,12 @@ impl BufferOperations for Buffer<cl_float> {
             );
         }
 
-        let result = empty_buffer(count_self / 2, CL_MEM_READ_WRITE, state)?;
+        let result = empty_buffer(count_self >> 1, CL_MEM_READ_WRITE, state)?;
 
         ExecuteKernel::new(kernel)
             .set_arg(self)
             .set_arg(&result)
-            .set_global_work_sizes(&[count_self])
+            .set_global_work_sizes(&[count_self >> 1])
             .enqueue_nd_range(queue)?
             .wait()?;
 
@@ -649,9 +693,9 @@ impl BufferOperations for Buffer<cl_float> {
 
         let size_self = self.size()?;
         let count_self = size_self / mem::size_of::<cl_float>();
-        let width = count_self / samples_amount;
+        let width = count_self / samples_amount >> 1;
 
-        if width * samples_amount != count_self {
+        if width * samples_amount << 1 != count_self {
             return Err(BufferOperationError::DimensionWasNotAsSpecified(
                 "The samples amount specified to do a FFT over does not match the volume of the buffer!",
             ));
@@ -664,7 +708,7 @@ impl BufferOperations for Buffer<cl_float> {
             ));
         }
 
-        let result = empty_buffer(2 * count_self, CL_MEM_READ_WRITE, opencl_state)?;
+        let result = empty_buffer(count_self, CL_MEM_READ_WRITE, opencl_state)?;
 
         let log_width = (width as f32).log2().floor() as usize;
 

@@ -254,8 +254,17 @@ kernel void ifft(
     }
 }
 
+kernel void to_complex_float2_buffer(
+    global float *self,
+    global float2 *result
+) {
+    uint index = get_global_id(0);
+    result[index] = (float2) (self[index], 0.0);
+}
+
+
 kernel void fft(
-    global float *nums,
+    global float2 *nums,
     global float2 *result,
     uint N,
     uint logN
@@ -268,11 +277,11 @@ kernel void fft(
     uint initial_signal_index = sample_index * N;
 
     uint reverse = reverse_bits(index, logN);
-    result[initial_signal_index + index] = (float2) (nums[initial_signal_index + reverse], 0.0);
+    result[initial_signal_index + index] = nums[initial_signal_index + reverse];
 
     index += 1u;
     reverse = reverse_bits(index, logN);
-    result[initial_signal_index + index] = (float2) (nums[initial_signal_index + reverse], 0.0);
+    result[initial_signal_index + index] = nums[initial_signal_index + reverse];
 
     for (uint s = 1u; s <= logN; s++) {
         barrier(CLK_GLOBAL_MEM_FENCE);

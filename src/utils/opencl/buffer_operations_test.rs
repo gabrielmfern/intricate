@@ -302,6 +302,8 @@ fn should_compute_fft_1d_correctly() {
         0.0, 1.0, 1.0, 1.0, 0.0, 2.0, 0.0, 1.0
     ]
     .to_buffer(false, &state)
+    .unwrap()
+    .to_complex_float2_buffer(&state)
     .unwrap();
     let expected_fft = vec![
         12.        ,0.        ,  0.        ,0.        ,
@@ -347,7 +349,43 @@ fn should_compute_ifft_1d_correctly() {
         &state
     ).unwrap();
 
-    assert_approx_equal_distance(&expected_ifft, &dbg!(actual_ifft), 0.1);
+    assert_approx_equal_distance(&expected_ifft, &dbg!(actual_ifft), 0.01);
+}
+
+#[test]
+fn should_get_real_part() {
+    let state = setup_opencl(DeviceType::GPU).unwrap();
+    let input = vec![
+        12.        ,0.        ,  0.        ,0.        ,
+         0.        ,0.        ,  0.        ,0.        ,
+        -4.        ,0.        ,  0.        ,0.        ,
+         0.        ,0.        ,  0.        ,0.        ,
+
+         6.        , 0.        , -0.70710678, -0.29289322,
+        -1.        ,-1.        ,  0.70710678, 1.70710678,
+        -4.        , 0.        ,  0.70710678,-1.70710678,
+        -1.        , 1.        , -0.70710678, 0.29289322
+    ]
+    .to_buffer(false, &state)
+    .unwrap();
+    let expected = vec![
+        12.0, 0.0,
+        0.0, 0.0,
+        -4.0, 0.0,
+        0.0, 0.0,
+
+          6.0, -0.70710678,
+         -1.0,  0.70710678,
+         -4.0,  0.70710678,
+         -1.0, -0.70710678
+    ];
+    let actual = Vec::from_buffer(
+        &input.real_part(&state).unwrap(),
+        false, 
+        &state
+    ).unwrap();
+
+    assert_approx_equal_distance(&expected, &actual, 0.01);
 }
 
 #[test]
