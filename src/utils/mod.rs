@@ -35,16 +35,17 @@ pub(crate) fn find_divsor_of_n_closest_to_m(n: usize, m: usize) -> usize {
     closest_up_to_now
 }
 
-pub(crate) fn find_multiple_of_n_closest_to_m(n: usize, m: usize) -> usize {
-    let floor_multiple = (m as f32 / n as f32).floor() * n as f32;
-    let ceil_multiple = (m as f32 / n as f32).ceil() * n as f32;
+// commented while it has no use
+// pub(crate) fn find_multiple_of_n_closest_to_m(n: usize, m: usize) -> usize {
+//     let floor_multiple = (m as f32 / n as f32).floor() * n as f32;
+//     let ceil_multiple = (m as f32 / n as f32).ceil() * n as f32;
 
-    if (floor_multiple - m as f32).abs() < (ceil_multiple - m as f32).abs() {
-        floor_multiple as usize
-    } else {
-        ceil_multiple as usize
-    }
-}
+//     if (floor_multiple - m as f32).abs() < (ceil_multiple - m as f32).abs() {
+//         floor_multiple as usize
+//     } else {
+//         ceil_multiple as usize
+//     }
+// }
 
 /// Finds the gratest common divisor (gcd) of two numbers **n** and **m** independent of their
 /// ordering.

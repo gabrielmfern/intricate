@@ -367,7 +367,7 @@ where
     ) -> Result<Self, BufferOperationError>;
 
     /// A function that prints a Vec that contains the information of SElf
-    fn dbg(&self, state: &OpenCLState) -> Result<(), BufferConversionError>;
+    fn dbg(self, state: &OpenCLState) -> Result<Self, BufferConversionError>;
 
     /// Clones the current buffer into another new buffer with a certain memory flag.
     fn clone(&self, opencl_state: &OpenCLState) -> Result<Self, BufferOperationError>;
@@ -474,10 +474,10 @@ impl BufferOperations for Buffer<cl_float> {
         Ok(result)
     }
 
-    fn dbg(&self, state: &OpenCLState) -> Result<(), BufferConversionError> {
-        let vec = Vec::from_buffer(self, false, state)?;
+    fn dbg(self, state: &OpenCLState) -> Result<Self, BufferConversionError> {
+        let vec = Vec::from_buffer(&self, false, state)?;
         println!("{:?}", vec);
-        Ok(())
+        Ok(self)
     }
 
     fn to_complex_float2_buffer(

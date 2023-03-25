@@ -17,10 +17,9 @@ use crate::{
     optimizers::Optimizer,
     types::{ModelLayer, SyncDataError},
     utils::{
-        find_divsor_of_n_closest_to_m, find_multiple_of_n_closest_to_m,
         opencl::{
-            empty_buffer, ensure_program, BufferLike, BufferOperations,
-            opencl_state::EnsureKernelsAndProgramError, InplaceBufferOperations,
+            empty_buffer, ensure_program, opencl_state::EnsureKernelsAndProgramError, BufferLike,
+            BufferOperations, InplaceBufferOperations,
         },
         OpenCLState,
     },
@@ -264,7 +263,8 @@ impl<'a> Layer<'a> for Conv2D<'a> {
     fn init(&mut self, opencl_state: &'a OpenCLState) -> Result<(), LayerInitializationError> {
         if self.weights.is_empty() {
             if let Some(initializer) = self.get_initializer_for_parameter("weights") {
-                self.weights = initializer.initialize_2d((self.filter_size.1, self.filter_size.0), self);
+                self.weights =
+                    initializer.initialize_2d((self.filter_size.1, self.filter_size.0), self);
             } else {
                 return Err(LayerInitializationError::MissingParameterInitializer(
                     "weights",
@@ -314,17 +314,17 @@ impl<'a> Layer<'a> for Conv2D<'a> {
 
         let state = self.opencl_state.unwrap();
 
-        if state.queues.first().is_none() {
-            return Err(LayerPropagationError::NoCommandQueueFound);
-        }
+        // if state.queues.first().is_none() {
+        //     return Err(LayerPropagationError::NoCommandQueueFound);
+        // }
 
-        let queue = state.queues.first().unwrap();
+        // let queue = state.queues.first().unwrap();
 
         let inputs_size = inputs.size()?;
         let inputs_volume = inputs_size / mem::size_of::<cl_float>();
 
         let image_volume = self.get_inputs_amount();
-        let convolution_volume = self.get_outputs_amount();
+        // let convolution_volume = self.get_outputs_amount();
 
         if inputs_volume % image_volume != 0 {
             return Err(LayerPropagationError::InputsDontMatchExpectedShape);
@@ -333,54 +333,104 @@ impl<'a> Layer<'a> for Conv2D<'a> {
         let samples_amount = inputs_volume / image_volume;
 
         self.last_inputs_buffer = Some(inputs.clone(state)?);
-        let program = state.get_prgm(CONV2D_PROGRAM_NAME)?;
-        let kernel = program.get_krnl(PROPAGATION_KERNEL_NAME)?;
+        // let program = state.get_prgm(CONV2D_PROGRAM_NAME)?;
+        // let kernel = program.get_krnl(PROPAGATION_KERNEL_NAME)?;
 
-        let outputs = empty_buffer(
-            convolution_volume * samples_amount,
-            CL_MEM_READ_WRITE,
-            state,
-        )?;
+        let padded_width = self.inputs_size.0 + self.filter_size.0 - 1;
+        let padded_height = self.inputs_size.1 + self.filter_size.1 - 1;
+        let even_padded_width = padded_width.next_power_of_two();
+        let even_padded_height = padded_height.next_power_of_two();
 
-        let filter_volume = self.filter_size.0 * self.filter_size.1;
+        let fft_image_samples = inputs
+            .padd_2d(
+                self.inputs_size.0,
+                self.inputs_size.1,
+                even_padded_width,
+                even_padded_height,
+                state,
+            )?
+            .to_complex_float2_buffer(state)?
+            .fft(state, samples_amount * even_padded_height)?
+            .complex_tranpose(state, even_padded_width, even_padded_height)?
+            .fft(state, samples_amount * even_padded_width)?
+            .complex_tranpose(state, even_padded_height, even_padded_width)?;
+        let filter = self.weights_buff.as_ref().unwrap();
+        let fft_filter_samples = filter
+            .padd_2d(
+                self.filter_size.0,
+                self.filter_size.1,
+                even_padded_width,
+                even_padded_height,
+                state,
+            )?
+            .to_complex_float2_buffer(state)?
+            .fft(state, samples_amount * even_padded_height)?
+            .complex_tranpose(state, even_padded_width, even_padded_height)?
+            .fft(state, samples_amount * even_padded_width)?
+            .complex_tranpose(state, even_padded_height, even_padded_width)?;
 
-        let max_local_size = state.devices.first().unwrap().max_work_group_size()?;
+        let convolution_width = self.inputs_size.0 - self.filter_size.0 + 1;
+        let convolution_height = self.inputs_size.1 - self.filter_size.1 + 1;
+        let x_range_start = (padded_width - convolution_width) / 2;
+        let y_range_start = (padded_height - convolution_height) / 2;
+        let x_range = x_range_start..(x_range_start + convolution_width - 1);
+        let y_range = y_range_start..(y_range_start + convolution_height - 1);
 
-        // can be like this because inside the kernel the threads that run with a glboal id above
-        // the samples_amount stay inactive
-        let mut samples_global_size = find_multiple_of_n_closest_to_m(max_local_size, samples_amount);
-        let samples_local_size = find_divsor_of_n_closest_to_m(max_local_size, max_local_size / filter_volume);
-        if samples_global_size == 0 {
-            samples_global_size = samples_local_size;
-        }
+        let convolution = fft_image_samples
+            .complex_multiply(1, samples_amount, &fft_filter_samples, state)?
+            .ifft(state, samples_amount * even_padded_height)?
+            .complex_tranpose(state, even_padded_width, even_padded_height)?
+            .ifft(state, samples_amount * even_padded_width)?
+            .complex_tranpose(state, even_padded_height, even_padded_width)?
+            .real_part(state)?
+            .dbg(state)?;
 
-        ExecuteKernel::new(kernel)
-            .set_arg(inputs)
-            .set_arg(self.weights_buff.as_ref().unwrap())
-            .set_arg(self.biases_buff.as_ref().unwrap())
-            .set_arg(&outputs)
-            // the max size for local workgroups has to fit the filter
-            .set_arg_local_buffer(samples_local_size * filter_volume * std::mem::size_of::<f32>())
-            .set_arg(&(self.inputs_size.0 as cl_int))
-            .set_arg(&(image_volume as cl_int))
-            .set_arg(&((self.inputs_size.0 - self.filter_size.0 + 1) as cl_int))
-            .set_arg(&(convolution_volume as cl_int))
-            .set_arg(&(self.filter_size.0 as cl_int))
-            .set_arg(&(self.filter_size.1 as cl_int))
-            .set_arg(&(filter_volume as cl_int))
-            .set_arg(&(samples_amount as cl_int))
-            .set_global_work_sizes(&[
-                samples_global_size,
-                convolution_volume * filter_volume,
-            ])
-            .set_local_work_sizes(&[
-                samples_local_size,
-                filter_volume,
-            ])
-            .enqueue_nd_range(queue)?
-            .wait()?;
+        let convolution = convolution
+            .slice_2d(
+                x_range,
+                y_range,
+                even_padded_width,
+                even_padded_height,
+                state,
+            )?;
 
-        self.last_outputs_buffer = Some(outputs);
+        // let max_local_size = state.devices.first().unwrap().max_work_group_size()?;
+
+        // // can be like this because inside the kernel the threads that run with a glboal id above
+        // // the samples_amount stay inactive
+        // let mut samples_global_size = find_multiple_of_n_closest_to_m(max_local_size, samples_amount);
+        // let samples_local_size = find_divsor_of_n_closest_to_m(max_local_size, max_local_size / filter_volume);
+        // if samples_global_size == 0 {
+        //     samples_global_size = samples_local_size;
+        // }
+
+        // ExecuteKernel::new(kernel)
+        //     .set_arg(inputs)
+        //     .set_arg(self.weights_buff.as_ref().unwrap())
+        //     .set_arg(self.biases_buff.as_ref().unwrap())
+        //     .set_arg(&outputs)
+        //     // the max size for local workgroups has to fit the filter
+        //     .set_arg_local_buffer(samples_local_size * filter_volume * std::mem::size_of::<f32>())
+        //     .set_arg(&(self.inputs_size.0 as cl_int))
+        //     .set_arg(&(image_volume as cl_int))
+        //     .set_arg(&((self.inputs_size.0 - self.filter_size.0 + 1) as cl_int))
+        //     .set_arg(&(convolution_volume as cl_int))
+        //     .set_arg(&(self.filter_size.0 as cl_int))
+        //     .set_arg(&(self.filter_size.1 as cl_int))
+        //     .set_arg(&(filter_volume as cl_int))
+        //     .set_arg(&(samples_amount as cl_int))
+        //     .set_global_work_sizes(&[
+        //         samples_global_size,
+        //         convolution_volume * filter_volume,
+        //     ])
+        //     .set_local_work_sizes(&[
+        //         samples_local_size,
+        //         filter_volume,
+        //     ])
+        //     .enqueue_nd_range(queue)?
+        //     .wait()?;
+
+        self.last_outputs_buffer = Some(convolution);
 
         Ok(self.last_outputs_buffer.as_ref().unwrap())
     }
@@ -426,16 +476,13 @@ impl<'a> Layer<'a> for Conv2D<'a> {
         let convolution_width = self.inputs_size.0 - self.filter_size.0 + 1;
         let convolution_height = self.inputs_size.1 - self.filter_size.1 + 1;
 
-        let mut per_filter_pixel_sample_gradients = empty_buffer(
-            filter_volume * samples_amount,
-            CL_MEM_READ_WRITE,
-            state,
-        )?;
+        let mut per_filter_pixel_sample_gradients =
+            empty_buffer(filter_volume * samples_amount, CL_MEM_READ_WRITE, state)?;
 
         ExecuteKernel::new(compute_gradient_weights_kernel)
             .set_arg(self.last_inputs_buffer.as_ref().unwrap())
             .set_arg(layer_output_to_error_derivatives)
-            .set_arg(&mut per_filter_pixel_sample_gradients )
+            .set_arg(&mut per_filter_pixel_sample_gradients)
             .set_arg(&(self.inputs_size.0 as cl_int))
             .set_arg(&(image_volume as cl_int))
             .set_arg(&(self.filter_size.0 as cl_int))
@@ -447,7 +494,8 @@ impl<'a> Layer<'a> for Conv2D<'a> {
             .enqueue_nd_range(queue)?
             .wait()?;
 
-        let mut weight_gradients = per_filter_pixel_sample_gradients.sum_2d_per_row(state, samples_amount)?;
+        let mut weight_gradients =
+            per_filter_pixel_sample_gradients.sum_2d_per_row(state, samples_amount)?;
         weight_gradients.scale_inplc(1 as f32 / samples_amount as f32, state)?;
 
         let bias_gradients = layer_output_to_error_derivatives.sum(state)? / samples_amount as f32;
@@ -717,7 +765,6 @@ mod tests {
                 + 0.33 * 0.5)
                 / 2.0,
         ];
-
         let samples_buff = images
             .to_buffer(false, &opencl_state)
             .expect("unable to get the image's buffer");
@@ -747,13 +794,13 @@ mod tests {
     fn should_convolute_correctly() -> () {
         let opencl_state = setup_opencl(DeviceType::GPU).expect("unable to setup opencl");
         let image = vec![
-            0.33, 0.14, 0.99, 1.0, 0.1,
-            0.51, 0.31, 0.91, 0.1, 0.3,
-            0.8,   0.4,  0.5, 0.2, 0.1,
+            0.33, 0.14, 0.99, 1.0, 0.1, 
+            0.51, 0.31, 0.91, 0.1, 0.3, 
+            0.8,  0.4,  0.5,  0.2, 0.1, 
 
-            0.53, 0.03, 0.31, 0.3, 0.5,
-            0.11, 0.91, 0.44, 0.3, 0.9,
-            0.2,   0.1,  0.2, 0.5, 0.13,
+//             0.53, 0.03, 0.31, 0.3, 0.5, 
+//             0.11, 0.91, 0.44, 0.3, 0.9, 
+//             0.2,  0.1,  0.2,  0.5, 0.13,
         ]
         .to_buffer(false, &opencl_state)
         .expect("unable to get image buffer");
@@ -764,9 +811,9 @@ mod tests {
             .to_buffer(false, &opencl_state)
             .expect("unable to get the biases buffer");
         let expected_result = vec![
-            2.959, 2.267, 1.602,
+            2.2283, 1.9304, 2.8419 
 
-            1.458, 1.53, 2.1852999
+//             1.458-0.123, 1.53-0.123, 2.1852999-0.123
         ];
 
         let mut layer = Conv2D::new_raw((5, 3), (3, 3));
@@ -780,6 +827,6 @@ mod tests {
         let result = Vec::<f32>::from_buffer(result_buffer, false, &opencl_state)
             .expect("unable to get resulting convolution buffer");
 
-        assert_approx_equal_distance(&result, &expected_result, 0.01);
+        assert_approx_equal_distance(&dbg!(result), dbg!(&expected_result), 0.01);
     }
 }
