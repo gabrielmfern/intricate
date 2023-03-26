@@ -224,6 +224,24 @@ where
         state: &OpenCLState,
     ) -> Result<Self, BufferOperationError>;
 
+    /// Computes the 2d convolution between &self and other using the 2d FFT.
+    /// All of the samples of &other are convolved with each and every one of the samples of &self,
+    /// generating a new buffer with the amount of samples of both mutliplied.
+    /// 
+    /// # Errors
+    ///
+    /// TODO
+    fn convolve_2d(
+        &self,
+        state: &OpenCLState,
+        other: &Self,
+        self_width: usize,
+        self_height: usize,
+        filter_width: usize,
+        filter_height: usize,
+        range: (Range<usize>, Range<usize>)
+    ) -> Result<Self, BufferOperationError>;
+
     /// Returns the real part of a complex buffer into a new buffer of half the size of the
     /// original buffer.
     ///
@@ -472,6 +490,64 @@ impl BufferOperations for Buffer<cl_float> {
             .wait()?;
 
         Ok(result)
+    }
+
+    fn convolve_2d(
+        &self,
+        state: &OpenCLState,
+        other: &Self,
+        self_width: usize,
+        self_height: usize,
+        other_width: usize,
+        other_height: usize,
+        range: (Range<usize>, Range<usize>)
+    ) -> Result<Self, BufferOperationError> {
+        let self_count = self.size()? / mem::size_of::<cl_float>();
+        let other_count = other.size()? / mem::size_of::<cl_float>();
+
+        let samples_amount = self_count / self_width / self_height;
+        let other_samples_amount = other_count / other_width / other_height;
+
+        let padded_width = self_width + other_width - 1;
+        let padded_height = self_height + other_height - 1;
+        let even_padded_width = padded_width.next_power_of_two();
+        let even_padded_height = padded_height.next_power_of_two();
+
+        let fft_self = self
+            .padd_2d(self_width, self_height, even_padded_width, even_padded_height, state)?
+            .to_complex_float2_buffer(state)?
+            .fft(state, samples_amount * even_padded_height)?
+            .complex_tranpose(state, even_padded_width, even_padded_height)?
+            .fft(state, samples_amount * even_padded_width)?
+            .complex_tranpose(state, even_padded_height, even_padded_width)?;
+
+        let fft_other = other
+            .padd_2d(other_width, other_height, even_padded_width, even_padded_height, state)?
+            .to_complex_float2_buffer(state)?
+            .fft(state, samples_amount * even_padded_height)?
+            .complex_tranpose(state, even_padded_width, even_padded_height)?
+            .fft(state, samples_amount * even_padded_width)?
+            .complex_tranpose(state, even_padded_height, even_padded_width)?;
+
+        let x_range = range.0;
+        let y_range = range.1;
+
+        let convolution = fft_self
+            .complex_multiply(other_samples_amount, samples_amount, &fft_other, state)?
+            .ifft(state, other_samples_amount * samples_amount * even_padded_height)?
+            .complex_tranpose(state, even_padded_width, even_padded_height)?
+            .ifft(state, other_samples_amount * samples_amount * even_padded_width)?
+            .complex_tranpose(state, even_padded_height, even_padded_width)?
+            .real_part(state)?
+            .slice_2d(
+                x_range,
+                y_range,
+                even_padded_width,
+                even_padded_height,
+                state,
+            )?;
+
+        Ok(convolution)
     }
 
     fn dbg(self, state: &OpenCLState) -> Result<Self, BufferConversionError> {
