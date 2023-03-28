@@ -2,7 +2,7 @@
 //!
 //! Not recommended to be used more than once in a row, instead a kernel should be used for that.
 
-use std::{mem, ops::Range};
+use std::{mem, ops::Range, io::empty};
 
 use opencl3::{
     error_codes::ClError,
@@ -29,6 +29,7 @@ const REDUCE_BUFFER_KERNEL_NAME: &str = "sum_all_values_in_workgroups";
 const SUM_ALL_VALUES_IN_ROW_WOIRK_GROUPS: &str = "sum_all_values_in_row_work_groups";
 const SCALE_BUFFER_KERNEL_NAME: &str = "scale";
 const COMPLEX_POINT_WISE_MULTIPLY_KERNEL_NAME: &str = "complex_point_wise_multiply";
+const COMPLEX_POINT_WISE_MULTIPLY_FOR_SAMPLED_CONVOLUTION_KERNEL_NAME: &str = "complex_pointwise_mutliply_for_sampled_convolution";
 const PADD_2D_KERNEL_NAME: &str = "padd_2d";
 const TO_COMPLEX_FLOAT_TWO_BUFFER_KERNEL_NAME: &str = "to_complex_float2_buffer";
 const SLICE_2D_KERNEL_NAME: &str = "slice_2d";
@@ -36,6 +37,7 @@ const GET_REAL_PART_KERNEL_NAME: &str = "get_real_part";
 const FFT_1D_BUFFER_KERNEL_NAME: &str = "fft";
 const IFFT_1D_BUFFER_KERNEL_NAME: &str = "ifft";
 const COMPLEX_TRANSPOSE_KERNEL_NAME: &str = "complex_transpose";
+const TRANSPOSE_KERNEL_NAME: &str = "transpose";
 const INVERSE_SQRT_BUFFER_KERNEL_NAME: &str = "inverse_sqrt";
 const SQRT_BUFFER_KERNEL_NAME: &str = "squareroot";
 const ADD_BUFFER_KERNEL_NAME: &str = "add";
@@ -57,8 +59,10 @@ pub(crate) fn compile_buffer_operations_program(
         GET_REAL_PART_KERNEL_NAME,
         TO_COMPLEX_FLOAT_TWO_BUFFER_KERNEL_NAME,
         COMPLEX_POINT_WISE_MULTIPLY_KERNEL_NAME,
+        COMPLEX_POINT_WISE_MULTIPLY_FOR_SAMPLED_CONVOLUTION_KERNEL_NAME,
         IFFT_1D_BUFFER_KERNEL_NAME,
         COMPLEX_TRANSPOSE_KERNEL_NAME,
+        TRANSPOSE_KERNEL_NAME,
         INVERSE_SQRT_BUFFER_KERNEL_NAME,
         SQRT_BUFFER_KERNEL_NAME,
         ADD_BUFFER_KERNEL_NAME,
@@ -242,6 +246,19 @@ where
         range: (Range<usize>, Range<usize>)
     ) -> Result<Self, BufferOperationError>;
 
+    /// TODO
+    fn sampled_convolve_2d(
+        &self,
+        state: &OpenCLState,
+        other: &Self,
+        self_width: usize,
+        self_height: usize,
+        filter_width: usize,
+        filter_height: usize,
+        range: (Range<usize>, Range<usize>)
+    ) -> Result<Self, BufferOperationError>;
+
+
     /// Returns the real part of a complex buffer into a new buffer of half the size of the
     /// original buffer.
     ///
@@ -335,8 +352,25 @@ where
     /// - There is no command queue in the **opencl_state**.
     /// - If something goes wrong while executing the kernels.
     /// - If the program for buffer operations was not compiled in **opencl_state**.
-    /// - If the fft kernel was not found in the program for buffer operations.
+    /// - If the complex tranpose kernel was not found in the program for buffer operations.
     fn complex_tranpose(
+        &self, 
+        opencl_state: &OpenCLState, 
+        width: usize,
+        height: usize
+    ) -> Result<Self, BufferOperationError>;
+
+    /// Tranposes &self and returns the transposed &self
+    ///
+    /// # Errors
+    ///
+    /// This method will yield an error in the following cases:
+    /// - There is no device in the **opencl_state**.
+    /// - There is no command queue in the **opencl_state**.
+    /// - If something goes wrong while executing the kernels.
+    /// - If the program for buffer operations was not compiled in **opencl_state**.
+    /// - If the tranpose kernel was not found in the program for buffer operations.
+    fn tranpose(
         &self, 
         opencl_state: &OpenCLState, 
         width: usize,
@@ -492,6 +526,86 @@ impl BufferOperations for Buffer<cl_float> {
         Ok(result)
     }
 
+    fn sampled_convolve_2d(
+        &self,
+        state: &OpenCLState,
+        filter: &Self,
+        self_width: usize,
+        self_height: usize,
+        filter_width: usize,
+        filter_height: usize,
+        range: (Range<usize>, Range<usize>)
+    ) -> Result<Self, BufferOperationError> {
+        let self_count = self.size()? / mem::size_of::<cl_float>();
+        let filter_pixel_count = filter.size()? / mem::size_of::<cl_float>();
+
+        let samples_amount = self_count / self_width / self_height;
+        if filter_pixel_count % samples_amount != 0 {
+            return Err(BufferOperationError::BufferIsNotOfExpectedSize(
+                filter_pixel_count, 
+                "The samples amount of &self do not divide evenly into the filter"
+            ));
+        }
+        let filters_amount = filter_pixel_count / filter_width / filter_height / samples_amount;
+
+        let padded_width = self_width + filter_width - 1;
+        let padded_height = self_height + filter_height - 1;
+        let even_padded_width = padded_width.next_power_of_two();
+        let even_padded_height = padded_height.next_power_of_two();
+
+        let fft_self = self
+            .padd_2d(self_width, self_height, even_padded_width, even_padded_height, state)?
+            .to_complex_float2_buffer(state)?
+            .fft(state, samples_amount * even_padded_height)?
+            .complex_tranpose(state, even_padded_width, even_padded_height)?
+            .fft(state, samples_amount * even_padded_width)?
+            .complex_tranpose(state, even_padded_height, even_padded_width)?;
+
+        let fft_filter = filter
+            .padd_2d(filter_width, filter_height, even_padded_width, even_padded_height, state)?
+            .to_complex_float2_buffer(state)?
+            .fft(state, samples_amount * even_padded_height)?
+            .complex_tranpose(state, even_padded_width, even_padded_height)?
+            .fft(state, samples_amount * even_padded_width)?
+            .complex_tranpose(state, even_padded_height, even_padded_width)?;
+
+        let x_range = range.0;
+        let y_range = range.1;
+
+        let queue = state.queues.first().unwrap(); // should never panic because if there is no
+                                                   // queue some of the buffer operatiosn before
+                                                   // would've yielded an error
+
+        let program = state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
+        let multiply_kernel = program.get_krnl(COMPLEX_POINT_WISE_MULTIPLY_FOR_SAMPLED_CONVOLUTION_KERNEL_NAME)?;
+
+        let convolution = empty_buffer(even_padded_width * even_padded_height * samples_amount * filters_amount, CL_MEM_READ_WRITE, state)?;
+
+        ExecuteKernel::new(multiply_kernel)
+            .set_arg(&fft_self)
+            .set_arg(&fft_filter)
+            .set_arg(&convolution)
+            .set_global_work_sizes(&[even_padded_width * even_padded_height, samples_amount, filters_amount])
+            .enqueue_nd_range(queue)?
+            .wait()?;
+
+        let convolution = convolution
+            .ifft(state, filters_amount * samples_amount * even_padded_height)?
+            .complex_tranpose(state, even_padded_width, even_padded_height)?
+            .ifft(state, filters_amount * samples_amount * even_padded_width)?
+            .complex_tranpose(state, even_padded_height, even_padded_width)?
+            .real_part(state)?
+            .slice_2d(
+                x_range,
+                y_range,
+                even_padded_width,
+                even_padded_height,
+                state,
+            )?;
+
+        Ok(convolution)
+    }
+
     fn convolve_2d(
         &self,
         state: &OpenCLState,
@@ -507,6 +621,7 @@ impl BufferOperations for Buffer<cl_float> {
 
         let samples_amount = self_count / self_width / self_height;
         let other_samples_amount = other_count / other_width / other_height;
+
 
         let padded_width = self_width + other_width - 1;
         let padded_height = self_height + other_height - 1;
@@ -531,6 +646,8 @@ impl BufferOperations for Buffer<cl_float> {
 
         let x_range = range.0;
         let y_range = range.1;
+
+
 
         let convolution = fft_self
             .complex_multiply(other_samples_amount, samples_amount, &fft_other, state)?
@@ -667,6 +784,44 @@ impl BufferOperations for Buffer<cl_float> {
             .set_arg(other)
             .set_arg(&result)
             .set_global_work_sizes(&[matrix_volume, self_samples_amount, other_samples_amount])
+            .enqueue_nd_range(queue)?
+            .wait()?;
+
+        Ok(result)
+    }
+
+    fn tranpose(
+        &self, 
+        opencl_state: &OpenCLState, 
+        width: usize,
+        height: usize
+    ) -> Result<Self, BufferOperationError> {
+        if opencl_state.queues.is_empty() {
+            return Err(BufferOperationError::NoCommandQueueFoundError);
+        }
+
+        let queue = opencl_state.queues.first().unwrap();
+
+        let program = opencl_state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
+        let kernel = program.get_krnl(TRANSPOSE_KERNEL_NAME)?;
+
+        let size_self = self.size()?;
+        let count_self = size_self / mem::size_of::<cl_float>();
+        let samples_amount = count_self / width / height;
+        if width * height * samples_amount != count_self {
+            return Err(BufferOperationError::DimensionWasNotAsSpecified(
+                "The samples amount, width and height specified to transpose the samples of matrices do not match the buffer's volume",
+            ));
+        }
+
+        let result = empty_buffer(count_self, CL_MEM_READ_WRITE, opencl_state)?;
+
+        ExecuteKernel::new(kernel)
+            .set_arg(self)
+            .set_arg(&result)
+            .set_arg(&(height as cl_uint))
+            .set_arg(&(width as cl_uint))
+            .set_global_work_sizes(&[width, height, samples_amount])
             .enqueue_nd_range(queue)?
             .wait()?;
 

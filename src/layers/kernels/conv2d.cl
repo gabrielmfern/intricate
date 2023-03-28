@@ -36,66 +36,6 @@ int get_image_pixel_id(
     return pixel_id;
 }
 
-kernel void convolute(
-    global float* image,
-    constant float* filter,
-    global float* biases,
-    global float* output,
-
-    local float* filtered,
-
-    int image_width,
-    int image_volume,
-
-    int output_width,
-    int output_image_volume,
-
-    int filter_width,
-    int filter_height,
-    int filter_volume,
-
-    int samples_amount
-) {
-    int sample_index = get_global_id(0);
-
-    if (sample_index >= samples_amount) {
-        return;
-    }
-
-    int local_sample_index = get_local_id(0);
-
-    int output_index = get_group_id(1);
-    int filter_pixel_index = get_local_id(1);
-
-    int filter_starting_global_pixel_id = output_index  
-        + (filter_width - 1) * (int)floor((float)output_index / (float)output_width);
-
-    int pixel_index = get_image_pixel_id(
-        filter_pixel_index,
-
-        output_index,
-        filter_starting_global_pixel_id,
-
-        image_width,
-        filter_width
-    );
-
-    filtered[local_sample_index * filter_volume + filter_pixel_index] = 
-        image[sample_index * image_volume + pixel_index] // the pixel
-      * filter[filter_pixel_index]; // multiplied by the respective filter weight
-    barrier(CLK_LOCAL_MEM_FENCE);
-
-    if (filter_pixel_index == 0) {
-        float result = 0.0f;
-
-        for (int i = 0; i < filter_volume; i++) {
-            result += filtered[local_sample_index * filter_volume + i];
-        }
-
-        output[sample_index * output_image_volume + output_index] = result + (float)biases[0];
-    }
-}
-
 kernel void compute_gradients_per_sample(
     global float* image,
     global float* error_to_output_derivatives,

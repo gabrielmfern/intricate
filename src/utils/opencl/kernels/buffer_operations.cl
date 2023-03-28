@@ -198,6 +198,22 @@ kernel void get_real_part(
     result[global_index] = self[global_index].x;
 }
 
+kernel void complex_pointwise_mutliply_for_sampled_convolution(
+    global float2 *self,
+    global float2 *filter,
+    global float2 *result
+) {
+    uint matrix_index = get_global_id(0);
+    uint image_filter_matching_sample_index = get_global_id(1);
+    uint filter_index = get_global_id(2); // the filter that is being convolved
+
+    result[get_global_linear_id()] = complex_multiplication(
+        self[image_filter_matching_sample_index * get_global_size(0) + matrix_index], 
+        filter[image_filter_matching_sample_index * get_global_size(1) * get_global_size(0) 
+            + filter_index * get_global_size(0) + matrix_index]
+    );
+}
+
 kernel void complex_point_wise_multiply(
     global float2 *self,
     global float2 *other,
@@ -321,88 +337,22 @@ kernel void complex_transpose(
     result[sample_index * t_width * t_height + y * t_width + x] = nums[get_global_linear_id()];
 }
 
-/* kernel void fft_2d( */
-/*     global float *nums, */
-/*     global float2 *result, */
-/*     uint height, */
-/*     uint width, */
-/*     uint log_height, */
-/*     uint log_width */
-/* ) { */
-/*     uint2 image_position; */
-/*     image_position.y = get_global_id(0); */
-/*     image_position.x = get_global_id(1); */
+kernel void transpose(
+    global float *nums,
+    global float *result,
+    uint height,
+    uint width
+) {
+    uint sample_index = get_global_id(2);
+    uint matrix_index_y = get_global_id(1);
+    uint matrix_index_x = get_global_id(0);
 
-/*     uint first_collumn_in_row_index = image_position.y * width; */
-
-/*     int is_x_before_half = image_position.x < width >> 1; */
-
-/*     if (is_x_before_half) { */
-/*         uint index = 2u * image_position.x; */
-/*         uint reverse = reverse_bits(index, log_width); */
-/*         result[first_collumn_in_row_index + index] = (float2) (nums[first_collumn_in_row_index + reverse], 0.0); */
-
-/*         index += 1u; */
-/*         reverse = reverse_bits(index, log_width); */
-/*         result[first_collumn_in_row_index + index] = (float2) (nums[first_collumn_in_row_index + reverse], 0.0); */
-/*     } */
-
-/*     barrier(CLK_GLOBAL_MEM_FENCE); */
-
-/*     for (uint s = 1u; s <= log_width; s++) { */
-/*         if (is_x_before_half) { */
-/*             uint m_half = 1u << (s - 1u); */
-
-/*             uint k = image_position.x / m_half * (1u << s); */
-/*             uint j = image_position.x % m_half; */
-/*             uint k_plus_j = k + j; */
-/*             float2 twiddle = cis(-M_PI_F * (float)j / (float)m_half); */
-
-/*             uint first_half_index = first_collumn_in_row_index + k_plus_j; */
-/*             uint second_half_index = first_half_index + m_half; */
-
-/*             float2 t = complex_multiplication(twiddle, result[second_half_index]); */
-/*             float2 u = result[first_half_index]; */
-/*             result[first_half_index] = u + t; */
-/*             result[second_half_index] = u - t; */
-/*         } */
-
-/*         barrier(CLK_GLOBAL_MEM_FENCE); */
-/*     } */
-
-/*     uint global_index = image_position.y * width + image_position.x; */
-/*     float2 result_value = result[global_index]; */
-/*     printf("x: %d, y: %d, global_index: %d, value: %e + i%e\n", image_position.x, image_position.y, global_index, result_value.x, result_value.y); */
-
-/*     if (image_position.y < height >> 1) { */
-/*         uint index = 2u * image_position.y; */
-/*         uint reverse = reverse_bits(index, log_height); */
-/*         result[index * width + image_position.x] = (float2) (nums[reverse * width + image_position.x], 0.0); */
-
-/*         index += 1u; */
-/*         reverse = reverse_bits(index, log_height); */
-/*         result[index * width + image_position.x] = (float2) (nums[reverse * width + image_position.x], 0.0); */
-
-/*         for (uint s = 1u; s <= log_height; s++) { */
-/*             barrier(CLK_GLOBAL_MEM_FENCE); */
-
-/*             uint m_half = 1u << (s - 1u); */
-
-/*             uint k = image_position.y / m_half * (1u << s); */
-/*             uint j = image_position.y % m_half; */
-/*             uint k_plus_j = k + j; */
-/*             float2 twiddle = cis(-M_PI_F * (float)j / (float)m_half); */
-
-/*             uint first_half_index = k_plus_j * width + image_position.x; */
-/*             uint second_half_index = first_half_index + m_half * width; */
-
-/*             float2 t = complex_multiplication(twiddle, result[second_half_index]); */
-/*             float2 u = result[first_half_index]; */
-/*             result[first_half_index] = u + t; */
-/*             result[second_half_index] = u - t; */
-/*         } */
-/*     } */
-/* } */
+    uint y = matrix_index_x;
+    uint x = matrix_index_y;
+    uint t_width = height;
+    uint t_height = width;
+    result[sample_index * t_width * t_height + y * t_width + x] = nums[get_global_linear_id()];
+}
 
 kernel void scale(
     global float *nums,
