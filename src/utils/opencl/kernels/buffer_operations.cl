@@ -198,19 +198,18 @@ kernel void get_real_part(
     result[global_index] = self[global_index].x;
 }
 
-kernel void complex_pointwise_mutliply_for_sampled_convolution(
+kernel void sampled_complex_pointwise_mutliply(
     global float2 *self,
     global float2 *filter,
     global float2 *result
 ) {
     uint matrix_index = get_global_id(0);
-    uint image_filter_matching_sample_index = get_global_id(1);
-    uint filter_index = get_global_id(2); // the filter that is being convolved
+    uint filter_index = get_global_id(1); // the filter that is being convolved
+    uint image_filter_matching_sample_index = get_global_id(2);
 
     result[get_global_linear_id()] = complex_multiplication(
         self[image_filter_matching_sample_index * get_global_size(0) + matrix_index], 
-        filter[image_filter_matching_sample_index * get_global_size(1) * get_global_size(0) 
-            + filter_index * get_global_size(0) + matrix_index]
+        filter[get_global_linear_id()]
     );
 }
 

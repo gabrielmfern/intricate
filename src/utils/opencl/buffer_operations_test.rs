@@ -523,3 +523,111 @@ fn should_compute_complex_multiplication_correctly() {
 
     assert_approx_equal_distance(&expected_result, &dbg!(result), 0.01);
 }
+
+#[test]
+fn should_sample_complex_multiply_correctly() {
+    let state = setup_opencl(DeviceType::GPU).unwrap();
+    let image = vec![
+        0.5, 0.0, 0.5, 0.0, 0.5, 0.0, 
+        0.5, 0.0, 0.5, 0.0, 0.5, 0.0, 
+        0.5, 0.0, 0.5, 0.0, 0.5, 0.0, 
+
+        0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 
+        0.1, 0.0, 0.1, 0.0, 0.1, 0.0,
+        0.1, 0.0, 0.1, 0.0, 0.1, 0.0,
+    ].to_buffer(false, &state).unwrap();
+    let filter_matrix = vec![
+        0.8, 0.0, 0.8, 0.0, 0.8, 0.0,
+        0.8, 0.0, 0.8, 0.0, 0.8, 0.0,
+        0.8, 0.0, 0.8, 0.0, 0.8, 0.0,
+
+        4.0, 0.0, 4.0, 0.0, 4.0, 0.0,
+        4.0, 0.0, 4.0, 0.0, 4.0, 0.0,
+        4.0, 0.0, 4.0, 0.0, 4.0, 0.0,
+
+        0.4, 0.0, 0.4, 0.0, 0.4, 0.0,
+        0.4, 0.0, 0.4, 0.0, 0.4, 0.0,
+        0.4, 0.0, 0.4, 0.0, 0.4, 0.0,
+
+        2.0, 0.0, 2.0, 0.0, 2.0, 0.0,
+        2.0, 0.0, 2.0, 0.0, 2.0, 0.0,
+        2.0, 0.0, 2.0, 0.0, 2.0, 0.0,
+    ].to_buffer(false, &state).unwrap();
+    let result = Vec::from_buffer(
+        &image.sampled_complex_pointwise_mutliply(&filter_matrix, 3, 3, &state).unwrap(), 
+        false, 
+        &state
+    ).unwrap();
+    let expected_result = vec![
+        0.4, 0.0, 0.4, 0.0, 0.4, 0.0,
+        0.4, 0.0, 0.4, 0.0, 0.4, 0.0,
+        0.4, 0.0, 0.4, 0.0, 0.4, 0.0,
+
+        0.4, 0.0, 0.4, 0.0, 0.4, 0.0,
+        0.4, 0.0, 0.4, 0.0, 0.4, 0.0,
+        0.4, 0.0, 0.4, 0.0, 0.4, 0.0,
+
+        0.2, 0.0, 0.2, 0.0, 0.2, 0.0,
+        0.2, 0.0, 0.2, 0.0, 0.2, 0.0,
+        0.2, 0.0, 0.2, 0.0, 0.2, 0.0,
+
+        0.2, 0.0, 0.2, 0.0, 0.2, 0.0,
+        0.2, 0.0, 0.2, 0.0, 0.2, 0.0,
+        0.2, 0.0, 0.2, 0.0, 0.2, 0.0,
+    ];
+
+    assert_approx_equal_distance(&expected_result, &dbg!(result), 0.01);
+}
+
+#[test]
+fn should_sampled_convolve_correctly() {
+    let state = setup_opencl(DeviceType::GPU).unwrap();
+    let image = vec![
+        1.0, 1.0, 1.0, 1.0, 1.0,
+        1.0, 1.0, 1.0, 1.0, 1.0,
+        1.0, 1.0, 1.0, 1.0, 1.0,
+        1.0, 1.0, 1.0, 1.0, 1.0,
+
+        1.0, 1.0, 1.0, 1.0, 1.0,
+        1.0, 1.0, 1.0, 1.0, 1.0,
+        1.0, 1.0, 1.0, 1.0, 1.0,
+        1.0, 1.0, 1.0, 1.0, 1.0,
+    ].to_buffer(false, &state).unwrap();
+    let filter_matrix = vec![
+        0.1, 0.1, 0.1,
+        0.1, 0.1, 0.1,
+
+        0.1, 0.1, 0.1,
+        0.1, 0.1, 0.1,
+
+        0.2, 0.2, 0.2,
+        0.2, 0.2, 0.2,
+
+        0.3, 0.3, 0.3,
+        0.3, 0.3, 0.3,
+    ].to_buffer(false, &state).unwrap();
+    let result = Vec::from_buffer(
+        &image.sampled_convolve_2d(&state, &filter_matrix, 5, 4, 3, 2, (2..4, 1..3)).unwrap(), 
+        false, 
+        &state
+    ).unwrap();
+    let expected_result = vec![
+        0.6, 0.6, 0.6,
+        0.6, 0.6, 0.6,
+        0.6, 0.6, 0.6,
+
+        0.6, 0.6, 0.6,
+        0.6, 0.6, 0.6,
+        0.6, 0.6, 0.6,
+
+        1.2, 1.2, 1.2,
+        1.2, 1.2, 1.2,
+        1.2, 1.2, 1.2,
+
+        1.8, 1.8, 1.8,
+        1.8, 1.8, 1.8,
+        1.8, 1.8, 1.8,
+    ];
+
+    assert_approx_equal_distance(&expected_result, &dbg!(result), 0.01);
+}

@@ -36,7 +36,6 @@ use super::{
 const CONV2D_PROGRAM_NAME: &str = "CONV2D";
 const PROGRAM_SORUCE: &str = include_str!("kernels/conv2d.cl");
 
-const PROPAGATION_KERNEL_NAME: &str = "convolute";
 const COMPUTE_WEIGHT_GRADIENTS_KERNEL_NAME: &str = "compute_gradients_per_sample";
 // const COMPUTE_BIAS_GRADIENTS_KERNEL_NAME: &str = "compute_gradients_for_biases";
 const COMPUTE_LOSS_TO_INPUT_DERIVATIVES_KERNEL_NAME: &str = "compute_loss_to_input_derivatives";
@@ -45,7 +44,6 @@ pub(crate) fn compile_conv2d(
     opencl_state: &mut OpenCLState,
 ) -> Result<(), EnsureKernelsAndProgramError> {
     let prop_kernels = &[
-        PROPAGATION_KERNEL_NAME,
         COMPUTE_WEIGHT_GRADIENTS_KERNEL_NAME,
         // COMPUTE_BIAS_GRADIENTS_KERNEL_NAME,
         COMPUTE_LOSS_TO_INPUT_DERIVATIVES_KERNEL_NAME,

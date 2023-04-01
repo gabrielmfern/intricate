@@ -2,7 +2,7 @@
 //!
 //! Not recommended to be used more than once in a row, instead a kernel should be used for that.
 
-use std::{mem, ops::Range, io::empty};
+use std::{mem, ops::Range};
 
 use opencl3::{
     error_codes::ClError,
@@ -29,7 +29,7 @@ const REDUCE_BUFFER_KERNEL_NAME: &str = "sum_all_values_in_workgroups";
 const SUM_ALL_VALUES_IN_ROW_WOIRK_GROUPS: &str = "sum_all_values_in_row_work_groups";
 const SCALE_BUFFER_KERNEL_NAME: &str = "scale";
 const COMPLEX_POINT_WISE_MULTIPLY_KERNEL_NAME: &str = "complex_point_wise_multiply";
-const COMPLEX_POINT_WISE_MULTIPLY_FOR_SAMPLED_CONVOLUTION_KERNEL_NAME: &str = "complex_pointwise_mutliply_for_sampled_convolution";
+const COMPLEX_POINT_WISE_MULTIPLY_FOR_SAMPLED_CONVOLUTION_KERNEL_NAME: &str = "sampled_complex_pointwise_mutliply";
 const PADD_2D_KERNEL_NAME: &str = "padd_2d";
 const TO_COMPLEX_FLOAT_TWO_BUFFER_KERNEL_NAME: &str = "to_complex_float2_buffer";
 const SLICE_2D_KERNEL_NAME: &str = "slice_2d";
@@ -258,6 +258,14 @@ where
         range: (Range<usize>, Range<usize>)
     ) -> Result<Self, BufferOperationError>;
 
+    /// TOOO
+    fn sampled_complex_pointwise_mutliply(
+        &self,
+        other: &Self,
+        width: usize,
+        height: usize,
+        state: &OpenCLState
+    ) -> Result<Self, BufferOperationError>;
 
     /// Returns the real part of a complex buffer into a new buffer of half the size of the
     /// original buffer.
@@ -526,6 +534,59 @@ impl BufferOperations for Buffer<cl_float> {
         Ok(result)
     }
 
+    fn sampled_complex_pointwise_mutliply(
+        &self,
+        other: &Self,
+        width: usize,
+        height: usize,
+        state: &OpenCLState
+    ) -> Result<Self, BufferOperationError> {
+        if state.queues.is_empty() {
+            return Err(BufferOperationError::NoDeviceFoundError);
+        }
+
+        let queue = state.queues.first().unwrap();
+
+        let self_count = self.size()? / mem::size_of::<cl_float>() / 2;
+        let other_count = other.size()? / mem::size_of::<cl_float>() / 2;
+
+        if self_count % width != 0 || self_count % height != 0 {
+            return Err(BufferOperationError::DimensionWasNotAsSpecified(
+                "It seems that the volume of &self does not match the provided width and height!"
+            ));
+        }
+        
+        if other_count % width != 0 || other_count % height != 0 {
+            return Err(BufferOperationError::DimensionWasNotAsSpecified(
+                "It seems that the volume of &other does not match the provided width and height!"
+            ));
+        }
+
+        let samples_amount = self_count / width / height;
+        if other_count % samples_amount != 0 {
+            return Err(BufferOperationError::BufferIsNotOfExpectedSize(
+                other_count, 
+                "The samples amount of &self do not divide evenly into the filter"
+            ));
+        }
+        let other_sub_samples_amount = other_count / width / height / dbg!(samples_amount);
+
+        let program = state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
+        let multiply_kernel = program.get_krnl(COMPLEX_POINT_WISE_MULTIPLY_FOR_SAMPLED_CONVOLUTION_KERNEL_NAME)?;
+
+        let multiplication = empty_buffer(2 * self_count * other_sub_samples_amount, CL_MEM_READ_WRITE, state)?;
+
+        ExecuteKernel::new(multiply_kernel)
+            .set_arg(self)
+            .set_arg(other)
+            .set_arg(&multiplication)
+            .set_global_work_sizes(&[self_count, other_sub_samples_amount, samples_amount])
+            .enqueue_nd_range(queue)?
+            .wait()?;
+
+        Ok(multiplication)
+    }
+
     fn sampled_convolve_2d(
         &self,
         state: &OpenCLState,
@@ -564,37 +625,27 @@ impl BufferOperations for Buffer<cl_float> {
         let fft_filter = filter
             .padd_2d(filter_width, filter_height, even_padded_width, even_padded_height, state)?
             .to_complex_float2_buffer(state)?
-            .fft(state, samples_amount * even_padded_height)?
+            .fft(state, filters_amount * samples_amount * even_padded_height)?
             .complex_tranpose(state, even_padded_width, even_padded_height)?
-            .fft(state, samples_amount * even_padded_width)?
+            .fft(state, filters_amount * samples_amount * even_padded_width)?
             .complex_tranpose(state, even_padded_height, even_padded_width)?;
 
         let x_range = range.0;
         let y_range = range.1;
 
-        let queue = state.queues.first().unwrap(); // should never panic because if there is no
-                                                   // queue some of the buffer operatiosn before
-                                                   // would've yielded an error
-
-        let program = state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
-        let multiply_kernel = program.get_krnl(COMPLEX_POINT_WISE_MULTIPLY_FOR_SAMPLED_CONVOLUTION_KERNEL_NAME)?;
-
-        let convolution = empty_buffer(even_padded_width * even_padded_height * samples_amount * filters_amount, CL_MEM_READ_WRITE, state)?;
-
-        ExecuteKernel::new(multiply_kernel)
-            .set_arg(&fft_self)
-            .set_arg(&fft_filter)
-            .set_arg(&convolution)
-            .set_global_work_sizes(&[even_padded_width * even_padded_height, samples_amount, filters_amount])
-            .enqueue_nd_range(queue)?
-            .wait()?;
-
-        let convolution = convolution
+        let convolution = fft_self
+            .sampled_complex_pointwise_mutliply(
+                &fft_filter, 
+                even_padded_width, 
+                even_padded_height, 
+                state
+            )?
             .ifft(state, filters_amount * samples_amount * even_padded_height)?
             .complex_tranpose(state, even_padded_width, even_padded_height)?
             .ifft(state, filters_amount * samples_amount * even_padded_width)?
             .complex_tranpose(state, even_padded_height, even_padded_width)?
             .real_part(state)?
+            .dbg(state).unwrap()
             .slice_2d(
                 x_range,
                 y_range,
