@@ -201,7 +201,13 @@ where
     ///
     /// # Errors
     ///
-    /// TODO
+    /// This method will yield an error in the following cases:
+    /// - There is no device in the **opencl_state**.
+    /// - There is no command queue in the **opencl_state**.
+    /// - If something goes wrong while executing the kernels.
+    /// - If the program for buffer operations was not compiled in **opencl_state**.
+    /// - If the padd_2d kernel was not found in the program for buffer operations.
+    /// - If the specified width and height do not agree with &self's volume.
     fn padd_2d(
         &self,
         width: usize,
@@ -218,7 +224,13 @@ where
     ///
     /// # Errors
     ///
-    /// TODO
+    /// This method will yield an error in the following cases:
+    /// - There is no device in the **opencl_state**.
+    /// - There is no command queue in the **opencl_state**.
+    /// - If something goes wrong while executing the kernels.
+    /// - If the program for buffer operations was not compiled in **opencl_state**.
+    /// - If the slice_2d kernel was not found in the program for buffer operations.
+    /// - If the specified width and height do not agree with &self's volume.
     fn slice_2d(
         &self,
         x_range: Range<usize>,
@@ -234,7 +246,16 @@ where
     /// 
     /// # Errors
     ///
-    /// TODO
+    /// This method will yield an error in the following cases:
+    /// - There is no device in the **opencl_state**.
+    /// - There is no command queue in the **opencl_state**.
+    /// - If something goes wrong while executing the kernels.
+    /// - If the program for buffer operations was not compiled in **opencl_state**.
+    /// - If the fft, ifft, complex tranpose or complex point-wise multiplication kernels were not found 
+    /// in the program for buffer operations.
+    /// - If the specified width and height do not agree with &self's volume.
+    /// - If the specified filter_width and filter_height do not agre with  
+    /// &other's volume
     fn convolve_2d(
         &self,
         state: &OpenCLState,
@@ -246,7 +267,27 @@ where
         range: (Range<usize>, Range<usize>)
     ) -> Result<Self, BufferOperationError>;
 
-    /// TODO
+    /// Computes the sampled 2d convolution between &self and other using the 2d FFT.
+    /// 
+    /// This convolution is made for when &other is much larger than &self but its
+    /// amount of samples is a multiple of the samples of &self.
+    ///
+    /// This computes the a point-wise convolution per image-other sample and then
+    /// repeats this process depending on the amount of filters in &other.
+    /// 
+    /// # Errors
+    ///
+    /// This method will yield an error in the following cases:
+    /// - There is no device in the **opencl_state**.
+    /// - There is no command queue in the **opencl_state**.
+    /// - If something goes wrong while executing the kernels.
+    /// - If the program for buffer operations was not compiled in **opencl_state**.
+    /// - If the fft, ifft, complex tranpose or sampled complex point-wise multiplication 
+    /// kernels were not found.
+    /// in the program for buffer operations.
+    /// - If the specified width and height do not agree with &self's volume.
+    /// - If the specified filter_width and filter_height do not agree with &other's volume.
+    /// - If the amount of samples of &self is not a divisor of the amount of samples of &other.
     fn sampled_convolve_2d(
         &self,
         state: &OpenCLState,
@@ -258,7 +299,26 @@ where
         range: (Range<usize>, Range<usize>)
     ) -> Result<Self, BufferOperationError>;
 
-    /// TOOO
+    /// Computes a sampled 2d complex point-wise multiplication between &self and &other.
+    ///
+    /// This is almost the same as the point-wise multiply operation but it matches the samples
+    /// of &self and &other instead of repeating each sample of &other into each and every one
+    /// sample of &self.
+    ///
+    /// This is mostly used in the sampled_convolve_2d buffer operation for the calculation of
+    /// gradients in the Conv2d layer.
+    ///
+    /// # Errors
+    ///
+    /// This method will yield an error in the following cases:
+    /// - There is no device in the **opencl_state**.
+    /// - There is no command queue in the **opencl_state**.
+    /// - If something goes wrong while executing the kernels.
+    /// - If the program for buffer operations was not compiled in **opencl_state**.
+    /// - if the sampled complex point-wise multiplication kernel is not found inside the program.
+    /// - If the specified width and height do not agree with &self's volume.
+    /// - If the width and height of each sample of &self are not the same of &other.
+    /// - If the amount of samples of &self is not a divisor of the amount of samples of &other.
     fn sampled_complex_pointwise_mutliply(
         &self,
         other: &Self,
@@ -289,7 +349,11 @@ where
     ///
     /// # Errors
     ///
-    /// TODO
+    /// - There is no device in the **opencl_state**.
+    /// - There is no command queue in the **opencl_state**.
+    /// - If something goes wrong while executing the kernels.
+    /// - If the program for buffer operations was not compiled in **opencl_state**.
+    /// - If the to_complex_float2_buffer kernel was not found in the program for buffer operations.
     fn to_complex_float2_buffer(
         &self,
         state: &OpenCLState
