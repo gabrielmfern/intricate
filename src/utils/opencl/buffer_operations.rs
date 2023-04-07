@@ -31,6 +31,7 @@ const SCALE_BUFFER_KERNEL_NAME: &str = "scale";
 const COMPLEX_POINT_WISE_MULTIPLY_KERNEL_NAME: &str = "complex_point_wise_multiply";
 const COMPLEX_POINT_WISE_MULTIPLY_FOR_SAMPLED_CONVOLUTION_KERNEL_NAME: &str = "sampled_complex_pointwise_mutliply";
 const PADD_2D_KERNEL_NAME: &str = "padd_2d";
+const FLIP_2D_KERNEL_NAME: &str = "flip_2d";
 const TO_COMPLEX_FLOAT_TWO_BUFFER_KERNEL_NAME: &str = "to_complex_float2_buffer";
 const SLICE_2D_KERNEL_NAME: &str = "slice_2d";
 const GET_REAL_PART_KERNEL_NAME: &str = "get_real_part";
@@ -58,6 +59,7 @@ pub(crate) fn compile_buffer_operations_program(
         FFT_1D_BUFFER_KERNEL_NAME,
         GET_REAL_PART_KERNEL_NAME,
         TO_COMPLEX_FLOAT_TWO_BUFFER_KERNEL_NAME,
+        FLIP_2D_KERNEL_NAME,
         COMPLEX_POINT_WISE_MULTIPLY_KERNEL_NAME,
         COMPLEX_POINT_WISE_MULTIPLY_FOR_SAMPLED_CONVOLUTION_KERNEL_NAME,
         IFFT_1D_BUFFER_KERNEL_NAME,
@@ -215,6 +217,28 @@ where
         new_width: usize,
         new_height: usize,
         state: &OpenCLState,
+    ) -> Result<Self, BufferOperationError>;
+
+    /// Flips &self into a new buffer and returns the results.
+    /// This is not to be confused with **transposing** a buffer since that is a completely
+    /// different operation.
+    ///
+    /// This does work with multiple matrices at once, that is, with multiple samples.
+    ///
+    /// # Errors
+    ///
+    /// This method will yield an error in the following cases:
+    /// - There is no device in the **opencl_state**.
+    /// - There is no command queue in the **opencl_state**.
+    /// - If something goes wrong while executing the kernels.
+    /// - If the program for buffer operations was not compiled in **opencl_state**.
+    /// - If the flip_2d kernel was not found in the program for buffer operations.
+    /// - If the specified width and height do not divide into &self's volume.
+    fn flip_2d(
+        &self,
+        width: usize,
+        height: usize,
+        state: &OpenCLState
     ) -> Result<Self, BufferOperationError>;
 
     /// Slices the current buffer by creating a new buffer of data that contains
@@ -553,6 +577,42 @@ impl BufferOperations for Buffer<cl_float> {
 
         Ok(result)
     }
+
+    fn flip_2d(
+        &self,
+        width: usize,
+        height: usize,
+        state: &OpenCLState
+    ) -> Result<Self, BufferOperationError> {
+        if state.queues.is_empty() {
+            return Err(BufferOperationError::NoCommandQueueFoundError);
+        }
+
+        let queue = state.queues.first().unwrap();
+
+        let program = state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
+        let kernel = program.get_krnl(FLIP_2D_KERNEL_NAME)?;
+
+        let size_self = self.size()?;
+        let count_self = size_self / mem::size_of::<cl_float>();
+        if count_self / width % height != 0 {
+            return Err(BufferOperationError::DimensionWasNotAsSpecified(
+                "Cannot determine the amount of samples of the buffer for flipping the matrices since the width and height were not as specified!"
+            ));
+        }
+        let samples_amount = count_self / width / height;
+
+        let result = empty_buffer(count_self, CL_MEM_READ_WRITE, state)?;
+
+        ExecuteKernel::new(kernel)
+            .set_arg(self)
+            .set_arg(&result)
+            .set_global_work_sizes(&[width, height, samples_amount])
+            .enqueue_nd_range(queue)?
+            .wait()?;
+
+        Ok(result)
+    }
     
     fn slice_2d(
         &self,
@@ -687,6 +747,7 @@ impl BufferOperations for Buffer<cl_float> {
             .complex_tranpose(state, even_padded_height, even_padded_width)?;
 
         let fft_filter = filter
+            .flip_2d(filter_width, filter_height, state)?
             .padd_2d(filter_width, filter_height, even_padded_width, even_padded_height, state)?
             .to_complex_float2_buffer(state)?
             .fft(state, filters_amount * samples_amount * even_padded_height)?
@@ -752,6 +813,7 @@ impl BufferOperations for Buffer<cl_float> {
             .complex_tranpose(state, even_padded_height, even_padded_width)?;
 
         let fft_other = other
+            .flip_2d(other_width, other_height, state)?
             .padd_2d(other_width, other_height, even_padded_width, even_padded_height, state)?
             .to_complex_float2_buffer(state)?
             .fft(state, samples_amount * even_padded_height)?
@@ -761,8 +823,6 @@ impl BufferOperations for Buffer<cl_float> {
 
         let x_range = range.0;
         let y_range = range.1;
-
-
 
         let convolution = fft_self
             .complex_multiply(other_samples_amount, samples_amount, &fft_other, state)?

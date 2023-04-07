@@ -631,3 +631,27 @@ fn should_sampled_convolve_correctly() {
 
     assert_approx_equal_distance(&expected_result, &dbg!(result), 0.01);
 }
+
+#[test]
+fn should_flip_2d_correctly() {
+    let state = setup_opencl(DeviceType::GPU).unwrap();
+    let matrix = vec![
+        1.0, 2.0, 3.0, 4.0, 5.0,
+        6.0, 7.0, 8.0, 9.0, 10.0,
+        11.0, 12.0, 13.0, 14.0, 15.0,
+        16.0, 17.0, 18.0, 19.0, 20.0,
+    ].to_buffer(false, &state).unwrap();
+    let result = Vec::from_buffer(
+        &matrix.flip_2d(5, 4, &state).unwrap(),
+        false, 
+        &state
+    ).unwrap();
+    let expected_result = vec![
+        20.0, 19.0, 18.0, 17.0, 16.0,
+        15.0, 14.0, 13.0, 12.0, 11.0,
+        10.0, 9.0, 8.0, 7.0, 6.0,
+        5.0, 4.0, 3.0, 2.0, 1.0
+    ];
+
+    assert_approx_equal_distance(&expected_result, &dbg!(result), 0.01);
+}

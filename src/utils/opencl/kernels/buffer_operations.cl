@@ -147,6 +147,26 @@ float2 complex_multiplication(float2 a, float2 b) {
     return (float2) (a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
 }
 
+kernel void flip_2d(
+    global float *self,
+    global float *result
+) {
+    uint current_x = get_global_id(0);
+    uint current_y = get_global_id(1);
+    uint sample_index = get_global_id(2);
+
+    uint width = get_global_size(0);
+    uint height = get_global_size(1);
+
+    uint opposite_x = width - current_x - 1;
+    uint opposite_y = height - current_y - 1;
+
+    uint opposite_index = sample_index * width * height + opposite_y * width + opposite_x;
+    uint current_index = get_global_linear_id();
+
+    result[current_index] = self[opposite_index];
+}
+
 kernel void padd_2d(
     global float *self,
     global float *result,
