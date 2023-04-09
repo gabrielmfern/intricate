@@ -416,18 +416,18 @@ impl<'a> Layer<'a> for Conv2D<'a> {
 
         let x_range_start = (padded_width - self.filter_sizes.0) / 2;
         let y_range_start = (padded_height - self.filter_sizes.1) / 2;
-        let x_range = x_range_start..(x_range_start + self.filter_sizes.0);
-        let y_range = y_range_start..(y_range_start + self.filter_sizes.1);
+        let x_range = x_range_start..(x_range_start + self.filter_sizes.0 - 1);
+        let y_range = y_range_start..(y_range_start + self.filter_sizes.1 - 1);
 
         let inputs = self.get_last_inputs().unwrap();
         let mut weight_gradients = inputs
             .sampled_convolve_2d(
                 state,
                 &layer_output_to_error_derivatives,
-                self.inputs_size.1,
                 self.inputs_size.0,
-                self.filter_sizes.0,
-                self.filter_sizes.1,
+                self.inputs_size.1,
+                convolution_width,
+                convolution_height,
                 (x_range, y_range),
             )?
             .tranpose(state, filter_volume, samples_amount)?
@@ -619,133 +619,14 @@ mod tests {
     #[test]
     fn should_compute_gradients_correctly() -> () {
         let opencl_state = setup_opencl(DeviceType::GPU).expect("unable to setup opencl");
-        let images: Vec<f32> = vec![
-            0.1, 0.3, 0.4, 0.9, 0.23, 0.29, 0.34, 0.15, 0.93, 0.31, 0.11, 0.44, 0.15, 0.14, 0.19,
-            0.32, 0.45, 0.21, 0.42, 0.2, 0.12, 0.23, 0.21, 0.31, 0.86, 0.28, 0.25, 0.83, 0.25,
-            0.11, 0.64, 0.33,
-        ];
-        let output_to_loss_derivatives = vec![0.1, 0.3, 0.4, 0.8, 0.2, 0.4, 0.5, 0.5];
-        let expected_gradients = vec![
-            (0.1 * 0.1
-                + 0.3 * 0.3
-                + 0.23 * 0.4
-                + 0.29 * 0.8
-                + 0.45 * 0.2
-                + 0.21 * 0.4
-                + 0.12 * 0.5
-                + 0.23 * 0.5)
-                / 2.0,
-            (0.3 * 0.1
-                + 0.4 * 0.3
-                + 0.29 * 0.4
-                + 0.34 * 0.8
-                + 0.21 * 0.2
-                + 0.42 * 0.4
-                + 0.23 * 0.5
-                + 0.21 * 0.5)
-                / 2.0,
-            (0.4 * 0.1
-                + 0.9 * 0.3
-                + 0.34 * 0.4
-                + 0.15 * 0.8
-                + 0.42 * 0.2
-                + 0.2 * 0.4
-                + 0.21 * 0.5
-                + 0.31 * 0.5)
-                / 2.0,
-            (0.23 * 0.1
-                + 0.29 * 0.3
-                + 0.93 * 0.4
-                + 0.31 * 0.8
-                + 0.12 * 0.2
-                + 0.23 * 0.4
-                + 0.86 * 0.5
-                + 0.28 * 0.5)
-                / 2.0,
-            (0.29 * 0.1
-                + 0.34 * 0.3
-                + 0.31 * 0.4
-                + 0.11 * 0.8
-                + 0.23 * 0.2
-                + 0.21 * 0.4
-                + 0.28 * 0.5
-                + 0.25 * 0.5)
-                / 2.0,
-            (0.34 * 0.1
-                + 0.15 * 0.3
-                + 0.11 * 0.4
-                + 0.44 * 0.8
-                + 0.21 * 0.2
-                + 0.31 * 0.4
-                + 0.25 * 0.5
-                + 0.83 * 0.5)
-                / 2.0,
-            (0.93 * 0.1
-                + 0.31 * 0.3
-                + 0.15 * 0.4
-                + 0.14 * 0.8
-                + 0.86 * 0.2
-                + 0.28 * 0.4
-                + 0.25 * 0.5
-                + 0.11 * 0.5)
-                / 2.0,
-            (0.31 * 0.1
-                + 0.11 * 0.3
-                + 0.14 * 0.4
-                + 0.19 * 0.8
-                + 0.28 * 0.2
-                + 0.25 * 0.4
-                + 0.11 * 0.5
-                + 0.64 * 0.5)
-                / 2.0,
-            (0.11 * 0.1
-                + 0.44 * 0.3
-                + 0.19 * 0.4
-                + 0.32 * 0.8
-                + 0.25 * 0.2
-                + 0.83 * 0.4
-                + 0.64 * 0.5
-                + 0.33 * 0.5)
-                / 2.0,
-        ];
-        let samples_buff = images
-            .to_buffer(false, &opencl_state)
-            .expect("unable to get the image's buffer");
-        let output_to_loss_derivatives_buff = output_to_loss_derivatives
-            .to_buffer(false, &opencl_state)
-            .expect("unable to get the output to loss derivatives buffer");
-
-        let mut conv2d = Conv2D::new_raw((4, 4), (3, 3), 1);
-        conv2d
-            .init(&opencl_state)
-            .expect("unable to initialize raw conv2D layer");
-
-        conv2d.last_inputs_buffer = Some(samples_buff);
-
-        let actual_gradients_buff = &conv2d
-            .compute_gradients(&output_to_loss_derivatives_buff)
-            .expect("unable to compute conv2d gradients")[0]
-            .value;
-
-        let actual_gradients = Vec::<f32>::from_buffer(actual_gradients_buff, false, &opencl_state)
-            .expect("unable to convert from the actual gradients buffer to a vector");
-
-        approx_eq::assert_approx_equal(&actual_gradients, &expected_gradients, 1);
-    }
-
-    #[test]
-    fn should_convolute_correctly() -> () {
-        let opencl_state = setup_opencl(DeviceType::GPU).expect("unable to setup opencl");
         let image = vec![
             0.33, 0.14, 0.99, 1.0, 0.1, 
             0.51, 0.31, 0.91, 0.1, 0.3, 
             0.8,  0.4,  0.5,  0.2, 0.1,
-            //             0.53, 0.03, 0.31, 0.3, 0.5,
-            //             0.11, 0.91, 0.44, 0.3, 0.9,
-            //             0.2,  0.1,  0.2,  0.5, 0.13,
         ]
         .to_buffer(false, &opencl_state)
         .expect("unable to get image buffer");
+
         let filter = vec![0.3, 0.4, 0.9, 0.1, 0.2, 1.0, 0.2, 0.5, 0.81]
             .to_buffer(false, &opencl_state)
             .expect("unable to get filter buffer");
@@ -753,8 +634,47 @@ mod tests {
             .to_buffer(false, &opencl_state)
             .expect("unable to get the biases buffer");
         let expected_result = vec![
-            2.8340, 2.1430, 1.4790
+            1.1354, 1.5806, 2.5487, 1.5415, 1.3581, 1.7185, 1.8992, 1.1907, 1.0414,
         ];
+
+        let mut layer = Conv2D::new_raw((5, 3), (3, 3), 1);
+        layer.init(&opencl_state).expect("unable to init Conv2D");
+        layer.weights_buff = Some(filter);
+        layer.biases_buff = Some(bias);
+
+        layer.last_inputs_buffer = Some(image);
+
+        let output_to_loss_derivatives_buff = vec![1.6340, 0.8833, 0.4773]
+            .to_buffer(false, &opencl_state)
+            .unwrap();
+
+        let actual_gradients_buff = &layer
+            .compute_gradients(&output_to_loss_derivatives_buff)
+            .expect("unable to compute conv2d gradients")[0]
+            .value;
+
+        let actual_gradients = Vec::<f32>::from_buffer(actual_gradients_buff, false, &opencl_state)
+            .expect("unable to convert from the actual gradients buffer to a vector");
+
+        approx_eq::assert_approx_equal(&actual_gradients, &expected_result, 1);
+    }
+
+    #[test]
+    fn should_convolute_correctly() -> () {
+        let opencl_state = setup_opencl(DeviceType::GPU).expect("unable to setup opencl");
+        let image = vec![
+            0.33, 0.14, 0.99, 1.0, 0.1, 0.51, 0.31, 0.91, 0.1, 0.3, 0.8, 0.4, 0.5, 0.2, 0.1,
+        ]
+        .to_buffer(false, &opencl_state)
+        .expect("unable to get image buffer");
+
+        let filter = vec![0.3, 0.4, 0.9, 0.1, 0.2, 1.0, 0.2, 0.5, 0.81]
+            .to_buffer(false, &opencl_state)
+            .expect("unable to get filter buffer");
+        let bias = vec![0.123]
+            .to_buffer(false, &opencl_state)
+            .expect("unable to get the biases buffer");
+        let expected_result = vec![2.8340, 2.1430, 1.4790];
 
         let mut layer = Conv2D::new_raw((5, 3), (3, 3), 1);
         layer.init(&opencl_state).expect("unable to init Conv2D");

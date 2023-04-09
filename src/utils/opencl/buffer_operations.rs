@@ -693,7 +693,7 @@ impl BufferOperations for Buffer<cl_float> {
                 "The samples amount of &self do not divide evenly into the filter"
             ));
         }
-        let other_sub_samples_amount = other_count / width / height / dbg!(samples_amount);
+        let other_sub_samples_amount = other_count / width / height / samples_amount;
 
         let program = state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
         let multiply_kernel = program.get_krnl(COMPLEX_POINT_WISE_MULTIPLY_FOR_SAMPLED_CONVOLUTION_KERNEL_NAME)?;
@@ -770,7 +770,6 @@ impl BufferOperations for Buffer<cl_float> {
             .ifft(state, filters_amount * samples_amount * even_padded_width)?
             .complex_tranpose(state, even_padded_height, even_padded_width)?
             .real_part(state)?
-            .dbg(state).unwrap()
             .slice_2d(
                 x_range,
                 y_range,
