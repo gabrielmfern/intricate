@@ -797,7 +797,6 @@ impl BufferOperations for Buffer<cl_float> {
         let samples_amount = self_count / self_width / self_height;
         let other_samples_amount = other_count / other_width / other_height;
 
-
         let padded_width = self_width + other_width - 1;
         let padded_height = self_height + other_height - 1;
         let even_padded_width = padded_width.next_power_of_two();
@@ -815,9 +814,9 @@ impl BufferOperations for Buffer<cl_float> {
             .flip_2d(other_width, other_height, state)?
             .padd_2d(other_width, other_height, even_padded_width, even_padded_height, state)?
             .to_complex_float2_buffer(state)?
-            .fft(state, samples_amount * even_padded_height)?
+            .fft(state, other_samples_amount * even_padded_height)?
             .complex_tranpose(state, even_padded_width, even_padded_height)?
-            .fft(state, samples_amount * even_padded_width)?
+            .fft(state, other_samples_amount * even_padded_width)?
             .complex_tranpose(state, even_padded_height, even_padded_width)?;
 
         let x_range = range.0;
@@ -825,14 +824,14 @@ impl BufferOperations for Buffer<cl_float> {
 
         let convolution = fft_self
             .complex_multiply(other_samples_amount, samples_amount, &fft_other, state)?
-            .ifft(state, other_samples_amount * samples_amount * even_padded_height)?
+            .ifft(state, other_samples_amount * samples_amount * dbg!(even_padded_height))?
             .complex_tranpose(state, even_padded_width, even_padded_height)?
-            .ifft(state, other_samples_amount * samples_amount * even_padded_width)?
+            .ifft(state, other_samples_amount * samples_amount * dbg!(even_padded_width))?
             .complex_tranpose(state, even_padded_height, even_padded_width)?
             .real_part(state)?
             .slice_2d(
-                x_range,
-                y_range,
+                dbg!(x_range),
+                dbg!(y_range),
                 even_padded_width,
                 even_padded_height,
                 state,

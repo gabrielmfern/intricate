@@ -663,7 +663,13 @@ mod tests {
     fn should_convolute_correctly() -> () {
         let opencl_state = setup_opencl(DeviceType::GPU).expect("unable to setup opencl");
         let image = vec![
-            0.33, 0.14, 0.99, 1.0, 0.1, 0.51, 0.31, 0.91, 0.1, 0.3, 0.8, 0.4, 0.5, 0.2, 0.1,
+            0.33, 0.14, 0.99, 1.0, 0.1, 
+            0.51, 0.31, 0.91, 0.1, 0.3, 
+            0.8,  0.4,  0.5,  0.2, 0.1,
+
+            0.31, 0.41, 2.32, 1.2, 0.41,
+            0.91, 0.32, 0.93, 0.12,0.34,
+            0.3,  0.2,  0.91, 0.41,2.3
         ]
         .to_buffer(false, &opencl_state)
         .expect("unable to get image buffer");
@@ -674,7 +680,10 @@ mod tests {
         let bias = vec![0.123]
             .to_buffer(false, &opencl_state)
             .expect("unable to get the biases buffer");
-        let expected_result = vec![2.8340, 2.1430, 1.4790];
+        let expected_result = vec![
+            2.8340, 2.1430, 1.4790,
+            4.3271, 3.2961, 4.2520
+        ];
 
         let mut layer = Conv2D::new_raw((5, 3), (3, 3), 1);
         layer.init(&opencl_state).expect("unable to init Conv2D");
