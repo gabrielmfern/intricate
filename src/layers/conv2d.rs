@@ -623,6 +623,10 @@ mod tests {
             0.33, 0.14, 0.99, 1.0, 0.1, 
             0.51, 0.31, 0.91, 0.1, 0.3, 
             0.8,  0.4,  0.5,  0.2, 0.1,
+
+            0.31, 0.41, 2.32, 1.2, 0.41,
+            0.91, 0.32, 0.93, 0.12,0.34,
+            0.3,  0.2,  0.91, 0.41,2.3
         ]
         .to_buffer(false, &opencl_state)
         .expect("unable to get image buffer");
@@ -634,7 +638,9 @@ mod tests {
             .to_buffer(false, &opencl_state)
             .expect("unable to get the biases buffer");
         let expected_result = vec![
-            1.1354, 1.5806, 2.5487, 1.5415, 1.3581, 1.7185, 1.8992, 1.1907, 1.0414,
+          4.3590 / 2.0, 5.0604 / 2.0, 5.5927 / 2.0,
+          3.3297 / 2.0, 2.0929 / 2.0, 2.4738 / 2.0,
+          2.6763 / 2.0, 2.2349 / 2.0, 4.9649 / 2.0
         ];
 
         let mut layer = Conv2D::new_raw((5, 3), (3, 3), 1);
@@ -644,8 +650,10 @@ mod tests {
 
         layer.last_inputs_buffer = Some(image);
 
-        let output_to_loss_derivatives_buff = vec![1.6340, 0.8833, 0.4773]
-            .to_buffer(false, &opencl_state)
+        let output_to_loss_derivatives_buff = vec![
+            0.8170, 0.4417, 0.2387,
+            1.1320, 0.9614, 1.3130
+        ].to_buffer(false, &opencl_state)
             .unwrap();
 
         let actual_gradients_buff = &layer
