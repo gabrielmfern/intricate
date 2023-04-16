@@ -239,8 +239,8 @@ kernel void complex_point_wise_multiply(
     global float2 *result
 ) {
     uint matrix_index = get_global_id(0);
-    uint self_sample_index = get_global_id(1);
-    uint other_sample_index = get_global_id(2);
+    uint other_sample_index = get_global_id(1);
+    uint self_sample_index = get_global_id(2);
 
     result[get_global_linear_id()] = complex_multiplication(
         self[self_sample_index * get_global_size(0) + matrix_index], 

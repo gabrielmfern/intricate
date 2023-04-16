@@ -514,8 +514,8 @@ where
         opencl_state: &OpenCLState,
     ) -> Result<Self, BufferOperationError>;
 
-    /// A function that prints a Vec that contains the information of SElf
-    fn dbg(self, state: &OpenCLState) -> Result<Self, BufferConversionError>;
+    /// A function that prints a Vec that contains the information of Self
+    fn dbg(self, split_after: usize, state: &OpenCLState) -> Result<Self, BufferConversionError>;
 
     /// Clones the current buffer into another new buffer with a certain memory flag.
     fn clone(&self, opencl_state: &OpenCLState) -> Result<Self, BufferOperationError>;
@@ -824,11 +824,12 @@ impl BufferOperations for Buffer<cl_float> {
 
         let convolution = fft_self
             .complex_multiply(other_samples_amount, samples_amount, &fft_other, state)?
-            .ifft(state, other_samples_amount * samples_amount * dbg!(even_padded_height))?
+            .ifft(state, other_samples_amount * samples_amount * even_padded_height)?
             .complex_tranpose(state, even_padded_width, even_padded_height)?
-            .ifft(state, other_samples_amount * samples_amount * dbg!(even_padded_width))?
+            .ifft(state, other_samples_amount * samples_amount * even_padded_width)?
             .complex_tranpose(state, even_padded_height, even_padded_width)?
             .real_part(state)?
+            .dbg(even_padded_width, state).unwrap()
             .slice_2d(
                 dbg!(x_range),
                 dbg!(y_range),
@@ -840,9 +841,14 @@ impl BufferOperations for Buffer<cl_float> {
         Ok(convolution)
     }
 
-    fn dbg(self, state: &OpenCLState) -> Result<Self, BufferConversionError> {
-        let vec = Vec::from_buffer(&self, false, state)?;
-        println!("{:?}", vec);
+    fn dbg(self, split_after: usize, state: &OpenCLState) -> Result<Self, BufferConversionError> {
+        let buf_vec = Vec::from_buffer(&self, false, state)?;
+        let slices = buf_vec.len() / split_after;
+        for slice in 0..slices {
+            let slice_start = slice * split_after;
+            let slice_end = (slice + 1) * split_after;
+            println!("{:?}", buf_vec[slice_start..slice_end].to_vec());
+        }
         Ok(self)
     }
 
@@ -956,7 +962,7 @@ impl BufferOperations for Buffer<cl_float> {
             .set_arg(self)
             .set_arg(other)
             .set_arg(&result)
-            .set_global_work_sizes(&[matrix_volume, self_samples_amount, other_samples_amount])
+            .set_global_work_sizes(&[matrix_volume, other_samples_amount, self_samples_amount])
             .enqueue_nd_range(queue)?
             .wait()?;
 
