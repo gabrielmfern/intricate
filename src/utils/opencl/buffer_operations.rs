@@ -698,13 +698,13 @@ impl BufferOperations for Buffer<cl_float> {
         let program = state.get_prgm(BUFFER_OPERATIONS_PROGRAM_NAME)?;
         let multiply_kernel = program.get_krnl(COMPLEX_POINT_WISE_MULTIPLY_FOR_SAMPLED_CONVOLUTION_KERNEL_NAME)?;
 
-        let multiplication = empty_buffer(2 * self_count * other_sub_samples_amount, CL_MEM_READ_WRITE, state)?;
+        let multiplication = empty_buffer(2 * other_count, CL_MEM_READ_WRITE, state)?;
 
         ExecuteKernel::new(multiply_kernel)
             .set_arg(self)
             .set_arg(other)
             .set_arg(&multiplication)
-            .set_global_work_sizes(&[self_count, other_sub_samples_amount, samples_amount])
+            .set_global_work_sizes(&[self_count / samples_amount, other_sub_samples_amount, samples_amount])
             .enqueue_nd_range(queue)?
             .wait()?;
 
